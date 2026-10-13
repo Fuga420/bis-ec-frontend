@@ -284,6 +284,17 @@ export interface AdminProductListResponse {
   version?: string;
   count: number;
   products: AdminProduct[];
+  // ページ分割モード（GAS 商品一覧API v3）のレスポンス項目。
+  // 旧仕様（admin-product-list-v2）の応答では未設定。
+  page?: number;
+  page_size?: number;
+  total_pages?: number;
+  category?: string;
+  record_status?: string;
+  publish_status?: string;
+  inventory_status?: string;
+  search?: string;
+  sort?: string;
 }
 
 // 一括公開の結果ステータス（5種類を独立して扱う）

@@ -5,6 +5,7 @@ import ProductRow from "./components/ProductRow";
 import ProductFilterBar, {
   type ProductFilterValue,
 } from "./components/ProductFilterBar";
+import ProductPagination from "./components/ProductPagination";
 import ProductListSkeleton from "./components/ProductListSkeleton";
 import ProductEmptyState from "./components/ProductEmptyState";
 import ProductFilterEmptyState from "./components/ProductFilterEmptyState";
@@ -15,6 +16,7 @@ import BulkArchiveConfirmModal from "./components/BulkArchiveConfirmModal";
 import BulkArchiveResultModal from "./components/BulkArchiveResultModal";
 import { useAiBatchGeneration } from "./hooks/useAiBatchGeneration";
 import { useBulkArchive } from "./hooks/useBulkArchive";
+import { useProductList } from "./hooks/useProductList";
 import {
   AI_BATCH_STATUS_LABELS,
   deriveAiBatchDisplayStatus,
@@ -22,20 +24,16 @@ import {
 } from "./lib/aiBatch";
 import {
   PRODUCT_SORT_OPTIONS,
-  sortProducts,
   type ProductSortKey,
 } from "./lib/sort";
 import type {
   AdminProduct,
-  AdminProductListResponse,
   BulkPublishResultItem,
   BulkPublishStatus,
   PublishStatusUpdateResponse,
   SquarePaymentLinkResponse,
   SquareProductionProductResponse,
 } from "./types";
-
-type LoadState = "loading" | "success" | "error";
 
 // 既存GAS action をそのまま再利用（新しいactionは追加しない）
 async function callUpdatePublishStatus(
@@ -347,10 +345,22 @@ export default function ProductsPage() {
   const locationDeleteMessage = (location.state as { deleteMessage?: string } | null)
     ?.deleteMessage;
 
-  const [loadState, setLoadState] = useState<LoadState>("loading");
-  const [products, setProducts] = useState<AdminProduct[]>([]);
-  const [count, setCount] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
+
+  // 一覧はサーバー側（GAS 商品一覧API v3）で検索・絞り込み・並び替え・ページ分割する。
+  // ブラウザ側では取得済みの商品だけを再検索・再ソートしない。
+  const {
+    loadState,
+    products,
+    count,
+    totalPages,
+    filter,
+    setFilter,
+    sortKey,
+    setSortKey,
+    page,
+    setPage,
+  } = useProductList({ isArchived, reloadKey });
 
   // 一括選択・一括公開の状態
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -369,17 +379,6 @@ export default function ProductsPage() {
   const aiBatch = useAiBatchGeneration();
   const prevHadAiItems = useRef(false);
 
-  // カテゴリ・公開状態・在庫状態フィルター・検索（取得済みの商品全件を対象にクライアント側で絞り込む）
-  const [filter, setFilter] = useState<ProductFilterValue>({
-    search: "",
-    category: "",
-    publishStatus: "",
-    inventoryStatus: "",
-  });
-
-  // 並び替え（取得済みの商品をクライアント側で並べ替えるだけ。初期値は既存表示順）
-  const [sortKey, setSortKey] = useState<ProductSortKey>("default");
-
   // 一括アーカイブ（既存の単品APIを1件ずつ実行）
   const archive = useBulkArchive();
   const [isArchiveConfirmOpen, setIsArchiveConfirmOpen] = useState(false);
@@ -388,44 +387,49 @@ export default function ProductsPage() {
   const isAnyBulkBusy =
     isBulkProcessing || aiBatch.isBusy || archive.isRunning;
 
-  const filteredProducts = useMemo(() => {
-    const keyword = filter.search.trim().toLowerCase();
-    return products.filter((product) => {
-      // カテゴリ・公開状態・在庫状態は取得済みデータの生のステータス値でAND絞り込みする
-      if (filter.category && product.category !== filter.category) return false;
-      if (
-        filter.publishStatus &&
-        product.publish_status !== filter.publishStatus
-      ) {
-        return false;
-      }
-      if (
-        filter.inventoryStatus &&
-        product.inventory_status !== filter.inventoryStatus
-      ) {
-        return false;
-      }
-      if (!keyword) return true;
-      const haystack = [product.product_name, product.product_id, product.brand]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(keyword);
-    });
-  }, [products, filter]);
-
-  // 絞り込み後の一覧に並び替えを適用する（元の配列は変更しない）
-  const sortedProducts = useMemo(
-    () => sortProducts(filteredProducts, sortKey),
-    [filteredProducts, sortKey]
-  );
-
   // 検索・カテゴリ・公開状態・在庫状態のいずれかの絞り込みが適用されているか
+  // （絞り込みはGAS側で行われるが、表示メッセージの出し分けに使う）
   const hasFilter =
     filter.search.trim() !== "" ||
     filter.category !== "" ||
     filter.publishStatus !== "" ||
     filter.inventoryStatus !== "";
+
+  // 条件変更時は1ページ目に戻し、選択済みの商品を解除する
+  // （一括操作は表示中ページの商品だけを対象にする）。
+  const handleFilterChange = (next: ProductFilterValue) => {
+    setFilter(next);
+    setPage(1);
+    setSelectedIds(new Set());
+  };
+
+  const handleSortChange = (next: ProductSortKey) => {
+    setSortKey(next);
+    setPage(1);
+    setSelectedIds(new Set());
+  };
+
+  const handlePageChange = (next: number) => {
+    setPage(next);
+    setSelectedIds(new Set());
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleClearFilter = () => {
+    setFilter({
+      search: "",
+      category: "",
+      publishStatus: "",
+      inventoryStatus: "",
+    });
+    setPage(1);
+    setSelectedIds(new Set());
+  };
+
+  // タブ（通常／アーカイブ）を切り替えたら、前のタブの選択を持ち越さない
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [isArchived]);
 
   // バッチが開始（または再読込で復帰）したら結果モーダルを自動表示する
   useEffect(() => {
@@ -445,55 +449,17 @@ export default function ProductsPage() {
     prevAiTerminal.current = terminal;
   }, [aiBatch.batchStatus]);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoadState("loading");
-
-    const load = async () => {
-      try {
-        const url = isArchived
-          ? `${GOOGLE_SHEETS_WEBHOOK_URL}?mode=admin&record_status=archived`
-          : `${GOOGLE_SHEETS_WEBHOOK_URL}?mode=admin`;
-        const response = await fetch(url, {
-          method: "GET",
-        });
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        const data = (await response.json()) as AdminProductListResponse;
-        if (!data || data.success !== true) {
-          throw new Error("Invalid response");
-        }
-        if (cancelled) return;
-        setProducts(data.products ?? []);
-        setCount(data.count ?? (data.products?.length ?? 0));
-        setLoadState("success");
-      } catch {
-        if (!cancelled) {
-          setLoadState("error");
-        }
-      }
-    };
-
-    load();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [reloadKey, isArchived]);
-
-  // 全選択チェックボックスの indeterminate 表現（表示中の絞り込み結果を基準にする）
-  const filteredSelectedCount = useMemo(
-    () => filteredProducts.filter((p) => selectedIds.has(p.product_id)).length,
-    [filteredProducts, selectedIds]
+  // 全選択チェックボックスの indeterminate 表現（表示中のページの商品を基準にする）
+  const pageSelectedCount = useMemo(
+    () => products.filter((p) => selectedIds.has(p.product_id)).length,
+    [products, selectedIds]
   );
   useEffect(() => {
     const el = selectAllRef.current;
     if (!el) return;
     el.indeterminate =
-      filteredSelectedCount > 0 &&
-      filteredSelectedCount < filteredProducts.length;
-  }, [filteredSelectedCount, filteredProducts.length]);
+      pageSelectedCount > 0 && pageSelectedCount < products.length;
+  }, [pageSelectedCount, products.length]);
 
   const selectedProducts = useMemo(
     () => products.filter((product) => selectedIds.has(product.product_id)),
@@ -528,7 +494,7 @@ export default function ProductsPage() {
 
   const toggleSelectAll = () => {
     if (isAnyBulkBusy) return;
-    const ids = filteredProducts.map((product) => product.product_id);
+    const ids = products.map((product) => product.product_id);
     const allSelected =
       ids.length > 0 && ids.every((id) => selectedIds.has(id));
     setSelectedIds((prev) => {
@@ -682,11 +648,11 @@ export default function ProductsPage() {
 
         {loadState === "success" && (
           <>
-            {products.length > 0 && (
+            {(count > 0 || hasFilter) && (
               <>
                 <ProductFilterBar
                   value={filter}
-                  onChange={setFilter}
+                  onChange={handleFilterChange}
                   disabled={isAnyBulkBusy}
                 />
 
@@ -696,10 +662,6 @@ export default function ProductsPage() {
                     {hasFilter ? (
                       <>
                         該当{" "}
-                        <span className="font-bold text-foreground-950">
-                          {filteredProducts.length}
-                        </span>{" "}
-                        件 / 全{" "}
                         <span className="font-bold text-foreground-950">
                           {count}
                         </span>{" "}
@@ -713,6 +675,11 @@ export default function ProductsPage() {
                         </span>{" "}
                         件
                       </>
+                    )}
+                    {totalPages > 1 && (
+                      <span className="ml-1 text-foreground-400">
+                        （{page} / {totalPages} ページ）
+                      </span>
                     )}
                   </p>
                   <div className="flex items-center gap-2">
@@ -728,7 +695,7 @@ export default function ProductsPage() {
                       value={sortKey}
                       disabled={isAnyBulkBusy}
                       onChange={(e) =>
-                        setSortKey(e.target.value as ProductSortKey)
+                        handleSortChange(e.target.value as ProductSortKey)
                       }
                       aria-label="商品の並び替え"
                       className="h-9 w-full rounded-lg border border-background-300 bg-white px-3 text-xs text-foreground-900 transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
@@ -830,18 +797,11 @@ export default function ProductsPage() {
             )}
 
             {products.length === 0 ? (
-              <ProductEmptyState isArchived={isArchived} />
-            ) : filteredProducts.length === 0 ? (
-              <ProductFilterEmptyState
-                onClear={() =>
-                  setFilter({
-                    search: "",
-                    category: "",
-                    publishStatus: "",
-                    inventoryStatus: "",
-                  })
-                }
-              />
+              !hasFilter && count === 0 ? (
+                <ProductEmptyState isArchived={isArchived} />
+              ) : (
+                <ProductFilterEmptyState onClear={handleClearFilter} />
+              )
             ) : (
               <div className="overflow-hidden rounded-lg border border-background-200 bg-white">
                 {/* 横幅が不足する場合は重ねずに横スクロールで対応する */}
@@ -854,8 +814,8 @@ export default function ProductsPage() {
                           ref={selectAllRef}
                           type="checkbox"
                           checked={
-                            filteredProducts.length > 0 &&
-                            filteredSelectedCount === filteredProducts.length
+                            products.length > 0 &&
+                            pageSelectedCount === products.length
                           }
                           disabled={isAnyBulkBusy}
                           onChange={toggleSelectAll}
@@ -895,7 +855,7 @@ export default function ProductsPage() {
                       </div>
                     </div>
 
-                    {sortedProducts.map((product) => (
+                    {products.map((product) => (
                       <ProductRow
                         key={product.product_id}
                         product={product}
@@ -908,6 +868,14 @@ export default function ProductsPage() {
                 </div>
               </div>
             )}
+
+            <ProductPagination
+              page={page}
+              totalPages={totalPages}
+              count={count}
+              disabled={isAnyBulkBusy}
+              onPageChange={handlePageChange}
+            />
           </>
         )}
       </main>

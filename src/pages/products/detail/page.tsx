@@ -290,13 +290,20 @@ export default function ProductDetailPage() {
   }, [id]);
 
   // 詳細APIが取得できない商品のフォールバック。
-  // 一覧API（mode=admin）から同じ product_id を探し、取得できた情報だけを返す。
+  // 一覧API（mode=admin）のページ分割モード（v3）で、該当する商品IDをサーバー側検索する。
+  // 旧仕様の全件取得（?mode=admin）へは戻らない。
   const loadProductListFallback = useCallback(
     async (): Promise<AdminProductDetail | null> => {
       try {
-        const response = await fetch(`${GOOGLE_SHEETS_WEBHOOK_URL}?mode=admin`, {
-          method: "GET",
-        });
+        const params = new URLSearchParams();
+        params.set("mode", "admin");
+        params.set("page", "1");
+        params.set("page_size", "100");
+        params.set("search", id ?? "");
+        const response = await fetch(
+          `${GOOGLE_SHEETS_WEBHOOK_URL}?${params.toString()}`,
+          { method: "GET" }
+        );
         if (!response.ok) return null;
         const data = (await response.json()) as AdminProductListResponse;
         if (!data || data.success !== true || !Array.isArray(data.products)) {
