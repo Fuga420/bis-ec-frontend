@@ -10,10 +10,7 @@
 - クライアント（Readdy）が最大20件の商品IDを一括で受付リクエストします。
 - GASバックエンドは即座に `batch_id` を発行し、HTTPレスポンスを返します（非同期受付）。
 - ブラウザを閉じても、GASの時間主導型バックグラウンドワーカーが順次生成を継続します。
-- 生成結果は既存の `product_ai_drafts` シートに保存されます。
-  - v77以降（本番v79）のバッチワーカーは自動反映（`auto_apply`）を行い、本票・英文翻訳・ポケカ属性へ反映したうえで `review_status: "confirmed"`（`confirmed_by: "ai_batch_worker"`）として確定し、反映完了判定（`verifyProductDraftReflectionCompleted_`）を通過した場合のみ `completed` にします。
-  - スタッフ入力済みの価格・サイズは上書きしません。スタッフ編集が検知された場合は反映せず `SOURCE_MODIFIED_DURING_GENERATION` で失敗します。
-  - 公開・Square登録は行いません。公開時は従来どおり公開ゲート（`assertProductPublishable_`）で確定指紋・スニーカーサイズ等を検証します。
+- 生成結果は既存の `product_ai_drafts` シートに `review_status: "pending_review"` として保存されます（自動確定・公開・Square登録は行われません）。
 - クライアントは `batch_id` を用いて進捗・結果をポーリング取得します。
 - 一部商品が失敗した場合は、成功分を再生成することなく失敗分のみを再試行できます。
 
@@ -52,10 +49,8 @@
   ```
   - `request_id`: 必須（クライアントが生成するUUIDやユニーク文字列。冪等性キー）。
   - `product_ids`: 必須（配列。最大20件。重複IDはサーバー側で自動排除）。
-  - `force_regenerate`: 任意（boolean、デフォルト `false`。既に確定済みドラフトが存在する場合に再生成を許可するか）。`false` で確定済みドラフトがある商品は `CONFIRMED_DRAFT_EXISTS` で失敗します。
-  - `model_name`: 任意（モデル指定。省略時はシステムデフォルトの `gemini-3.5-flash-lite`）。英数字で始まり英数字・`.`・`_`・`-` のみ、64文字以内。
-  - `force_regenerate` / `model_name` は `ai_batch_jobs` シートの同名列（既存12列の後ろに追加）へ保存され、ワーカーが各商品の生成時に使用します。列が無い既存シートは初回アクセス時に末尾へ列を追加し、旧ジョブは既定値（`false` / 空=デフォルトモデル）で処理します。
-  - モデル指定時はフォールバックモデルへ自動切替しません（既存の単品生成と同じ挙動）。
+  - `force_regenerate`: 任意（boolean、デフォルト `false`。既に確定済みドラフトが存在する場合に再生成を許可するか）。
+  - `model_name`: 任意（モデル指定。省略時はシステムデフォルトの `gemini-3.5-flash-lite`）。
 
 - **Success Response (HTTP 200)**:
   ```json
@@ -165,46 +160,26 @@
   }
   ```
   - `batch_id`: 必須（再試行対象のバッチID）。
-  - `request_id`: 必須（再試行リクエストの冪等性キー。未指定は `REQUEST_ID_REQUIRED`）。
+  - `request_id`: 必須（再試行リクエストの冪等性キー）。
 
 - **Success Response (HTTP 200)**:
   ```json
   {
     "success": true,
     "batch_id": "BAT_20261005_123456_abc",
-    "request_id": "REQ_RETRY_20261005_001",
     "status": "queued",
     "total_count": 3,
     "retried_count": 1,
     "completed_count": 2,
     "failed_count": 0,
-    "is_reused": false,
     "updated_at": "2026-10-05T10:05:00.000Z"
   }
   ```
-  - 失敗商品は `pending` に戻り、`error_code` / `error_message` / `retry_count` / `next_retry_at` / ワーカー情報をクリアします。`draft_id`（候補との対応付け）は保持し、回収時の照合に使います。
-  - **冪等性**: 処理済みの `request_id` と応答は `ai_batch_jobs.retry_requests` 列（JSON、1バッチあたり直近50件）に記録されます。同一 `request_id` の再送（遅延再送を含む）は再試行を重複登録せず、初回応答に `is_reused: true` を付けて返します。新しい再試行には新しい `request_id` を使ってください。
-
-- **失敗商品が0件の場合 (HTTP 200)**:
-  ```json
-  {
-    "success": false,
-    "error_code": "NO_FAILED_ITEMS",
-    "message": "No failed items to retry in batch: BAT_20261005_123456_abc",
-    "batch_id": "BAT_20261005_123456_abc",
-    "request_id": "REQ_RETRY_20261005_002",
-    "status": "completed",
-    "retried_count": 0,
-    "is_reused": false
-  }
-  ```
-  バッチステータスは変更しません（実際の応答には `total_count` / `completed_count` / `failed_count` / `updated_at` も含みます）。この応答も `request_id` ごとに記録され、再送時は同一内容（`is_reused: true`）を返します。
+  ※ 失敗商品が0件の場合は `retried_count: 0` でバッチステータスは変化しません。
 
 - **主なエラー**:
-  - `BATCH_ID_REQUIRED`: `batch_id` が未指定。
-  - `REQUEST_ID_REQUIRED`: `request_id` が未指定または空文字。
   - `BATCH_NOT_FOUND`: 指定された `batch_id` が存在しない。
-  - `NO_FAILED_ITEMS`: 失敗した商品がなく、再試行不要（`success: false`）。
+  - `NO_FAILED_ITEMS`: 失敗した商品がなく、再試行不要。
 
 ---
 
@@ -222,9 +197,9 @@
 ### 3.2 商品別ステータス (`item.status`)
 | ステータス | 説明 |
 | :--- | :--- |
-| `pending` | ワーカーによる生成実行待ち（一時エラー後は `next_retry_at` 到達まで待機） |
+| `pending` | ワーカーによる生成実行待ち |
 | `processing` | 現在ワーカーが画像取得・LLM呼び出し・保存中 |
-| `completed` | 生成・自動反映・確定が完了し、反映完了判定を通過（`draft_id` はこのアイテムで生成・予約した候補） |
+| `completed` | 生成完了。`product_ai_drafts` に `pending_review` で保存済み |
 | `failed` | リトライ上限超過または恒久的エラーにより失敗 |
 
 ---
@@ -240,22 +215,15 @@
 3. **排他制御 (ScriptLock)**:
    - キューからのアイテム取得時および完了保存時の数ミリ秒〜数秒間のみ `ScriptLock` を使用。
    - Google Driveからの画像バイナリ取得およびGemini API通信中には **ScriptLockを保持しない**。
-4. **リースと実行ID保護（保存直前の所有権確認）**:
+4. **リースと実行ID保護**:
    - アイテム取得時に `worker_execution_id` と `lease_expires_at`（5分後）を記録。
    - 実行が異常中断（GASタイムアウト等）した場合でも、リース期限切れのアイテムは後続ワーカーが安全に回収・再実行。
-   - 候補保存・本票/英文/ポケカ反映の直前に、短い ScriptLock 内で「アイテムが `processing`・自分の `worker_execution_id`・リース有効」と「商品のAI生成実行ロックが自分のもの」を確認します。満たさない場合は `BATCH_ITEM_OWNERSHIP_LOST` 等で書込みを行いません。
-   - 所有権確認を通過した時点でアイテムの `draft_id` / `draft_version` / `model_name` を予約記録してから候補を保存します。
-   - 古いワーカーは、新しいワーカーの結果・状態（`status` / `worker_execution_id` / `draft_id` / `error_code` 等）を変更しません。
-5. **保存済み候補の自動回収（アイテム対応候補のみ）**:
-   - 回収対象は、アイテムに予約記録された `draft_id` と一致する最新候補のみです。「最新ドラフトが存在する」だけで過去の候補（単品生成分や別バッチ分）を流用しません。
-   - 予約 `draft_id` が最新候補と一致: 確定済みなら反映完了判定、未確定なら所有権・最新性・他生成中を確認したうえで反映・確定し、完了判定を通過すれば `completed`。
-   - 予約 `draft_id` の候補が既により新しい候補に置き換わっている: `AI_DRAFT_SUPERSEDED` で失敗（古い候補で上書きしない）。
-   - 予約のみで候補が未保存: 再生成します。
-6. **一時エラーのリトライ制御（構造化エラーコードで判定）**:
-   - 再試行対象は `LLM_HTTP_ERROR_429` / `500` / `502` / `503` / `504` と `LLM_COMMUNICATION_FAILED`（通信例外）のみ。メッセージ文字列では判定しません（`error_message` は安全な固定文言）。
-   - 最大3回まで再試行（初回を含め最大4回実行）。待機は `60秒 × 再試行回数`。上限到達後は `failed`、`next_retry_at` は空にします。
+   - 古いワーカーが遅れて完了しても、現在の実行IDと不一致の場合は結果の上書きを破棄（Fencing）。
+5. **保存済み候補の自動回収**:
+   - `product_ai_drafts` への保存後にワーカーが中断した場合、次回実行時に既存候補の有無を確認し、二重生成を回避してステータスを `completed` に復帰。
+6. **一時エラーのリトライ制御**:
+   - HTTP 429（Rate Limit）や 503（Overloaded）、一時通信エラー時は最大3回まで再試行。
    - ワーカー内で長時間スリープせず、`next_retry_at` に次回試行時刻を設定してトリガーを終了。次回ワーカーが期限到達後に処理。
-   - `LLM_HTTP_ERROR_400` / `403`、`STRUCTURED_PARSE_FAILED`、`GENERATION_ALREADY_IN_PROGRESS` 等は再試行せず `failed`（失敗分のみ再試行APIで再投入可能）。
 7. **独立障害耐性**:
    - 1件の商品が画像欠損やエラーで失敗しても、同一バッチ内の残りの商品の処理は停止せず継続。
 
@@ -291,4 +259,3 @@ Google Apps Script (GAS Web App)
    - `create_ai_product_draft_batch` 呼出し前にクライアント側で `request_id` をローカルDB/Storageへ保存し、通信切断時や再送時に同一 `request_id` を送信することで安全に冪等性を担保します。
 3. **ポーリング間隔**:
    - `get_ai_product_draft_batch` のポーリング間隔は 3秒〜5秒 を推奨します。ワーカーは1分間隔のトリガーまたは手動起動で順次処理を進めます。
-
