@@ -26,6 +26,7 @@
 - 商品登録・管理の共通画面は `/products`（商品一覧）。`/register`（登録）と `/import`（取込）はいずれもこの一覧へ戻って商品を確認・操作する。
 - [x] カテゴリフィルター＋キーワード検索（商品名・商品ID・ブランド）。一覧API（`GET ?mode=admin`）はページ分割なしで全件を一括返却するため、取得済み商品全件をクライアント側で絞り込む。サーバー絞り込みではないので「全商品検索」とは表示せず「該当 X / 全 Y 件」を併記する。
 - [x] 商品一覧（/products）を GAS 商品一覧API v3（サーバー側検索・絞り込み・並び替え・ページ分割）へ対応（PRODUCT_LIST_PAGINATION_API_CONTRACT.md 準拠）
+  - 稼働状況（訂正）: 商品一覧APIは GAS v90 で `admin-product-list-v3` の実通信を確認済み（サーバー側の検索・絞り込み・並び替え・ページ分割が有効）。
   - 一覧取得は通常 `mode=admin&page=1&page_size=50` のように `page` を送信してページ分割モードで取得する
   - 【暫定互換】GAS本番が未だ v2（`version:"admin-product-list-v2"`）の場合、v3向けパラメータを渡すと 0 件が返り商品が消えるため、応答に `total_pages` が無い（ページ分割非対応）かつ `products` が空のときだけ、旧形式（`?mode=admin` / `?mode=admin&record_status=archived`）で取り直して表示する。v3 が配信されると `total_pages` が返り、この分岐には入らず自動でページ分割モードになる（この暫定経路ではサーバー側の絞り込み・並び替え・ページ分割は v2 側に存在せず、v3 配信後に有効）
   - 検索語・カテゴリ・公開状態・在庫状態・台帳状態（通常/アーカイブ）・並び順をすべてGETパラメータでGASへ送り、ブラウザ側で取得済み商品だけを再検索・再ソートしない
@@ -91,7 +92,7 @@
   - 商品詳細・商品編集画面では管理APIレスポンスの `product.document` を用い、添付済みなら元ファイル名と「書類を開く」リンクを表示。未添付はその旨を表示。**公開ページには表示しない**
   - 書類（JPG/PNG含む）は商品画像のサムネイル・AI生成対象画像として扱わない。書類の金額を仕入原価へ反映しない。OCR・複数明細は対象外
   - [x] 商品詳細・編集画面（BIS）から、書類が未添付の既存商品に後から書類を1件だけ添付できる（同じ `attach_product_document` へ既存 product_id で別リクエスト送信）。送信項目は action / product_id / idempotency_key / document_type / file_name / mime_type / base64。失敗しても商品は再登録せず書類だけ再試行（同じファイルは同じ idempotency_key）。既に書類がある商品は添付欄を出さずリンクのみ表示（差し替えなし）
-  - GAS側の `attach_product_document` は本番未反映（フロント実装済み・実API/実画面確認は配信待ち）
+  - 稼働状況（訂正）: GAS側の `attach_product_document`（1商品1書類の添付）は GAS v88 で配信済み。フロント実装済み・実機確認はスタッフが実施
 - [x] ポケモンカードの状態 A/B/C（商品詳細・編集画面）
   - 商品詳細レスポンスの `product.pokemon_card.card_condition` を状態欄の値として表示。未鑑定は `"A"/"B"/"C"`、鑑定済みは空文字
   - 編集は既存の `update_product` に `pokemon_card.card_condition` を載せて保存（新規API・新規フィールドは追加しない）。保存後に再取得して同じ値を表示
@@ -160,3 +161,23 @@
 
 ### フェーズ5（将来）：他サイト連携・共通DB
 - 目標：Curry Kicks / ジュエリーサイトとの商品データ連携、共通商品DBの導入
+
+### フェーズ6：書類台帳（BIS）— DBマイグレーション適用済み（2ビューはアプリ層集計で代替）
+- 背景：書類原本は Drive に保管し、構造化データ（明細・紐付け・照合状態）は PostgreSQL の書類台帳で管理する。
+- 方針（会長決定）：外部Supabaseへの切替は行わず、現行 Readdy Backend の PostgreSQL 内に独立した書類台帳を新設する（Notion の「新設Supabase」は MVP ではこの意味に読み替える）。Connects の切替・切断、外向きDB通信の検証は行わない。
+- 認証：現行水準を維持（新規スタッフログイン・権限管理は追加しない。既存の functions.invoke / JWT検証 / CORS を流用。service_role・GAS管理秘密鍵はブラウザに置かない）。
+- 今回の位置づけ：GAS 独立書類アップロードAPI（本番 Web App v91）配信済みを受け、Readdy Backend 内に独立した書類台帳を新設する。中継 `documents-relay` を `verify_jwt:true` で配信済み。DBマイグレーション `20261013_independent_documents_ledger.sql` を適用し、テーブル `documents` / `document_lines` / `document_product_links` を作成済み。ただし現行 Readdy Backend の SQL エディタは `CREATE VIEW` 非対応（公式制約）のため、ビュー `v_document_audit_summary` / `v_product_cost_breakdown` は作成できず、中継側のアプリ層集計（`computeAuditSummary` / `computeProductCostBreakdown`）で代替する。RLS は service_role のみに限定（anon/authenticated は全拒否）。外部APIの8 Action・レスポンス項目は不変。
+- 画面構成（実装済み・表示のみ）
+  - `/documents` 書類一覧（ファイル名・書類ID検索、照合状態の絞り込み）
+  - 書類アップロード欄（PDF / JPG / PNG・1回1ファイル。既存の `validateDocumentFile` を再利用）
+  - `/documents/:id` 書類詳細
+  - 手動明細行の追加・修正
+  - 商品ID検索と手動紐付け（既存の商品一覧APIを再利用。新しいAPIは追加しない）
+  - 原本合計・明細合計・差額の表示
+  - Drive原本を開くリンク
+  - 未照合・一部照合・照合済みの状態表示
+- API接続箇所：`src/pages/documents/lib/documentLedgerApi.ts` に集約し、`documents-relay` の8 Action（`import_document` / `list_documents` / `get_document` / `save_document_lines` / `delete_document_line` / `link_product_manual` / `unlink_product_manual` / `get_product_cost`）へ接続済み。`link_product_manual` は明細金額・割当金額の両方が未入力の場合 `ALLOCATED_AMOUNT_REQUIRED` を受け取り「割当金額を入力してください」と表示する。金額未入力は `null`、明示的な0円のみ `0` を送信する。
+- フロント接続：一覧 `list_documents` / 詳細 `get_document` / アップロード `import_document`（仕入先名必須） / 明細保存 `save_document_lines` / 明細削除 `delete_document_line` / 紐付け `link_product_manual` / 解除 `unlink_product_manual`。商品ID検索は既存の商品一覧APIを再利用。
+- 対象外（今回実装しない）：OCR、受付番号の自動照合、自動按分、利益計算、スタッフ認証、既存商品データの移行。
+- 独立書類取込API：中継 `documents-relay` を配信済み（`verify_jwt:true`、`GAS_WEBHOOK_URL` / `GAS_ADMIN_SECRET` を既存中継と共用）。`list_documents` は DB 層で 0 件応答を確認済み。HTTP 実通信の最終確認はプレビューで実施（実機未確認）。
+- 表示確認データ：テスト書類1件（オークネット / 原本363,000 / 明細3行 / 差額0 / 確定紐付け1件）を登録。実取込ではなく表示確認用（論理削除で一覧から除外可能）。

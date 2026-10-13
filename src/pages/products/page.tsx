@@ -600,6 +600,13 @@ export default function ProductsPage() {
               画像だけ取込
             </Link>
             <Link
+              to="/documents"
+              className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-background-300 bg-white px-4 py-2 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100"
+            >
+              <i className="ri-file-list-3-line w-4 h-4 flex items-center justify-center"></i>
+              書類管理
+            </Link>
+            <Link
               to="/register"
               className="flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-600"
             >
