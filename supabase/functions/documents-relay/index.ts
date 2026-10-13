@@ -945,10 +945,34 @@ serve(async (req: Request): Promise<Response> => {
         ? rawLinkType
         : "primary_cost";
 
-      const allocatedAmount =
-        body.allocated_amount !== undefined && body.allocated_amount !== null && body.allocated_amount !== ""
-          ? Number(body.allocated_amount)
-          : (line.total_line_amount !== null ? Number(line.total_line_amount) : 0);
+      // 割当金額の決定ロジック
+      // 1. allocated_amount がリクエストで明示されている場合はその値を使用する (0も有効)
+      // 2. allocated_amount が未入力の場合は明細の total_line_amount を使用する
+      // 3. 両方とも未入力またはNULLの場合は HTTP 400 ALLOCATED_AMOUNT_REQUIRED
+      // 4. 有限な数値でない場合は HTTP 400 INVALID_ALLOCATED_AMOUNT
+      let rawAllocated: unknown;
+      if (body.allocated_amount !== undefined && body.allocated_amount !== null && body.allocated_amount !== "") {
+        rawAllocated = body.allocated_amount;
+      } else if (line.total_line_amount !== null && line.total_line_amount !== undefined && line.total_line_amount !== "") {
+        rawAllocated = line.total_line_amount;
+      } else {
+        return errorResponse(
+          "ALLOCATED_AMOUNT_REQUIRED",
+          "明細の合計金額が未設定のため、割当金額 (allocated_amount) の指定が必要です。",
+          400,
+          cors
+        );
+      }
+
+      const allocatedAmount = Number(rawAllocated);
+      if (!Number.isFinite(allocatedAmount)) {
+        return errorResponse(
+          "INVALID_ALLOCATED_AMOUNT",
+          "割当金額 (allocated_amount) は有効な数値である必要があります。",
+          400,
+          cors
+        );
+      }
 
       const confirmedBy = asString(body.confirmed_by) || null;
       const notes = asString(body.notes ?? body.note) || null;
