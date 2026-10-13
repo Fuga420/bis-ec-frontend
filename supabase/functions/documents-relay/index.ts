@@ -711,7 +711,11 @@ serve(async (req: Request): Promise<Response> => {
             ? Number(item.other_expense_tax_amount)
             : null;
 
-        const totalLineAmount = Number(item.total_line_amount) || 0;
+        const totalLineAmountRaw = item.total_line_amount;
+        const totalLineAmount =
+          totalLineAmountRaw !== undefined && totalLineAmountRaw !== null && totalLineAmountRaw !== ""
+            ? Number(totalLineAmountRaw)
+            : null;
         const isCanceled = Boolean(item.is_canceled);
         const cancelReason = asString(item.cancel_reason) || null;
         const notes = asString(item.notes ?? item.note) || null;
@@ -758,43 +762,95 @@ serve(async (req: Request): Promise<Response> => {
             return errorResponse("LINE_UPDATE_ERROR", updErr.message, 500, cors);
           }
         } else {
-          // 新規挿入
-          const insertRecord = {
-            document_id: documentId,
-            page_number: pageNumber,
-            line_number: lineNumber,
-            reception_number_raw: receptionRaw,
-            reception_number_normalized: receptionNorm,
-            lot_number: lotNumber,
-            branch_number: branchNumber,
-            auction_bid_number: auctionBidNumber,
-            item_name_raw: itemNameRaw,
-            brand_name_raw: brandNameRaw,
-            category_hint: categoryHint,
-            item_rank_raw: itemRankRaw,
-            accessory_raw: accessoryRaw,
-            transaction_type: transactionType,
-            item_amount: itemAmount,
-            tax_amount: taxAmount,
-            fee_rate: feeRate,
-            fee_amount: feeAmount,
-            fee_tax_amount: feeTaxAmount,
-            other_expense_amount: otherExpenseAmount,
-            other_expense_tax_amount: otherExpenseTaxAmount,
-            total_line_amount: totalLineAmount,
-            is_canceled: isCanceled,
-            cancel_reason: cancelReason,
-            match_status: "unlinked",
-            is_active: true,
-            notes: notes,
-          };
-
-          const { error: insErr } = await supabase
+          // 新規または同一 (document_id, page_number, line_number) の削除済み行の再利用
+          const { data: existingLine } = await supabase
             .from("document_lines")
-            .insert(insertRecord);
+            .select("id, is_deleted")
+            .eq("document_id", documentId)
+            .eq("page_number", pageNumber)
+            .eq("line_number", lineNumber)
+            .maybeSingle();
 
-          if (insErr) {
-            return errorResponse("LINE_INSERT_ERROR", insErr.message, 500, cors);
+          if (existingLine) {
+            // 既存行（論理削除含む）が存在する場合は再活性化・上書き更新
+            const updateRecord: Record<string, unknown> = {
+              reception_number_raw: receptionRaw,
+              reception_number_normalized: receptionNorm,
+              lot_number: lotNumber,
+              branch_number: branchNumber,
+              auction_bid_number: auctionBidNumber,
+              item_name_raw: itemNameRaw,
+              brand_name_raw: brandNameRaw,
+              category_hint: categoryHint,
+              item_rank_raw: itemRankRaw,
+              accessory_raw: accessoryRaw,
+              transaction_type: transactionType,
+              item_amount: itemAmount,
+              tax_amount: taxAmount,
+              fee_rate: feeRate,
+              fee_amount: feeAmount,
+              fee_tax_amount: feeTaxAmount,
+              other_expense_amount: otherExpenseAmount,
+              other_expense_tax_amount: otherExpenseTaxAmount,
+              total_line_amount: totalLineAmount,
+              is_canceled: isCanceled,
+              cancel_reason: cancelReason,
+              match_status: "unlinked",
+              is_active: true,
+              is_deleted: false,
+              deleted_at: null,
+              deleted_by: null,
+              notes: notes,
+              updated_at: new Date().toISOString(),
+            };
+
+            const { error: updErr } = await supabase
+              .from("document_lines")
+              .update(updateRecord)
+              .eq("id", existingLine.id);
+
+            if (updErr) {
+              return errorResponse("LINE_UPDATE_ERROR", updErr.message, 500, cors);
+            }
+          } else {
+            // 新規挿入
+            const insertRecord = {
+              document_id: documentId,
+              page_number: pageNumber,
+              line_number: lineNumber,
+              reception_number_raw: receptionRaw,
+              reception_number_normalized: receptionNorm,
+              lot_number: lotNumber,
+              branch_number: branchNumber,
+              auction_bid_number: auctionBidNumber,
+              item_name_raw: itemNameRaw,
+              brand_name_raw: brandNameRaw,
+              category_hint: categoryHint,
+              item_rank_raw: itemRankRaw,
+              accessory_raw: accessoryRaw,
+              transaction_type: transactionType,
+              item_amount: itemAmount,
+              tax_amount: taxAmount,
+              fee_rate: feeRate,
+              fee_amount: feeAmount,
+              fee_tax_amount: feeTaxAmount,
+              other_expense_amount: otherExpenseAmount,
+              other_expense_tax_amount: otherExpenseTaxAmount,
+              total_line_amount: totalLineAmount,
+              is_canceled: isCanceled,
+              cancel_reason: cancelReason,
+              match_status: "unlinked",
+              is_active: true,
+              notes: notes,
+            };
+
+            const { error: insErr } = await supabase
+              .from("document_lines")
+              .insert(insertRecord);
+
+            if (insErr) {
+              return errorResponse("LINE_INSERT_ERROR", insErr.message, 500, cors);
+            }
           }
         }
       }
@@ -844,7 +900,7 @@ serve(async (req: Request): Promise<Response> => {
       // リンクも論理削除
       await supabase
         .from("document_product_links")
-        .update({ is_deleted: true, deleted_at: now, deleted_by: deletedBy })
+        .update({ is_deleted: true, deleted_at: now, deleted_by: deletedBy, status: "unlinked" })
         .eq("document_line_id", lineId);
 
       // 行を論理削除
@@ -859,7 +915,7 @@ serve(async (req: Request): Promise<Response> => {
     }
 
     // ----------------------------------------------------
-    // 6. link_product_manual: 商品IDを指定して手動紐付け
+    // 6. link_product_manual: 商品IDを指定して手動紐付け (再紐付け対応)
     // ----------------------------------------------------
     if (action === ACTIONS.link_product_manual) {
       const lineId = asString(body.document_line_id);
@@ -892,33 +948,71 @@ serve(async (req: Request): Promise<Response> => {
       const allocatedAmount =
         body.allocated_amount !== undefined && body.allocated_amount !== null && body.allocated_amount !== ""
           ? Number(body.allocated_amount)
-          : Number(line.total_line_amount);
+          : (line.total_line_amount !== null ? Number(line.total_line_amount) : 0);
 
       const confirmedBy = asString(body.confirmed_by) || null;
       const notes = asString(body.notes ?? body.note) || null;
       const confirmedAt = new Date().toISOString();
 
-      // リンク作成 (SQL列: document_line_id, product_id, link_type, allocated_amount, allocation_method, match_method, confidence_score, status, confirmed_by, confirmed_at, notes)
-      const { data: link, error: linkErr } = await supabase
+      // 既存リンク確認 (同一キーの論理削除済みレコードがあれば再利用・復元)
+      const { data: existingLink } = await supabase
         .from("document_product_links")
-        .insert({
-          document_line_id: lineId,
-          product_id: productId,
-          link_type: linkType,
-          allocated_amount: allocatedAmount,
-          allocation_method: asString(body.allocation_method) || "direct",
-          match_method: "manual",
-          confidence_score: 1.00,
-          status: "confirmed",
-          confirmed_by: confirmedBy,
-          confirmed_at: confirmedAt,
-          notes: notes,
-        })
-        .select()
-        .single();
+        .select("*")
+        .eq("document_line_id", lineId)
+        .eq("product_id", productId)
+        .eq("link_type", linkType)
+        .maybeSingle();
 
-      if (linkErr) {
-        return errorResponse("LINK_CREATE_ERROR", linkErr.message, 500, cors);
+      let linkRecord: Record<string, unknown> | null = null;
+
+      if (existingLink) {
+        const { data: updatedLink, error: updLinkErr } = await supabase
+          .from("document_product_links")
+          .update({
+            allocated_amount: allocatedAmount,
+            allocation_method: asString(body.allocation_method) || "direct",
+            match_method: "manual",
+            confidence_score: 1.00,
+            status: "confirmed",
+            confirmed_by: confirmedBy,
+            confirmed_at: confirmedAt,
+            notes: notes,
+            is_deleted: false,
+            deleted_at: null,
+            deleted_by: null,
+            updated_at: confirmedAt,
+          })
+          .eq("id", existingLink.id)
+          .select()
+          .single();
+
+        if (updLinkErr) {
+          return errorResponse("LINK_UPDATE_ERROR", updLinkErr.message, 500, cors);
+        }
+        linkRecord = updatedLink;
+      } else {
+        const { data: insertedLink, error: linkErr } = await supabase
+          .from("document_product_links")
+          .insert({
+            document_line_id: lineId,
+            product_id: productId,
+            link_type: linkType,
+            allocated_amount: allocatedAmount,
+            allocation_method: asString(body.allocation_method) || "direct",
+            match_method: "manual",
+            confidence_score: 1.00,
+            status: "confirmed",
+            confirmed_by: confirmedBy,
+            confirmed_at: confirmedAt,
+            notes: notes,
+          })
+          .select()
+          .single();
+
+        if (linkErr) {
+          return errorResponse("LINK_CREATE_ERROR", linkErr.message, 500, cors);
+        }
+        linkRecord = insertedLink;
       }
 
       // 行のマッチ状態を 'confirmed' に更新 (v_document_audit_summary の confirmed_lines_count 集計対象)
@@ -947,7 +1041,7 @@ serve(async (req: Request): Promise<Response> => {
       return jsonResponse(
         {
           success: true,
-          link,
+          link: linkRecord,
           audit: formatAuditSummary(audit),
           product_cost: productCost || null,
         },
