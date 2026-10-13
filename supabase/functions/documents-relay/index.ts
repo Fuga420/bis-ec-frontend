@@ -9,7 +9,7 @@
 // ・ブラウザには service_role も GAS 管理者キーも露出させない。
 // ・ブラウザは標準の Supabase クライアント (anon key + JWT) で本 Edge Function を呼び出す。
 // ・confirmed_by は監査記録用の入力値として扱い、本人認証とは表現しない。
-// ・同一再送（idempotency_key）および同一ファイル（SHA-256 fingerprint）の重複防止を徹底。
+// ・同一再送（idempotency_key）および同一ファイル（SHA-256指紋）をDB照合で先行検知し、Drive二重作成を完全抑止。
 //
 // 環境変数:
 //   SUPABASE_URL                   : Supabase プロジェクト URL
@@ -32,8 +32,6 @@ const ACTIONS = {
   get_product_cost: "get_product_cost",
 } as const;
 
-type ActionType = (typeof ACTIONS)[keyof typeof ACTIONS];
-
 const KNOWN_ACTIONS: string[] = Object.values(ACTIONS);
 
 const ALLOWED_MIME_TYPES = [
@@ -41,6 +39,15 @@ const ALLOWED_MIME_TYPES = [
   "image/jpeg",
   "image/png",
 ];
+
+const VALID_LINK_TYPES = [
+  "primary_cost",
+  "commission",
+  "shipping_cost",
+  "other_expense",
+  "refund",
+  "sale_settlement",
+] as const;
 
 // ---------- CORS ----------
 
@@ -119,6 +126,14 @@ function parseGasResponse(text: string): Record<string, unknown> {
   }
 }
 
+// SHA-256 指紋算出（Driveアップロード前の重複事前検知用）
+async function computeSha256(str: string): Promise<string> {
+  const data = new TextEncoder().encode(str);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 // ---------- Supabase Admin Client ----------
 
 function getSupabaseAdmin() {
@@ -159,6 +174,19 @@ async function forwardUploadToGas(
   return { status: res.status, data: parseGasResponse(text) };
 }
 
+// ---------- Audit Helper ----------
+
+function formatAuditSummary(audit: Record<string, unknown> | null) {
+  if (!audit) return null;
+  const discrepancy = audit.discrepancy_amount !== null && audit.discrepancy_amount !== undefined
+    ? Number(audit.discrepancy_amount)
+    : null;
+  return {
+    ...audit,
+    is_balanced: discrepancy !== null && discrepancy === 0,
+  };
+}
+
 // ---------- Document Status Recalculation ----------
 
 async function refreshDocumentStatus(
@@ -172,26 +200,38 @@ async function refreshDocumentStatus(
     .eq("document_id", documentId)
     .single();
 
-  let newStatus = "imported";
+  let newStatus = "pending";
   if (audit) {
-    const totalLines = (audit.matched_lines_count || 0) + (audit.unmatched_lines_count || 0);
-    if (totalLines > 0) {
-      if (audit.unmatched_lines_count === 0 && audit.is_balanced) {
+    const activeCount = Number(audit.active_lines_count) || 0;
+    const confirmedCount = Number(audit.confirmed_lines_count) || 0;
+    const unlinkedCount = Number(audit.unlinked_lines_count) || 0;
+    const hasDiscrepancy = audit.discrepancy_amount !== null && Number(audit.discrepancy_amount) !== 0;
+
+    if (activeCount === 0) {
+      newStatus = audit.declared_total_amount === null ? "pending_amount" : "pending";
+    } else {
+      if (unlinkedCount === 0 && confirmedCount > 0 && !hasDiscrepancy) {
         newStatus = "fully_matched";
-      } else if (audit.matched_lines_count > 0) {
+      } else if (confirmedCount > 0) {
         newStatus = "partially_matched";
-      } else if (audit.is_balanced === false && audit.original_total_amount !== null) {
-        newStatus = "discrepant";
+      } else if (hasDiscrepancy) {
+        newStatus = "flagged";
       } else {
-        newStatus = "imported";
+        newStatus = "lines_registered";
       }
     }
-  }
 
-  await supabase
-    .from("documents")
-    .update({ status: newStatus, updated_at: new Date().toISOString() })
-    .eq("id", documentId);
+    await supabase
+      .from("documents")
+      .update({
+        status: newStatus,
+        extracted_line_count: activeCount,
+        extracted_total_amount: audit.extracted_total_amount,
+        discrepancy_amount: audit.discrepancy_amount,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", documentId);
+  }
 
   return newStatus;
 }
@@ -263,6 +303,11 @@ serve(async (req: Request): Promise<Response> => {
         return errorResponse("IDEMPOTENCY_KEY_REQUIRED", "idempotency_key は必須です。", 400, cors);
       }
 
+      const supplierName = asString(body.supplier_name);
+      if (!supplierName) {
+        return errorResponse("SUPPLIER_NAME_REQUIRED", "supplier_name は必須です。", 400, cors);
+      }
+
       const fileName = asString(body.file_name);
       if (!fileName) {
         return errorResponse("FILE_NAME_REQUIRED", "file_name は必須です。", 400, cors);
@@ -283,7 +328,7 @@ serve(async (req: Request): Promise<Response> => {
         return errorResponse("BASE64_REQUIRED", "base64 データが空です。", 400, cors);
       }
 
-      // 1-1. 同一再送チェック (idempotency_key)
+      // 1-1. 同一再送チェック (idempotency_key) - GAS呼出し前にDB照合で遮断
       const { data: existingByKey, error: errKey } = await supabase
         .from("documents")
         .select("*")
@@ -296,7 +341,6 @@ serve(async (req: Request): Promise<Response> => {
       }
 
       if (existingByKey) {
-        // 既存の監査ビューも取得
         const { data: audit } = await supabase
           .from("v_document_audit_summary")
           .select("*")
@@ -308,14 +352,37 @@ serve(async (req: Request): Promise<Response> => {
             success: true,
             is_reused: true,
             document: existingByKey,
-            audit: audit || null,
+            audit: formatAuditSummary(audit),
           },
           200,
           cors
         );
       }
 
-      // 1-2. GASへ原本保存 (独立Driveフォルダへアップロード)
+      // 1-2. 同一ファイル指紋チェック (file_fingerprint) - Drive保存前に先行照合
+      const precalculatedHash = await computeSha256(base64);
+      const { data: existingByHash, error: errHash } = await supabase
+        .from("documents")
+        .select("*")
+        .eq("file_fingerprint", precalculatedHash)
+        .eq("is_deleted", false)
+        .maybeSingle();
+
+      if (errHash) {
+        return errorResponse("DB_QUERY_ERROR", errHash.message, 500, cors);
+      }
+
+      if (existingByHash) {
+        return errorResponse(
+          "DUPLICATE_FILE_FINGERPRINT",
+          "同一内容のファイルが既に登録されています。",
+          409,
+          cors,
+          { existing_document_id: existingByHash.id }
+        );
+      }
+
+      // 1-3. GASへ原本保存 (独立Driveフォルダへアップロード)
       const documentType = asString(body.document_type) || "invoice";
       const gasPayload = {
         idempotency_key: idempotencyKey,
@@ -341,60 +408,49 @@ serve(async (req: Request): Promise<Response> => {
         );
       }
 
-      const fileFingerprint = asString(gasRes.file_fingerprint);
+      const fileFingerprint = asString(gasRes.file_fingerprint) || precalculatedHash;
       const driveFileId = asString(gasRes.file_id);
-      const driveFileUrl = asString(gasRes.file_url);
+      const driveFileUrl = asString(gasRes.drive_file_url || gasRes.file_url || gasRes.view_url) || null;
+      const driveFolderId = asString(gasRes.folder_id) || null;
       const fileSize = Number(gasRes.file_size) || 0;
 
-      // 1-3. 同一ファイル重複チェック (file_fingerprint)
-      const { data: existingByHash, error: errHash } = await supabase
-        .from("documents")
-        .select("*")
-        .eq("file_fingerprint", fileFingerprint)
-        .eq("is_deleted", false)
-        .maybeSingle();
-
-      if (errHash) {
-        return errorResponse("DB_QUERY_ERROR", errHash.message, 500, cors);
-      }
-
-      if (existingByHash) {
-        return errorResponse(
-          "DUPLICATE_FILE_FINGERPRINT",
-          "同一内容のファイルが既に登録されています。",
-          409,
-          cors,
-          { existing_document_id: existingByHash.id }
-        );
-      }
-
-      // 1-4. documents テーブルへ登録
+      // 1-4. documents テーブルへ登録 (SQL定義列に完全準拠)
       const totalAmountRaw = body.total_amount;
       const totalAmount =
         totalAmountRaw !== undefined && totalAmountRaw !== null && totalAmountRaw !== ""
           ? Number(totalAmountRaw)
           : null;
 
-      const receptionRaw = asString(body.reception_number_raw) || null;
-      const receptionNorm = receptionRaw ? receptionRaw.toUpperCase().replace(/\s+/g, "") : null;
+      const taxAmountRaw = body.tax_amount;
+      const taxAmount =
+        taxAmountRaw !== undefined && taxAmountRaw !== null && taxAmountRaw !== ""
+          ? Number(taxAmountRaw)
+          : null;
+
+      const initialStatus = totalAmount === null ? "pending_amount" : "pending";
 
       const insertRecord = {
         idempotency_key: idempotencyKey,
+        document_number: asString(body.document_number) || null,
+        invoice_registration_number: asString(body.invoice_registration_number) || null,
         document_type: documentType,
+        supplier_name: supplierName,
+        supplier_code: asString(body.supplier_code) || null,
+        issue_date: asString(body.issue_date) || null,
+        due_date: asString(body.due_date) || null,
+        currency: asString(body.currency) || "JPY",
+        total_amount: totalAmount,
+        tax_amount: taxAmount,
         file_name: asString(gasRes.file_name) || fileName,
         mime_type: asString(gasRes.mime_type) || mimeType,
         file_size: fileSize,
         file_fingerprint: fileFingerprint,
         drive_file_id: driveFileId,
+        drive_folder_id: driveFolderId,
         drive_file_url: driveFileUrl,
-        supplier_name: asString(body.supplier_name) || null,
-        issue_date: asString(body.issue_date) || null,
-        total_amount: totalAmount,
-        currency: asString(body.currency) || "JPY",
-        reception_number_raw: receptionRaw,
-        reception_number_norm: receptionNorm,
-        note: asString(body.note) || null,
-        status: "imported",
+        notes: asString(body.notes ?? body.note) || null,
+        status: initialStatus,
+        created_by: asString(body.confirmed_by) || "system",
       };
 
       const { data: newDoc, error: insertErr } = await supabase
@@ -417,9 +473,9 @@ serve(async (req: Request): Promise<Response> => {
       return jsonResponse(
         {
           success: true,
-          is_reused: false,
+          is_reused: Boolean(gasRes.is_reused),
           document: newDoc,
-          audit: audit || null,
+          audit: formatAuditSummary(audit),
         },
         201,
         cors
@@ -435,7 +491,6 @@ serve(async (req: Request): Promise<Response> => {
       const pageSize = Math.min(100, Math.max(1, pageSizeRaw));
       const statusFilter = asString(body.status ?? reqUrl.searchParams.get("status"));
       const supplierFilter = asString(body.supplier_name ?? reqUrl.searchParams.get("supplier_name"));
-      const receptionFilter = asString(body.reception_number ?? reqUrl.searchParams.get("reception_number"));
 
       let query = supabase
         .from("documents")
@@ -448,11 +503,6 @@ serve(async (req: Request): Promise<Response> => {
 
       if (supplierFilter) {
         query = query.ilike("supplier_name", `%${supplierFilter}%`);
-      }
-
-      if (receptionFilter) {
-        const norm = receptionFilter.toUpperCase().replace(/\s+/g, "");
-        query = query.or(`reception_number_raw.ilike.%${receptionFilter}%,reception_number_norm.ilike.%${norm}%`);
       }
 
       const offset = (page - 1) * pageSize;
@@ -478,7 +528,7 @@ serve(async (req: Request): Promise<Response> => {
           .in("document_id", docIds);
 
         if (audits) {
-          auditsMap = Object.fromEntries(audits.map((a) => [a.document_id, a]));
+          auditsMap = Object.fromEntries(audits.map((a) => [a.document_id, formatAuditSummary(a)]));
         }
       }
 
@@ -525,14 +575,14 @@ serve(async (req: Request): Promise<Response> => {
         return errorResponse("DOCUMENT_NOT_FOUND", "指定された書類が見つかりません。", 404, cors);
       }
 
-      // 監査サマリー
+      // 監査サマリー (ビュー実列名準拠)
       const { data: audit } = await supabase
         .from("v_document_audit_summary")
         .select("*")
         .eq("document_id", documentId)
         .maybeSingle();
 
-      // 明細行
+      // 明細行 (SQL実列名準拠)
       const { data: lines, error: lineErr } = await supabase
         .from("document_lines")
         .select("*")
@@ -576,7 +626,7 @@ serve(async (req: Request): Promise<Response> => {
         {
           success: true,
           document: doc,
-          audit: audit || null,
+          audit: formatAuditSummary(audit),
           lines: linesWithLinks,
         },
         200,
@@ -609,48 +659,98 @@ serve(async (req: Request): Promise<Response> => {
         return errorResponse("DOCUMENT_NOT_FOUND", "指定された書類が見つかりません。", 404, cors);
       }
 
-      const confirmedBy = asString(body.confirmed_by) || null;
-
       for (let i = 0; i < rawLines.length; i++) {
         const item = rawLines[i] as Record<string, unknown>;
         const lineId = asString(item.id);
         const lineNumber = Number(item.line_number) || i + 1;
+        const pageNumber = Number(item.page_number) || 1;
         const receptionRaw = asString(item.reception_number_raw) || null;
-        const receptionNorm = receptionRaw ? receptionRaw.toUpperCase().replace(/\s+/g, "") : null;
-        const lineType = asString(item.line_type) || "purchase";
-        const description = asString(item.description) || null;
+        const receptionNorm = asString(item.reception_number_normalized) ||
+          (receptionRaw ? receptionRaw.toUpperCase().replace(/\s+/g, "") : null);
+        
+        const itemNameRaw = asString(item.item_name_raw ?? item.description);
+        if (!itemNameRaw && !lineId) {
+          return errorResponse("ITEM_NAME_REQUIRED", `明細行 ${lineNumber} の item_name_raw は必須です。`, 400, cors);
+        }
+
+        const transactionType = asString(item.transaction_type ?? item.line_type) || "purchase";
+        const lotNumber = asString(item.lot_number) || null;
+        const branchNumber = asString(item.branch_number) || null;
+        const auctionBidNumber = asString(item.auction_bid_number) || null;
+        const brandNameRaw = asString(item.brand_name_raw) || null;
+        const categoryHint = asString(item.category_hint) || null;
+        const itemRankRaw = asString(item.item_rank_raw) || null;
+        const accessoryRaw = asString(item.accessory_raw) || null;
+
         const itemAmount =
           item.item_amount !== undefined && item.item_amount !== null && item.item_amount !== ""
             ? Number(item.item_amount)
-            : null;
-        const feeAmount =
-          item.fee_amount !== undefined && item.fee_amount !== null && item.fee_amount !== ""
-            ? Number(item.fee_amount)
             : null;
         const taxAmount =
           item.tax_amount !== undefined && item.tax_amount !== null && item.tax_amount !== ""
             ? Number(item.tax_amount)
             : null;
+        const feeRate =
+          item.fee_rate !== undefined && item.fee_rate !== null && item.fee_rate !== ""
+            ? Number(item.fee_rate)
+            : null;
+        const feeAmount =
+          item.fee_amount !== undefined && item.fee_amount !== null && item.fee_amount !== ""
+            ? Number(item.fee_amount)
+            : null;
+        const feeTaxAmount =
+          item.fee_tax_amount !== undefined && item.fee_tax_amount !== null && item.fee_tax_amount !== ""
+            ? Number(item.fee_tax_amount)
+            : null;
+        const otherExpenseAmount =
+          item.other_expense_amount !== undefined && item.other_expense_amount !== null && item.other_expense_amount !== ""
+            ? Number(item.other_expense_amount)
+            : null;
+        const otherExpenseTaxAmount =
+          item.other_expense_tax_amount !== undefined && item.other_expense_tax_amount !== null && item.other_expense_tax_amount !== ""
+            ? Number(item.other_expense_tax_amount)
+            : null;
+
         const totalLineAmount = Number(item.total_line_amount) || 0;
-        const lineStatus = asString(item.line_status) || "normal";
+        const isCanceled = Boolean(item.is_canceled);
+        const cancelReason = asString(item.cancel_reason) || null;
+        const notes = asString(item.notes ?? item.note) || null;
 
         if (lineId) {
-          // 更新
+          // 直接更新
+          const updateRecord: Record<string, unknown> = {
+            page_number: pageNumber,
+            line_number: lineNumber,
+            reception_number_raw: receptionRaw,
+            reception_number_normalized: receptionNorm,
+            lot_number: lotNumber,
+            branch_number: branchNumber,
+            auction_bid_number: auctionBidNumber,
+            transaction_type: transactionType,
+            brand_name_raw: brandNameRaw,
+            category_hint: categoryHint,
+            item_rank_raw: itemRankRaw,
+            accessory_raw: accessoryRaw,
+            item_amount: itemAmount,
+            tax_amount: taxAmount,
+            fee_rate: feeRate,
+            fee_amount: feeAmount,
+            fee_tax_amount: feeTaxAmount,
+            other_expense_amount: otherExpenseAmount,
+            other_expense_tax_amount: otherExpenseTaxAmount,
+            total_line_amount: totalLineAmount,
+            is_canceled: isCanceled,
+            cancel_reason: cancelReason,
+            notes: notes,
+            updated_at: new Date().toISOString(),
+          };
+          if (itemNameRaw) {
+            updateRecord.item_name_raw = itemNameRaw;
+          }
+
           const { error: updErr } = await supabase
             .from("document_lines")
-            .update({
-              line_number: lineNumber,
-              reception_number_raw: receptionRaw,
-              reception_number_norm: receptionNorm,
-              line_type: lineType,
-              description: description,
-              item_amount: itemAmount,
-              fee_amount: feeAmount,
-              tax_amount: taxAmount,
-              total_line_amount: totalLineAmount,
-              line_status: lineStatus,
-              updated_at: new Date().toISOString(),
-            })
+            .update(updateRecord)
             .eq("id", lineId)
             .eq("document_id", documentId);
 
@@ -659,25 +759,39 @@ serve(async (req: Request): Promise<Response> => {
           }
         } else {
           // 新規挿入
+          const insertRecord = {
+            document_id: documentId,
+            page_number: pageNumber,
+            line_number: lineNumber,
+            reception_number_raw: receptionRaw,
+            reception_number_normalized: receptionNorm,
+            lot_number: lotNumber,
+            branch_number: branchNumber,
+            auction_bid_number: auctionBidNumber,
+            item_name_raw: itemNameRaw,
+            brand_name_raw: brandNameRaw,
+            category_hint: categoryHint,
+            item_rank_raw: itemRankRaw,
+            accessory_raw: accessoryRaw,
+            transaction_type: transactionType,
+            item_amount: itemAmount,
+            tax_amount: taxAmount,
+            fee_rate: feeRate,
+            fee_amount: feeAmount,
+            fee_tax_amount: feeTaxAmount,
+            other_expense_amount: otherExpenseAmount,
+            other_expense_tax_amount: otherExpenseTaxAmount,
+            total_line_amount: totalLineAmount,
+            is_canceled: isCanceled,
+            cancel_reason: cancelReason,
+            match_status: "unlinked",
+            is_active: true,
+            notes: notes,
+          };
+
           const { error: insErr } = await supabase
             .from("document_lines")
-            .insert({
-              document_id: documentId,
-              line_number: lineNumber,
-              page_number: Number(item.page_number) || 1,
-              raw_row_index: item.raw_row_index !== undefined ? Number(item.raw_row_index) : null,
-              reception_number_raw: receptionRaw,
-              reception_number_norm: receptionNorm,
-              line_type: lineType,
-              description: description,
-              item_amount: itemAmount,
-              fee_amount: feeAmount,
-              tax_amount: taxAmount,
-              total_line_amount: totalLineAmount,
-              line_status: lineStatus,
-              match_status: "unmatched",
-              is_active: true,
-            });
+            .insert(insertRecord);
 
           if (insErr) {
             return errorResponse("LINE_INSERT_ERROR", insErr.message, 500, cors);
@@ -697,7 +811,7 @@ serve(async (req: Request): Promise<Response> => {
         {
           success: true,
           document_id: documentId,
-          audit: updatedAudit || null,
+          audit: formatAuditSummary(updatedAudit),
         },
         200,
         cors
@@ -760,7 +874,7 @@ serve(async (req: Request): Promise<Response> => {
 
       const { data: line, error: lineErr } = await supabase
         .from("document_lines")
-        .select("*, document:documents(id, currency)")
+        .select("*, document:documents(id)")
         .eq("id", lineId)
         .eq("is_deleted", false)
         .eq("is_active", true)
@@ -770,25 +884,35 @@ serve(async (req: Request): Promise<Response> => {
         return errorResponse("LINE_NOT_FOUND", "有効な明細行が見つかりません。", 404, cors);
       }
 
+      const rawLinkType = asString(body.link_type);
+      const linkType = VALID_LINK_TYPES.includes(rawLinkType as typeof VALID_LINK_TYPES[number])
+        ? rawLinkType
+        : "primary_cost";
+
       const allocatedAmount =
         body.allocated_amount !== undefined && body.allocated_amount !== null && body.allocated_amount !== ""
           ? Number(body.allocated_amount)
           : Number(line.total_line_amount);
 
       const confirmedBy = asString(body.confirmed_by) || null;
-      const note = asString(body.note) || null;
+      const notes = asString(body.notes ?? body.note) || null;
+      const confirmedAt = new Date().toISOString();
 
-      // リンク作成
+      // リンク作成 (SQL列: document_line_id, product_id, link_type, allocated_amount, allocation_method, match_method, confidence_score, status, confirmed_by, confirmed_at, notes)
       const { data: link, error: linkErr } = await supabase
         .from("document_product_links")
         .insert({
           document_line_id: lineId,
           product_id: productId,
-          link_type: "manual",
+          link_type: linkType,
           allocated_amount: allocatedAmount,
-          currency: line.currency || "JPY",
+          allocation_method: asString(body.allocation_method) || "direct",
+          match_method: "manual",
+          confidence_score: 1.00,
+          status: "confirmed",
           confirmed_by: confirmedBy,
-          note: note,
+          confirmed_at: confirmedAt,
+          notes: notes,
         })
         .select()
         .single();
@@ -797,10 +921,10 @@ serve(async (req: Request): Promise<Response> => {
         return errorResponse("LINK_CREATE_ERROR", linkErr.message, 500, cors);
       }
 
-      // 行のマッチ状態を更新
+      // 行のマッチ状態を 'confirmed' に更新 (v_document_audit_summary の confirmed_lines_count 集計対象)
       await supabase
         .from("document_lines")
-        .update({ match_status: "matched", updated_at: new Date().toISOString() })
+        .update({ match_status: "confirmed", updated_at: confirmedAt })
         .eq("id", lineId);
 
       // 書類ステータス再計算
@@ -824,7 +948,7 @@ serve(async (req: Request): Promise<Response> => {
         {
           success: true,
           link,
-          audit: audit || null,
+          audit: formatAuditSummary(audit),
           product_cost: productCost || null,
         },
         201,
@@ -857,7 +981,7 @@ serve(async (req: Request): Promise<Response> => {
 
       await supabase
         .from("document_product_links")
-        .update({ is_deleted: true, deleted_at: now, deleted_by: deletedBy })
+        .update({ is_deleted: true, deleted_at: now, deleted_by: deletedBy, status: "unlinked" })
         .eq("id", linkId);
 
       // 行の残り有効リンクを確認
@@ -865,12 +989,13 @@ serve(async (req: Request): Promise<Response> => {
         .from("document_product_links")
         .select("id")
         .eq("document_line_id", link.document_line_id)
-        .eq("is_deleted", false);
+        .eq("is_deleted", false)
+        .eq("status", "confirmed");
 
       if (!remainingLinks || remainingLinks.length === 0) {
         await supabase
           .from("document_lines")
-          .update({ match_status: "unmatched", updated_at: now })
+          .update({ match_status: "unlinked", updated_at: now })
           .eq("id", link.document_line_id);
       }
 
@@ -878,7 +1003,22 @@ serve(async (req: Request): Promise<Response> => {
         await refreshDocumentStatus(supabase, link.line.document_id);
       }
 
-      return jsonResponse({ success: true, unlinked_id: linkId }, 200, cors);
+      // 最新の商品原価内訳も取得して返却
+      const { data: remainingCost } = await supabase
+        .from("v_product_cost_breakdown")
+        .select("*")
+        .eq("product_id", link.product_id)
+        .maybeSingle();
+
+      return jsonResponse(
+        {
+          success: true,
+          unlinked_id: linkId,
+          product_cost: remainingCost || null,
+        },
+        200,
+        cors
+      );
     }
 
     // ----------------------------------------------------
@@ -903,22 +1043,35 @@ serve(async (req: Request): Promise<Response> => {
           product_id,
           link_type,
           allocated_amount,
-          currency,
+          allocation_method,
+          match_method,
+          status,
           confirmed_by,
-          note,
+          confirmed_at,
+          notes,
           created_at,
           line:document_lines(
             id,
+            page_number,
             line_number,
             reception_number_raw,
-            line_type,
-            description,
+            reception_number_normalized,
+            lot_number,
+            branch_number,
+            item_name_raw,
+            brand_name_raw,
+            category_hint,
+            transaction_type,
             item_amount,
-            fee_amount,
             tax_amount,
+            fee_amount,
+            fee_tax_amount,
+            other_expense_amount,
             total_line_amount,
+            match_status,
             document:documents(
               id,
+              document_number,
               file_name,
               supplier_name,
               issue_date,
@@ -927,7 +1080,8 @@ serve(async (req: Request): Promise<Response> => {
           )
         `)
         .eq("product_id", productId)
-        .eq("is_deleted", false);
+        .eq("is_deleted", false)
+        .eq("status", "confirmed");
 
       if (lkErr) {
         return errorResponse("DB_QUERY_ERROR", lkErr.message, 500, cors);
