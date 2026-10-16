@@ -59,7 +59,11 @@ export default function ProductRow({
     product.planned_sale_price && product.planned_sale_price > 0
       ? `¥${product.planned_sale_price.toLocaleString("ja-JP")}`
       : "価格未設定";
-  const name = product.product_name || "（商品名なし）";
+  // 管理画面表示ルール: 英語タイトル (translated_title) がある場合は先頭表示、空欄・未作成時は product_name を表示
+  const name =
+    (product.translated_title && product.translated_title.trim()) ||
+    product.product_name ||
+    "（商品名なし）";
 
   const statusBadge = (
     <span className={`${badgeBase} ${statusClass}`}>{statusLabel}</span>

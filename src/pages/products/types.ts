@@ -262,6 +262,7 @@ export interface AdminProduct {
   category: string;
   brand: string;
   product_name: string;
+  translated_title?: string;
   condition: string;
   purchase_price: number | null;
   planned_sale_price: number;
