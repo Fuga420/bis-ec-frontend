@@ -13,7 +13,8 @@
  *  ・ブラウザ/ワーカーからのPostgREST直接書込(anon key)は一切行わず、
  *    権限を持つサーバー側API (documents-relay / GAS Web App v97) に統一する。
  *  ・新規原本登録時は idempotency_key, document_type を含む全必須列を確実に送信する。
- *  ・API呼び出し失敗時に直接DB書込フォールバックは行わず、Fail-closed で安全にエラー処理する。
+ *  ・update_document_folder 失敗時は処理完了と判定せず未完了(エラー)として記録。
+ *  ・Drive移動後にDB更新だけ失敗した中断レコードを次回実行時に検知し、同一書類レコードで自動同期・回収する。
  *  ・pdf-parse は package.json に登録された正規依存関係を使用する。
  *
  * 実行方法:
@@ -165,6 +166,19 @@ async function listInboxFiles(token) {
   return json.files || [];
 }
 
+// Drive API: ファイルメタデータ取得 (親フォルダ確認用)
+async function getDriveFileMetadata(fileId, token) {
+  const url = `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,parents,trashed`;
+  const res = await fetch(url, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+  if (!res.ok) {
+    if (res.status === 404) return null;
+    throw new Error(`Drive get file error: ${res.status} ${await res.text()}`);
+  }
+  return await res.json();
+}
+
 // Drive API: ファイルのバイナリ取得
 async function downloadDriveFile(fileId, token) {
   const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
@@ -195,6 +209,62 @@ async function extractTextFromPdf(buffer) {
 }
 
 // -----------------------------------------------------------------------------
+// 中断・不整合レコードの自動同期リカバリ
+// -----------------------------------------------------------------------------
+async function reconcileIncompleteDocuments(existingDocs, driveToken, isDryRun) {
+  console.log("\n[Reconcile] 中断・不整合レコードの照合リカバリ実行中...");
+  let reconciledCount = 0;
+
+  for (const doc of existingDocs) {
+    // 明細登録済みだが、status が processed でない、または drive_folder_id が processed でないものを対象
+    const isIncomplete = doc.status !== "processed" || doc.drive_folder_id !== CONFIG.processedFolderId;
+    if (!isIncomplete || !doc.drive_file_id) continue;
+
+    // Drive上の実ファイル親フォルダを調査
+    try {
+      const meta = await getDriveFileMetadata(doc.drive_file_id, driveToken);
+      if (!meta || meta.trashed) continue;
+
+      const isActuallyInProcessed = meta.parents && meta.parents.includes(CONFIG.processedFolderId);
+      if (isActuallyInProcessed) {
+        console.log(`  [リカバリ検知] 書類ID ${doc.id} (ファイル: ${doc.file_name}): Drive原本は既に 02_processed に移動済みですがDB状態が未完了です。`);
+        console.log(`    現在のDB status=${doc.status}, drive_folder_id=${doc.drive_folder_id}`);
+        console.log(`    => 同一書類レコードを使って update_document_folder を再試行します (増殖ゼロ)...`);
+
+        if (!isDryRun) {
+          const updateRes = await invokeRelay({
+            action: "update_document_folder",
+            document_id: doc.id,
+            drive_folder_id: CONFIG.processedFolderId,
+            status: "processed"
+          });
+          if (updateRes.ok && updateRes.data?.success) {
+            console.log(`    ✓ DB状態同期成功: status=processed, folder=02_processed`);
+            doc.status = "processed";
+            doc.drive_folder_id = CONFIG.processedFolderId;
+            reconciledCount++;
+          } else {
+            console.warn(`    ✗ update_document_folder 再試行失敗: ${updateRes.data?.error || updateRes.data?.message}`);
+          }
+        } else {
+          console.log(`    [Dry-run] update_document_folder 再試行をシミュレート`);
+          reconciledCount++;
+        }
+      }
+    } catch (err) {
+      console.warn(`  [リカバリ調査エラー] 書類ID ${doc.id}: ${err.message}`);
+    }
+  }
+
+  if (reconciledCount > 0) {
+    console.log(`  ✓ 不整合レコード同期完了: ${reconciledCount} 件回復`);
+  } else {
+    console.log("  不整合レコードはありませんでした。");
+  }
+  return reconciledCount;
+}
+
+// -----------------------------------------------------------------------------
 // メインパイプライン処理
 // -----------------------------------------------------------------------------
 export async function runDriveAutoImport(options = {}) {
@@ -215,6 +285,18 @@ export async function runDriveAutoImport(options = {}) {
     throw new Error("Google Drive Access Token is missing. Provide GOOGLE_ACCESS_TOKEN or configure .clasprc.json.");
   }
 
+  // 既存書類一覧をサーバー側API (list_documents) 経由で取得
+  console.log("  サーバー側API (list_documents) より既存書類一覧を取得中...");
+  const listRes = await invokeRelay({ action: "list_documents" });
+  if (!listRes.ok || !listRes.data?.success) {
+    throw new Error(`list_documents API 呼出失敗: HTTP ${listRes.status} ${JSON.stringify(listRes.data)}`);
+  }
+  const existingDocs = listRes.data.documents || [];
+  console.log(`  取得済み既存書類件数: ${existingDocs.length} 件`);
+
+  // 不整合リカバリの実行 (Drive移動後DB更新失敗分の自動回復)
+  await reconcileIncompleteDocuments(existingDocs, driveToken, isDryRun);
+
   // 1. Inbox ファイルリスト取得
   console.log("\n[Step 1] 01_inbox フォルダスキャン中...");
   let files = await listInboxFiles(driveToken);
@@ -227,15 +309,6 @@ export async function runDriveAutoImport(options = {}) {
     console.log("処理対象の新規PDFはありません。完了します。");
     return { processedCount: 0, flaggedCount: 0, skippedCount: 0, errorCount: 0 };
   }
-
-  // 既存書類一覧をサーバー側API (list_documents) 経由で取得
-  console.log("  サーバー側API (list_documents) より既存書類一覧を取得中...");
-  const listRes = await invokeRelay({ action: "list_documents" });
-  if (!listRes.ok || !listRes.data?.success) {
-    throw new Error(`list_documents API 呼出失敗: HTTP ${listRes.status} ${JSON.stringify(listRes.data)}`);
-  }
-  const existingDocs = listRes.data.documents || [];
-  console.log(`  取得済み既存書類件数: ${existingDocs.length} 件`);
 
   let processedCount = 0;
   let flaggedCount = 0;
@@ -288,7 +361,7 @@ export async function runDriveAutoImport(options = {}) {
 
         if (!regRes.ok || !regRes.data?.success) {
           console.error(`    ✗ サーバー側API register_drive_document 呼出失敗:`, regRes.data?.error || regRes.data?.message);
-          console.error("    ※直接書込フォールバックは禁止されているため、Fail-closed で処理を中断・記録します。");
+          console.error("    ※Fail-closed 原則に基づき、本原本の処理を安全に中断・未完了として記録します。");
           errorCount++;
           continue;
         }
@@ -380,12 +453,15 @@ export async function runDriveAutoImport(options = {}) {
         });
         console.log(`    update_document_folder 応答: HTTP ${updateFolderRes.status}`, JSON.stringify(updateFolderRes.data));
 
+        // update_document_folder が失敗した場合は処理完了に含めず errorCount に計上
         if (!updateFolderRes.ok || !updateFolderRes.data?.success) {
-          console.warn(`    [Notice] update_document_folder API が未配信または失敗: ${updateFolderRes.data?.error || updateFolderRes.data?.message}`);
+          console.error(`    ✗ update_document_folder 失敗: HTTP ${updateFolderRes.status}`, updateFolderRes.data);
+          console.warn("    ※Drive原本の物理移動は完了しましたが、DBフォルダ更新が未完了です。処理完了とは判定せず未完了として記録します。次回実行時に自動同期されます。");
+          errorCount++;
         } else {
           console.log("    ✓ DB状態更新完了: status=processed, folder=02_processed");
+          processedCount++;
         }
-        processedCount++;
       } else {
         console.log("    [Dry-run] 明細保存および 02_processed 移動をシミュレート");
         processedCount++;
@@ -404,14 +480,21 @@ export async function runDriveAutoImport(options = {}) {
         });
         if (moveRes?.success) {
           console.log("    ✓ 原本退避成功 (03_flagged)");
-          await invokeRelay({
+          const updateFlaggedRes = await invokeRelay({
             action: "update_document_folder",
             document_id: docRecord.id,
             drive_folder_id: CONFIG.flaggedFolderId,
             status: "flagged_for_review"
           });
+          if (!updateFlaggedRes.ok || !updateFlaggedRes.data?.success) {
+            console.warn(`    [Notice] 03_flagged DBフォルダ更新API未配信または失敗:`, updateFlaggedRes.data);
+            errorCount++;
+          } else {
+            flaggedCount++;
+          }
+        } else {
+          errorCount++;
         }
-        flaggedCount++;
       } else {
         console.log(`    [Dry-run] 03_flagged 移動 (${reasons}) をシミュレート`);
         flaggedCount++;

@@ -1,10 +1,19 @@
 /**
  * test_parsers.mjs
  * 3社（オークネット・KOMEHYO・NJ）パーサー単体テスト
+ *
+ * 外部端末再現性:
+ *  特定端末の絶対パスに依存せず、scripts/fixtures/ 配下の同梱テキストフィクスチャを使用。
  */
 
 import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import { parseAucnetInvoice, parseKomehyoInvoice, parseNjInvoice } from "./parsers/invoiceParsers.mjs";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const fixturesDir = path.resolve(__dirname, "./fixtures");
 
 console.log("==================================================");
 console.log("=== 3社仕入書類パーサー 単体テスト & 検算検証 ===");
@@ -24,7 +33,8 @@ function assert(title, cond, detail = "") {
 }
 
 // 1. オークネット (466935)
-const aucnetText = fs.readFileSync("/Users/terashimafuga/.gemini/antigravity/brain/25e15199-58f3-4dfb-a11a-c2c545fd98f1/scratch/audit_オークネット_20260217_計算書【請求】_K026021_2052_pdf.txt", "utf8");
+const aucnetPath = path.join(fixturesDir, "aucnet_466935_sample.txt");
+const aucnetText = fs.readFileSync(aucnetPath, "utf8");
 const aucnetRes = parseAucnetInvoice(aucnetText);
 
 console.log("\n--- 1. オークネット (466935) 検算結果 ---");
@@ -39,7 +49,8 @@ assert("1-3. オークネット: 明細5件が抽出される", aucnetRes.lines.
 assert("1-4. オークネット: 金額検算差額が0円 (is_balanced === true)", aucnetRes.is_balanced === true && aucnetRes.discrepancy === 0);
 
 // 2. KOMEHYO (2764-20260805)
-const komehyoText = fs.readFileSync("/Users/terashimafuga/.gemini/antigravity/brain/25e15199-58f3-4dfb-a11a-c2c545fd98f1/scratch/audit_KOMEHYO_2764_ご精算書___26_8_5_pdf.txt", "utf8");
+const komehyoPath = path.join(fixturesDir, "komehyo_2764_sample.txt");
+const komehyoText = fs.readFileSync(komehyoPath, "utf8");
 const komehyoRes = parseKomehyoInvoice(komehyoText);
 
 console.log("\n--- 2. KOMEHYO (2764-20260805) 検算結果 ---");
@@ -53,7 +64,8 @@ assert("2-2. KOMEHYO: 明細13件 (商品12件 + 事務諸費用1件) が抽出�
 assert("2-3. KOMEHYO: 金額検算差額が0円 (is_balanced === true)", komehyoRes.is_balanced === true && komehyoRes.discrepancy === 0);
 
 // 3. ネットジャパン (NJ-20260612-10773)
-const njText = fs.readFileSync("/Users/terashimafuga/.gemini/antigravity/brain/25e15199-58f3-4dfb-a11a-c2c545fd98f1/scratch/audit_NJ_645_20260608_20260611_10773_pdf.txt", "utf8");
+const njPath = path.join(fixturesDir, "nj_10773_sample.txt");
+const njText = fs.readFileSync(njPath, "utf8");
 const njRes = parseNjInvoice(njText);
 
 console.log("\n--- 3. ネットジャパン (NJ-20260612-10773) 検算結果 ---");
@@ -67,7 +79,8 @@ assert("3-2. NJ: 明細8件 (商品7件 + 雑費1件) が抽出される", njRes
 assert("3-3. NJ: 金額検算差額が0円 (is_balanced === true)", njRes.is_balanced === true && njRes.discrepancy === 0);
 
 // 4. NJスキャン画像PDF (11.30.pdf) の文字層なし検出
-const njScanText = fs.readFileSync("/Users/terashimafuga/.gemini/antigravity/brain/25e15199-58f3-4dfb-a11a-c2c545fd98f1/scratch/audit_NJ_11_30_pdf.txt", "utf8");
+const njScanPath = path.join(fixturesDir, "nj_scan_sample.txt");
+const njScanText = fs.readFileSync(njScanPath, "utf8");
 const njScanRes = parseNjInvoice(njScanText);
 
 console.log("\n--- 4. NJスキャン画像PDF (11.30.pdf) 判定結果 ---");
@@ -82,4 +95,3 @@ console.log(`=== 全テスト結果: ${passed}/${passed + failed} PASS (失敗: 
 console.log("==================================================");
 
 if (failed > 0) process.exit(1);
-
