@@ -22,6 +22,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const ACTIONS = {
   import_document: "import_document",
+  register_drive_document: "register_drive_document",
+  update_document_folder: "update_document_folder",
   list_documents: "list_documents",
   get_document: "get_document",
   save_document_lines: "save_document_lines",
@@ -638,6 +640,219 @@ serve(async (req: Request): Promise<Response> => {
     }
 
     // ----------------------------------------------------
+    // 1-b. register_drive_document: Drive原本の直接登録（不要コピー作成ゼロ・自動取込用）
+    // ----------------------------------------------------
+    if (action === ACTIONS.register_drive_document) {
+      const driveFileId = asString(body.drive_file_id);
+      if (!driveFileId) {
+        return errorResponse("DRIVE_FILE_ID_REQUIRED", "drive_file_id は必須です。", 400, cors);
+      }
+
+      const idempotencyKey = asString(body.idempotency_key) || `drive_${driveFileId}`;
+      const supplierName = asString(body.supplier_name);
+      if (!supplierName) {
+        return errorResponse("SUPPLIER_NAME_REQUIRED", "supplier_name は必須です。", 400, cors);
+      }
+
+      const fileName = asString(body.file_name);
+      if (!fileName) {
+        return errorResponse("FILE_NAME_REQUIRED", "file_name は必須です。", 400, cors);
+      }
+
+      const mimeType = asString(body.mime_type).toLowerCase() || "application/pdf";
+      if (!ALLOWED_MIME_TYPES.includes(mimeType)) {
+        return errorResponse(
+          "INVALID_MIME_TYPE",
+          `未対応のMIMEタイプです: ${mimeType} (PDF/JPG/PNGのみ対応)`,
+          400,
+          cors
+        );
+      }
+
+      const fileFingerprint = asString(body.file_fingerprint);
+      if (!fileFingerprint) {
+        return errorResponse("FILE_FINGERPRINT_REQUIRED", "file_fingerprint は必須です。", 400, cors);
+      }
+
+      // 1. 同一再送チェック (idempotency_key)
+      const { data: existingByKey, error: errKey } = await supabase
+        .from("documents")
+        .select("*")
+        .eq("idempotency_key", idempotencyKey)
+        .eq("is_deleted", false)
+        .maybeSingle();
+      if (errKey) {
+        return errorResponse("DB_QUERY_ERROR", errKey.message, 500, cors);
+      }
+      if (existingByKey) {
+        const audit = await computeAuditSummary(supabase, String(existingByKey.id));
+        return jsonResponse(
+          {
+            success: true,
+            is_reused: true,
+            document: existingByKey,
+            audit: formatAuditSummary(audit),
+          },
+          200,
+          cors
+        );
+      }
+
+      // 2. DriveファイルID一意性チェック (同一Drive原本の重複登録抑止)
+      const { data: existingByDriveId, error: errDriveId } = await supabase
+        .from("documents")
+        .select("*")
+        .eq("drive_file_id", driveFileId)
+        .eq("is_deleted", false)
+        .maybeSingle();
+      if (errDriveId) {
+        return errorResponse("DB_QUERY_ERROR", errDriveId.message, 500, cors);
+      }
+      if (existingByDriveId) {
+        const audit = await computeAuditSummary(supabase, String(existingByDriveId.id));
+        return jsonResponse(
+          {
+            success: true,
+            is_reused: true,
+            document: existingByDriveId,
+            audit: formatAuditSummary(audit),
+          },
+          200,
+          cors
+        );
+      }
+
+      // 3. ファイル指紋一意性チェック (同一内容ファイルの重複登録抑止)
+      const { data: existingByFingerprint, error: errFingerprint } = await supabase
+        .from("documents")
+        .select("*")
+        .eq("file_fingerprint", fileFingerprint)
+        .eq("is_deleted", false)
+        .maybeSingle();
+      if (errFingerprint) {
+        return errorResponse("DB_QUERY_ERROR", errFingerprint.message, 500, cors);
+      }
+      if (existingByFingerprint) {
+        const audit = await computeAuditSummary(supabase, String(existingByFingerprint.id));
+        return jsonResponse(
+          {
+            success: true,
+            is_reused: true,
+            document: existingByFingerprint,
+            audit: formatAuditSummary(audit),
+          },
+          200,
+          cors
+        );
+      }
+
+      // 4. documents テーブルへ直接登録 (原本コピーゼロ)
+      const documentType = asString(body.document_type) || "invoice";
+      const totalAmountRaw = body.total_amount;
+      const totalAmount =
+        totalAmountRaw !== undefined && totalAmountRaw !== null && totalAmountRaw !== ""
+          ? Number(totalAmountRaw)
+          : null;
+      const taxAmountRaw = body.tax_amount;
+      const taxAmount =
+        taxAmountRaw !== undefined && taxAmountRaw !== null && taxAmountRaw !== ""
+          ? Number(taxAmountRaw)
+          : null;
+
+      // 初期ステータス: 抽出前は pending_amount または pending
+      const initialStatus = asString(body.status) || (totalAmount === null ? "pending_amount" : "pending");
+
+      const insertRecord = {
+        idempotency_key: idempotencyKey,
+        document_number: asString(body.document_number) || null,
+        invoice_registration_number: asString(body.invoice_registration_number) || null,
+        document_type: documentType,
+        supplier_name: supplierName,
+        supplier_code: asString(body.supplier_code) || null,
+        issue_date: asString(body.issue_date) || null,
+        due_date: asString(body.due_date) || null,
+        currency: asString(body.currency) || "JPY",
+        total_amount: totalAmount,
+        tax_amount: taxAmount,
+        file_name: fileName,
+        mime_type: mimeType,
+        file_size: Number(body.file_size) || 0,
+        file_fingerprint: fileFingerprint,
+        drive_file_id: driveFileId,
+        drive_folder_id: asString(body.drive_folder_id) || null,
+        drive_file_url: asString(body.drive_file_url) || `https://drive.google.com/file/d/${driveFileId}/view`,
+        notes: asString(body.notes ?? body.note) || null,
+        status: initialStatus,
+        created_by: asString(body.confirmed_by) || "system",
+      };
+
+      const { data: newDoc, error: insertErr } = await supabase
+        .from("documents")
+        .insert(insertRecord)
+        .select()
+        .single();
+      if (insertErr) {
+        return errorResponse("DB_INSERT_ERROR", insertErr.message, 500, cors);
+      }
+
+      const audit = await computeAuditSummary(supabase, String(newDoc.id));
+
+      return jsonResponse(
+        {
+          success: true,
+          is_reused: false,
+          document: newDoc,
+          audit: formatAuditSummary(audit),
+        },
+        201,
+        cors
+      );
+    }
+
+    // ----------------------------------------------------
+    // 1-c. update_document_folder: 原本Drive移動後のDB反映
+    // ----------------------------------------------------
+    if (action === ACTIONS.update_document_folder) {
+      const documentId = asString(body.document_id);
+      if (!documentId) {
+        return errorResponse("DOCUMENT_ID_REQUIRED", "document_id は必須です。", 400, cors);
+      }
+      const driveFolderId = asString(body.drive_folder_id);
+      if (!driveFolderId) {
+        return errorResponse("DRIVE_FOLDER_ID_REQUIRED", "drive_folder_id は必須です。", 400, cors);
+      }
+
+      const updateData: Record<string, unknown> = {
+        drive_folder_id: driveFolderId,
+        updated_at: new Date().toISOString(),
+      };
+      if (body.status) {
+        updateData.status = asString(body.status);
+      }
+
+      const { data: updatedDoc, error: updateErr } = await supabase
+        .from("documents")
+        .update(updateData)
+        .eq("id", documentId)
+        .select()
+        .single();
+      if (updateErr) {
+        return errorResponse("DB_UPDATE_ERROR", updateErr.message, 500, cors);
+      }
+
+      const audit = await computeAuditSummary(supabase, documentId);
+      return jsonResponse(
+        {
+          success: true,
+          document: updatedDoc,
+          audit: formatAuditSummary(audit),
+        },
+        200,
+        cors
+      );
+    }
+
+    // ----------------------------------------------------
     // 2. list_documents: 書類台帳一覧の取得 (検索・フィルター・ページング・監査差額付き)
     // ----------------------------------------------------
     if (action === ACTIONS.list_documents) {
@@ -1021,6 +1236,25 @@ serve(async (req: Request): Promise<Response> => {
             }
           }
         }
+      }
+
+      if (body.total_amount !== undefined && body.total_amount !== null && body.total_amount !== "") {
+        const docUpdates: Record<string, unknown> = {
+          total_amount: Number(body.total_amount),
+          updated_at: new Date().toISOString(),
+        };
+        if (body.tax_amount !== undefined && body.tax_amount !== null && body.tax_amount !== "") {
+          docUpdates.tax_amount = Number(body.tax_amount);
+        }
+        if (body.document_number) docUpdates.document_number = asString(body.document_number);
+        if (body.invoice_registration_number) docUpdates.invoice_registration_number = asString(body.invoice_registration_number);
+        if (body.issue_date) docUpdates.issue_date = asString(body.issue_date);
+        if (body.supplier_code) docUpdates.supplier_code = asString(body.supplier_code);
+
+        await supabase
+          .from("documents")
+          .update(docUpdates)
+          .eq("id", documentId);
       }
 
       await refreshDocumentStatus(supabase, documentId);

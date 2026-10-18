@@ -303,3 +303,79 @@ export async function fetchProductCost(
     links: Array.isArray(result.links) ? (result.links as RelayRecord[]) : [],
   };
 }
+
+// ─────────────────────────────────────────────────────────────
+// register_drive_document（Drive既存原本の直接登録）
+// ─────────────────────────────────────────────────────────────
+
+export interface RegisterDriveDocumentInput {
+  driveFileId: string;
+  driveFolderId?: string | null;
+  driveFileUrl?: string | null;
+  fileName: string;
+  fileSize?: number;
+  mimeType?: string;
+  fileFingerprint: string;
+  supplierName: string;
+  supplierCode?: string | null;
+  documentNumber?: string | null;
+  invoiceRegistrationNumber?: string | null;
+  issueDate?: string | null;
+  dueDate?: string | null;
+  currency?: string;
+  totalAmount?: number | null;
+  taxAmount?: number | null;
+  idempotencyKey?: string;
+  notes?: string | null;
+  status?: string;
+}
+
+export async function registerDriveDocument(
+  input: RegisterDriveDocumentInput
+): Promise<DocumentLedgerDocument> {
+  const result = await invokeRelay({
+    action: "register_drive_document",
+    drive_file_id: input.driveFileId,
+    drive_folder_id: input.driveFolderId ?? null,
+    drive_file_url: input.driveFileUrl ?? null,
+    file_name: input.fileName,
+    file_size: input.fileSize ?? 0,
+    mime_type: input.mimeType ?? "application/pdf",
+    file_fingerprint: input.fileFingerprint,
+    supplier_name: input.supplierName,
+    supplier_code: input.supplierCode ?? null,
+    document_number: input.documentNumber ?? null,
+    invoice_registration_number: input.invoiceRegistrationNumber ?? null,
+    issue_date: input.issueDate ?? null,
+    due_date: input.dueDate ?? null,
+    currency: input.currency ?? "JPY",
+    total_amount: input.totalAmount ?? null,
+    tax_amount: input.taxAmount ?? null,
+    idempotency_key: input.idempotencyKey ?? `drive_${input.driveFileId}`,
+    notes: input.notes ?? null,
+    status: input.status,
+  });
+  return mapDocument(result.document as RelayRecord);
+}
+
+// ─────────────────────────────────────────────────────────────
+// update_document_folder（原本Drive移動後のDB反映）
+// ─────────────────────────────────────────────────────────────
+
+export interface UpdateDocumentFolderInput {
+  documentId: string;
+  driveFolderId: string;
+  status?: string;
+}
+
+export async function updateDocumentFolder(
+  input: UpdateDocumentFolderInput
+): Promise<DocumentLedgerDocument> {
+  const result = await invokeRelay({
+    action: "update_document_folder",
+    document_id: input.documentId,
+    drive_folder_id: input.driveFolderId,
+    status: input.status,
+  });
+  return mapDocument(result.document as RelayRecord);
+}
