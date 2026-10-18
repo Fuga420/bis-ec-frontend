@@ -189,17 +189,33 @@ async function getDriveFileMetadata(fileId, token) {
   return await res.json();
 }
 
-// Drive API: ファイルのバイナリ取得
+// Drive ファイルのバイナリ取得 (Drive API直接 -> GAS v97 get_drive_file_content フォールバック)
 async function downloadDriveFile(fileId, token) {
-  const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
-  const res = await fetch(url, {
-    headers: { "Authorization": `Bearer ${token}` }
-  });
-  if (!res.ok) {
-    throw new Error(`Drive download error: ${res.status} ${await res.text()}`);
+  try {
+    const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+    const res = await fetch(url, {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (res.ok) {
+      const arrayBuf = await res.arrayBuffer();
+      return Buffer.from(arrayBuf);
+    }
+    console.warn(`  [Info] Drive API 直接ダウンロード失敗 (HTTP ${res.status}): GAS v97 get_drive_file_content にフォールバックします...`);
+  } catch (err) {
+    console.warn(`  [Info] Drive API 通信エラー: ${err.message}. GAS v97 get_drive_file_content にフォールバックします...`);
   }
-  const arrayBuf = await res.arrayBuffer();
-  return Buffer.from(arrayBuf);
+
+  const gasRes = await callGas({
+    action: "get_drive_file_content",
+    mode: "admin",
+    file_id: fileId
+  });
+
+  if (gasRes && gasRes.success && gasRes.base64) {
+    return Buffer.from(gasRes.base64, "base64");
+  }
+
+  throw new Error(`Drive download failed via both Drive API and GAS v97: ${JSON.stringify(gasRes)}`);
 }
 
 // PDFテキスト抽出 (package.json に登録された pdf-parse を使用)
