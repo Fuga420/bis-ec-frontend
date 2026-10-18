@@ -36,21 +36,26 @@ const __dirname = path.dirname(__filename);
 // 環境変数・設定ロード
 // -----------------------------------------------------------------------------
 function loadEnv() {
-  const envPath = path.resolve(__dirname, "../.env");
-  if (fs.existsSync(envPath)) {
-    const lines = fs.readFileSync(envPath, "utf8").split("\n");
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) continue;
-      const eqIdx = trimmed.indexOf("=");
-      if (eqIdx > 0) {
-        const key = trimmed.slice(0, eqIdx).trim();
-        let val = trimmed.slice(eqIdx + 1).trim();
-        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-          val = val.slice(1, -1);
-        }
-        if (!process.env[key]) {
-          process.env[key] = val;
+  const envFiles = [
+    path.resolve(__dirname, "../.env"),
+    path.resolve(__dirname, "../.env.local")
+  ];
+  for (const envPath of envFiles) {
+    if (fs.existsSync(envPath)) {
+      const lines = fs.readFileSync(envPath, "utf8").split("\n");
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) continue;
+        const eqIdx = trimmed.indexOf("=");
+        if (eqIdx > 0) {
+          const key = trimmed.slice(0, eqIdx).trim();
+          let val = trimmed.slice(eqIdx + 1).trim();
+          if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+            val = val.slice(1, -1);
+          }
+          if (!process.env[key]) {
+            process.env[key] = val;
+          }
         }
       }
     }
@@ -62,6 +67,7 @@ loadEnv();
 const CONFIG = {
   supabaseUrl: process.env.VITE_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "https://yg9qauzldubdo1ca5z0z.helloreaddy.com",
   supabaseAnonKey: process.env.VITE_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "",
+  workerSecret: process.env.DOCUMENTS_WORKER_SECRET || "",
   gasWebAppUrl: process.env.GAS_WEB_APP_URL || "https://script.google.com/macros/s/AKfycbyxee-2phIQl2KPBgx0h0bHBaaQDybUxbODI06ZC7aHNJg4jHMoKqFBSlBEQA2CHKfX/exec",
   inboxFolderId: process.env.DRIVE_INBOX_FOLDER_ID || "1ctLRUQbwINARCDuGdYnpkrCkkK287HV5",
   processedFolderId: process.env.DRIVE_PROCESSED_FOLDER_ID || "1MUpsttOl2MY1Q8QAptSX_1vBGjl_aXY3",
@@ -133,13 +139,17 @@ async function callGas(payload) {
 // documents-relay Edge Function 呼び出し (サーバー側権限API)
 async function invokeRelay(payload) {
   const url = `${CONFIG.supabaseUrl}/functions/v1/documents-relay`;
+  const headers = {
+    "apikey": CONFIG.supabaseAnonKey,
+    "Authorization": `Bearer ${CONFIG.supabaseAnonKey}`,
+    "Content-Type": "application/json"
+  };
+  if (CONFIG.workerSecret) {
+    headers["x-bis-worker-token"] = CONFIG.workerSecret;
+  }
   const res = await fetch(url, {
     method: "POST",
-    headers: {
-      "apikey": CONFIG.supabaseAnonKey,
-      "Authorization": `Bearer ${CONFIG.supabaseAnonKey}`,
-      "Content-Type": "application/json"
-    },
+    headers,
     body: JSON.stringify(payload)
   });
   let data = null;
@@ -236,7 +246,8 @@ async function reconcileIncompleteDocuments(existingDocs, driveToken, isDryRun) 
             action: "update_document_folder",
             document_id: doc.id,
             drive_folder_id: CONFIG.processedFolderId,
-            status: "processed"
+            status: "processed",
+            mark_processed: true
           });
           if (updateRes.ok && updateRes.data?.success) {
             console.log(`    ✓ DB状態同期成功: status=processed, folder=02_processed`);
@@ -418,7 +429,8 @@ export async function runDriveAutoImport(options = {}) {
           lines: parsed.lines,
           document_number: parsed.document_number,
           issue_date: parsed.accounting_date || parsed.issue_date,
-          total_amount: parsed.declared_net_amount
+          total_amount: parsed.declared_net_amount,
+          mark_processed: true
         });
 
         if (!saveRes.ok || !saveRes.data?.success) {
@@ -449,7 +461,8 @@ export async function runDriveAutoImport(options = {}) {
           action: "update_document_folder",
           document_id: docRecord.id,
           drive_folder_id: CONFIG.processedFolderId,
-          status: "processed"
+          status: "processed",
+          mark_processed: true
         });
         console.log(`    update_document_folder 応答: HTTP ${updateFolderRes.status}`, JSON.stringify(updateFolderRes.data));
 

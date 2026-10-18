@@ -162,3 +162,4 @@ curl -X POST "https://yg9qauzldubdo1ca5z0z.helloreaddy.com/functions/v1/document
   }'
 ```
 **期待される応答**: HTTP 200 OK (`{"success":true,"document":{"status":"processed","drive_folder_id":"1MUpsttOl2MY1Q8QAptSX_1vBGjl_aXY3",...}}`)
+
