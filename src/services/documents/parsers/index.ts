@@ -57,3 +57,4 @@ export function parseInvoiceDocument(text: string, forcedSupplier?: string): Par
       };
   }
 }
+

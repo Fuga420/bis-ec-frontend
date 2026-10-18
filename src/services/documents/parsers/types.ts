@@ -51,3 +51,4 @@ export interface ParsedInvoiceResult {
   has_text_layer: boolean;         // テキストPDFか否か (falseの場合はOCR必須)
   needs_review_reasons: string[];
 }
+

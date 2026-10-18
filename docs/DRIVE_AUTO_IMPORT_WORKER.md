@@ -20,8 +20,9 @@ flowchart TD
     Worker -->|"6. DBステータス同期"| SupabaseDB
 ```
 
-### コピーゼロ原本管理
+### コピーゼロ原本管理 & 厳格なサーバー側API統一
 - アップロード処理等で原本ファイルの複製（不要なコピー）を作成せず、**Google Drive上にアップロードされた既存原本ID（`drive_file_id`）** を直接 `documents` テーブルへ紐付けます。
+- **公開用キー（anon key）を用いた直接のPostgREST INSERT/PATCHは完全禁止**: Git管理のRLSおよびセキュリティ設計に厳格準拠し、すべてのDBアクセスは権限を持つサーバー側API（`documents-relay` Edge Function）を経由します。
 - 原本の実態移動は GAS Web App v97（スクリプト所有者権限）経由で Drive フォルダ間を移動させます。
 
 ---
@@ -29,11 +30,11 @@ flowchart TD
 ## 2. 実行環境と前提条件
 
 - **ランタイム**: Node.js v18 以上 (ES Modules 対応)
-- **依存モジュール**: `pdf-parse` (PDFテキスト層抽出用)
+- **依存モジュール**: `pdf-parse` (`package.json` に正規登録済み)
 - **連携サービス**:
   - Google Drive API v3 (ファイル一覧取得・原本取得)
   - Google Apps Script Web App v97 (DriveAppによる権限昇格フォルダ移動)
-  - Supabase PostgreSQL (PostgREST REST API / documents-relay Edge Function)
+  - Supabase Edge Functions (`documents-relay`: サーバー側権限によるDB安全更新)
 
 ---
 
@@ -112,3 +113,4 @@ node scripts/test_parsers.mjs
 - **自動照合の境界**:
   - 本自動取込パイプラインでは「書類原本の登録・明細抽出・金額検算・保管」までを自動完走のスコープとします。
   - **商品マスタへの原価反映・商品自動紐付け**は、商品側に「受付番号」列が正式実装されるまで自動化せず、画面上の手動紐付けUI（`document_product_links`）を利用します。誤った自動推測による原価確定事故を防止します。
+

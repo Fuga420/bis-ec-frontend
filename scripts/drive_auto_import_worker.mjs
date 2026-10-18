@@ -9,6 +9,13 @@
  *  検算完全一致した書類は 02_processed フォルダへ、不一致・OCR要書類は 03_flagged フォルダへ
  *  GAS v97経由で移動させ、DB状態を同期する。
  *
+ * セキュリティ・アーキテクチャ原則:
+ *  ・ブラウザ/ワーカーからのPostgREST直接書込(anon key)は一切行わず、
+ *    権限を持つサーバー側API (documents-relay / GAS Web App v97) に統一する。
+ *  ・新規原本登録時は idempotency_key, document_type を含む全必須列を確実に送信する。
+ *  ・API呼び出し失敗時に直接DB書込フォールバックは行わず、Fail-closed で安全にエラー処理する。
+ *  ・pdf-parse は package.json に登録された正規依存関係を使用する。
+ *
  * 実行方法:
  *  node scripts/drive_auto_import_worker.mjs [--dry-run] [--file-id=<id>]
  */
@@ -18,6 +25,7 @@ import path from "path";
 import crypto from "crypto";
 import https from "https";
 import { fileURLToPath } from "url";
+import { PDFParse } from "pdf-parse";
 import { parseInvoiceDocument } from "./parsers/invoiceParsers.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -49,7 +57,7 @@ function loadEnv() {
 }
 loadEnv();
 
-// 設定パラメータ (秘密情報は環境変数またはローカル設定から取得)
+// 設定パラメータ
 const CONFIG = {
   supabaseUrl: process.env.VITE_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "https://yg9qauzldubdo1ca5z0z.helloreaddy.com",
   supabaseAnonKey: process.env.VITE_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "",
@@ -77,14 +85,13 @@ function getDriveAccessToken() {
 }
 
 // -----------------------------------------------------------------------------
-// 通信ヘルパー
+// サーバー側API 通信ヘルパー
 // -----------------------------------------------------------------------------
 
 // GAS Web App 呼び出し (v97)
 async function callGas(payload) {
   return new Promise((resolve, reject) => {
     const postData = JSON.stringify(payload);
-    const parsedUrl = new URL(CONFIG.gasWebAppUrl);
     
     function makeReq(url) {
       const u = new URL(url);
@@ -122,30 +129,7 @@ async function callGas(payload) {
   });
 }
 
-// Supabase REST API (PostgREST)
-async function postgrestRequest(endpoint, method = "GET", body = null, headers = {}) {
-  const url = `${CONFIG.supabaseUrl}/rest/v1/${endpoint}`;
-  const reqHeaders = {
-    "apikey": CONFIG.supabaseAnonKey,
-    "Authorization": `Bearer ${CONFIG.supabaseAnonKey}`,
-    "Content-Type": "application/json",
-    ...headers
-  };
-  const options = {
-    method,
-    headers: reqHeaders
-  };
-  if (body) {
-    options.body = JSON.stringify(body);
-  }
-  const res = await fetch(url, options);
-  const text = await res.text();
-  let json = null;
-  try { json = JSON.parse(text); } catch { json = text; }
-  return { status: res.status, ok: res.ok, data: json };
-}
-
-// documents-relay Edge Function 呼び出し
+// documents-relay Edge Function 呼び出し (サーバー側権限API)
 async function invokeRelay(payload) {
   const url = `${CONFIG.supabaseUrl}/functions/v1/documents-relay`;
   const res = await fetch(url, {
@@ -157,7 +141,13 @@ async function invokeRelay(payload) {
     },
     body: JSON.stringify(payload)
   });
-  const data = await res.json();
+  let data = null;
+  const text = await res.text();
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = { success: false, error: text };
+  }
   return { status: res.status, ok: res.ok, data };
 }
 
@@ -188,17 +178,10 @@ async function downloadDriveFile(fileId, token) {
   return Buffer.from(arrayBuf);
 }
 
-// PDFテキスト抽出 (scratch内のpdf-parseまたはローカルモジュール)
+// PDFテキスト抽出 (package.json に登録された pdf-parse を使用)
 async function extractTextFromPdf(buffer) {
   try {
-    const pdfParsePath = path.resolve(__dirname, "../../.gemini/antigravity/brain/25e15199-58f3-4dfb-a11a-c2c545fd98f1/scratch/node_modules/pdf-parse");
-    let PDFParseModule;
-    if (fs.existsSync(pdfParsePath)) {
-      PDFParseModule = (await import(pdfParsePath)).PDFParse;
-    } else {
-      PDFParseModule = (await import("pdf-parse")).default;
-    }
-    const parser = new PDFParseModule(new Uint8Array(buffer));
+    const parser = new PDFParse(new Uint8Array(buffer));
     await parser.load();
     const textObj = await parser.getText();
     return {
@@ -242,12 +225,22 @@ export async function runDriveAutoImport(options = {}) {
 
   if (files.length === 0) {
     console.log("処理対象の新規PDFはありません。完了します。");
-    return { processedCount: 0, flaggedCount: 0, skippedCount: 0 };
+    return { processedCount: 0, flaggedCount: 0, skippedCount: 0, errorCount: 0 };
   }
+
+  // 既存書類一覧をサーバー側API (list_documents) 経由で取得
+  console.log("  サーバー側API (list_documents) より既存書類一覧を取得中...");
+  const listRes = await invokeRelay({ action: "list_documents" });
+  if (!listRes.ok || !listRes.data?.success) {
+    throw new Error(`list_documents API 呼出失敗: HTTP ${listRes.status} ${JSON.stringify(listRes.data)}`);
+  }
+  const existingDocs = listRes.data.documents || [];
+  console.log(`  取得済み既存書類件数: ${existingDocs.length} 件`);
 
   let processedCount = 0;
   let flaggedCount = 0;
   let skippedCount = 0;
+  let errorCount = 0;
 
   for (const file of files) {
     console.log(`\n--------------------------------------------------------------------------------`);
@@ -260,12 +253,9 @@ export async function runDriveAutoImport(options = {}) {
     const fingerprint = crypto.createHash("sha256").update(pdfBuf).digest("hex");
     console.log(`    SHA-256: ${fingerprint}`);
 
-    // 3. DB既存照合
-    console.log("  [Step 3] DB既存照合 (重複チェック)...");
-    const checkRes = await postgrestRequest(
-      `documents?or=(drive_file_id.eq.${file.id},file_fingerprint.eq.${fingerprint})&is_deleted=eq.false`
-    );
-    let docRecord = checkRes.ok && checkRes.data?.length > 0 ? checkRes.data[0] : null;
+    // 3. DB既存照合 (list_documents 結果から照合)
+    console.log("  [Step 3] 既存書類照合 (重複チェック)...");
+    let docRecord = existingDocs.find(d => d.drive_file_id === file.id || d.file_fingerprint === fingerprint);
 
     if (docRecord) {
       console.log(`    既存レコード検出: ID=${docRecord.id}, Status=${docRecord.status}`);
@@ -275,29 +265,38 @@ export async function runDriveAutoImport(options = {}) {
         continue;
       }
     } else {
-      console.log("    未登録原本です。DB原本レコードを作成します (原本コピーゼロ)...");
-      if (!isDryRun) {
-        const createRes = await postgrestRequest("documents", "POST", {
-          drive_file_id: file.id,
-          drive_folder_id: CONFIG.inboxFolderId,
-          drive_file_url: `https://drive.google.com/file/d/${file.id}/view`,
-          file_name: file.name,
-          mime_type: file.mimeType,
-          file_size: parseInt(file.size || pdfBuf.length, 10),
-          file_fingerprint: fingerprint,
-          status: "pending_amount",
-          supplier_name: "自動判別中",
-          created_by: "drive_auto_import_worker"
-        }, { "Prefer": "return=representation" });
+      console.log("    未登録原本です。サーバー側API (register_drive_document) 経由でDB原本レコードを作成します...");
+      const idempotencyKey = `drive_${file.id}_${Date.now()}`;
+      const payload = {
+        action: "register_drive_document",
+        idempotency_key: idempotencyKey,
+        document_type: "invoice",
+        supplier_name: "自動判別中",
+        file_name: file.name,
+        mime_type: file.mimeType || "application/pdf",
+        file_size: parseInt(file.size || pdfBuf.length, 10),
+        file_fingerprint: fingerprint,
+        drive_file_id: file.id,
+        drive_folder_id: CONFIG.inboxFolderId,
+        drive_file_url: `https://drive.google.com/file/d/${file.id}/view`,
+        status: "pending_amount"
+      };
 
-        if (!createRes.ok || !createRes.data || createRes.data.length === 0) {
-          throw new Error(`DB原本作成失敗: ${JSON.stringify(createRes.data)}`);
+      if (!isDryRun) {
+        const regRes = await invokeRelay(payload);
+        console.log(`    register_drive_document 応答: HTTP ${regRes.status}`, JSON.stringify(regRes.data));
+
+        if (!regRes.ok || !regRes.data?.success) {
+          console.error(`    ✗ サーバー側API register_drive_document 呼出失敗:`, regRes.data?.error || regRes.data?.message);
+          console.error("    ※直接書込フォールバックは禁止されているため、Fail-closed で処理を中断・記録します。");
+          errorCount++;
+          continue;
         }
-        docRecord = createRes.data[0];
+        docRecord = regRes.data.document;
         console.log(`    ✓ DB原本登録完了: ID=${docRecord.id}`);
       } else {
         docRecord = { id: "dry-run-doc-id", status: "pending_amount" };
-        console.log("    [Dry-run] DB原本レコード作成をシミュレート");
+        console.log("    [Dry-run] DB原本登録をシミュレート");
       }
     }
 
@@ -307,23 +306,29 @@ export async function runDriveAutoImport(options = {}) {
     const textLength = text.trim().length;
     console.log(`    抽出文字数: ${textLength} 文字, ページ数: ${totalPages}`);
 
-    if (textLength < 50) {
-      console.warn("    [Warning] 文字層が極小です (スキャン画像またはOCR未適用の可能性)。");
-    }
-
     // 5. パーサー実行・仕入先判別・金額検算
-    console.log("  [Step 5] パーサー実行 & 金額検算...");
+    console.log("  [Step 5] パーサー実行 & 明細抽出・金額検算...");
     const parsed = parseInvoiceDocument(text);
     console.log(`    判定仕入先: ${parsed.supplier_name}`);
     console.log(`    書類番号: ${parsed.document_number || "なし"}`);
     console.log(`    計上日: ${parsed.accounting_date || parsed.issue_date || "なし"}`);
     console.log(`    公称請求額: ${parsed.declared_total_claim?.toLocaleString()} 円`);
     console.log(`    公称支払額: ${parsed.declared_total_payment?.toLocaleString()} 円`);
-    console.log(`    公称純請求額 (差引額): ${parsed.declared_net_amount?.toLocaleString()} 円`);
-    console.log(`    抽出明細数: ${parsed.lines.length} 行`);
-    console.log(`    明細計算合計: ${parsed.calculated_total?.toLocaleString()} 円`);
+    console.log(`    公称純請求額: ${parsed.declared_net_amount?.toLocaleString()} 円`);
+    console.log(`    抽出明細行数: ${parsed.lines.length} 行`);
+
+    // 各商品行の原文と内訳を表示
+    parsed.lines.forEach((l, idx) => {
+      const typeLabel = l.transaction_type === "purchase" ? "商品" :
+                        l.transaction_type === "shipping_cost" ? "配送費" :
+                        l.transaction_type === "other_expense" ? "諸費用" :
+                        l.transaction_type === "sale_settlement" ? "売却相殺" : l.transaction_type;
+      console.log(`      [行 ${idx + 1}] (${typeLabel}) 受付/識別:${l.reception_number_raw || 'なし'} 品名:${l.item_name_raw} 本体:${l.item_amount?.toLocaleString()} 手数料:${l.fee_amount_tax_included?.toLocaleString() || 0} 行総額:${l.total_line_amount?.toLocaleString()} 円`);
+    });
+
+    console.log(`    全明細合計: ${parsed.calculated_total?.toLocaleString()} 円`);
     console.log(`    検算差額: ${parsed.discrepancy} 円`);
-    console.log(`    検算一致判定: ${parsed.is_balanced ? "✓ 完全一致 (0円)" : "✗ 不一致/未検証"}`);
+    console.log(`    検算判定: ${parsed.is_balanced ? "✓ 完全一致 (0円)" : "✗ 差額あり/要確認"}`);
 
     if (parsed.needs_review_reasons.length > 0) {
       console.log(`    要確認フラグ: ${parsed.needs_review_reasons.join(", ")}`);
@@ -333,8 +338,8 @@ export async function runDriveAutoImport(options = {}) {
     if (parsed.is_balanced && parsed.lines.length > 0) {
       console.log("\n  [Step 6A] 検算完全一致 => 明細DB保存 & 02_processed 移動");
       if (!isDryRun) {
-        // Edge Function または PostgREST で明細保存
-        const relayRes = await invokeRelay({
+        // サーバー側API (save_document_lines) で明細保存
+        const saveRes = await invokeRelay({
           action: "save_document_lines",
           document_id: docRecord.id,
           lines: parsed.lines,
@@ -343,20 +348,12 @@ export async function runDriveAutoImport(options = {}) {
           total_amount: parsed.declared_net_amount
         });
 
-        if (!relayRes.ok || !relayRes.data.success) {
-          console.warn("    Edge Function save_document_lines 応答失敗。PostgREST へ直接保存します...");
-          // documents テーブル更新
-          await postgrestRequest(`documents?id=eq.${docRecord.id}`, "PATCH", {
-            supplier_name: parsed.supplier_name,
-            document_number: parsed.document_number,
-            issue_date: parsed.accounting_date || parsed.issue_date,
-            total_amount: parsed.declared_net_amount,
-            extracted_line_count: parsed.lines.length,
-            extracted_total_amount: parsed.calculated_total,
-            discrepancy_amount: 0,
-            status: "lines_registered"
-          });
+        if (!saveRes.ok || !saveRes.data?.success) {
+          console.error(`    ✗ save_document_lines 失敗: HTTP ${saveRes.status}`, saveRes.data);
+          errorCount++;
+          continue;
         }
+        console.log(`    ✓ 明細保存完了: lines_count=${saveRes.data.lines_count}, document_status=${saveRes.data.document_status}`);
 
         // GAS v97 で原本移動 (01_inbox -> 02_processed)
         console.log(`    GAS v97経由で原本移動: ${file.id} -> 02_processed...`);
@@ -368,34 +365,35 @@ export async function runDriveAutoImport(options = {}) {
         });
 
         if (!moveRes || !moveRes.success) {
-          throw new Error(`GAS move_drive_file failed: ${JSON.stringify(moveRes)}`);
+          console.error(`    ✗ GAS move_drive_file 失敗:`, moveRes);
+          errorCount++;
+          continue;
         }
         console.log("    ✓ 原本移動成功 (02_processed)");
 
-        // DB上のフォルダ状態更新
-        await postgrestRequest(`documents?id=eq.${docRecord.id}`, "PATCH", {
+        // サーバー側API (update_document_folder) でDB上のフォルダ状態更新
+        const updateFolderRes = await invokeRelay({
+          action: "update_document_folder",
+          document_id: docRecord.id,
           drive_folder_id: CONFIG.processedFolderId,
           status: "processed"
         });
-        console.log("    ✓ DB状態更新完了: status=processed, folder=02_processed");
+        console.log(`    update_document_folder 応答: HTTP ${updateFolderRes.status}`, JSON.stringify(updateFolderRes.data));
+
+        if (!updateFolderRes.ok || !updateFolderRes.data?.success) {
+          console.warn(`    [Notice] update_document_folder API が未配信または失敗: ${updateFolderRes.data?.error || updateFolderRes.data?.message}`);
+        } else {
+          console.log("    ✓ DB状態更新完了: status=processed, folder=02_processed");
+        }
         processedCount++;
       } else {
         console.log("    [Dry-run] 明細保存および 02_processed 移動をシミュレート");
         processedCount++;
       }
     } else {
-      console.warn("\n  [Step 6B] 検算不一致または要確認 => 03_flagged への退避");
+      console.warn("\n  [Step 6B] 要確認原本 => 03_flagged への退避");
       const reasons = parsed.needs_review_reasons.join(", ");
       if (!isDryRun) {
-        // DB状態を flagged_for_review に更新
-        await postgrestRequest(`documents?id=eq.${docRecord.id}`, "PATCH", {
-          supplier_name: parsed.supplier_name || "不明",
-          document_number: parsed.document_number,
-          discrepancy_amount: parsed.discrepancy,
-          status: "flagged_for_review",
-          notes: `要確認理由: ${reasons}, 差額: ${parsed.discrepancy}円`
-        });
-
         // GAS v97 で原本移動 (01_inbox -> 03_flagged)
         console.log(`    GAS v97経由で原本移動: ${file.id} -> 03_flagged...`);
         const moveRes = await callGas({
@@ -404,13 +402,14 @@ export async function runDriveAutoImport(options = {}) {
           file_id: file.id,
           target_folder_id: CONFIG.flaggedFolderId
         });
-        if (!moveRes || !moveRes.success) {
-          console.error(`    GAS move_drive_file to flagged failed: ${JSON.stringify(moveRes)}`);
-        } else {
-          await postgrestRequest(`documents?id=eq.${docRecord.id}`, "PATCH", {
-            drive_folder_id: CONFIG.flaggedFolderId
+        if (moveRes?.success) {
+          console.log("    ✓ 原本退避成功 (03_flagged)");
+          await invokeRelay({
+            action: "update_document_folder",
+            document_id: docRecord.id,
+            drive_folder_id: CONFIG.flaggedFolderId,
+            status: "flagged_for_review"
           });
-          console.log("    ✓ 03_flagged 移動 & DB状態同期完了");
         }
         flaggedCount++;
       } else {
@@ -425,9 +424,10 @@ export async function runDriveAutoImport(options = {}) {
   console.log(`  - 処理完了 (02_processed): ${processedCount} 件`);
   console.log(`  - 要確認退避 (03_flagged): ${flaggedCount} 件`);
   console.log(`  - スキップ (処理済): ${skippedCount} 件`);
+  console.log(`  - エラー (未完了): ${errorCount} 件`);
   console.log("================================================================================\n");
 
-  return { processedCount, flaggedCount, skippedCount };
+  return { processedCount, flaggedCount, skippedCount, errorCount };
 }
 
 // CLI直接実行時

@@ -293,3 +293,4 @@ export function parseKomehyoInvoice(text: string): ParsedInvoiceResult {
 
   return result;
 }
+

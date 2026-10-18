@@ -82,3 +82,4 @@ console.log(`=== 全テスト結果: ${passed}/${passed + failed} PASS (失敗: 
 console.log("==================================================");
 
 if (failed > 0) process.exit(1);
+

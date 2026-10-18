@@ -222,3 +222,4 @@ export function parseNjInvoice(text: string): ParsedInvoiceResult {
 
   return result;
 }
+
