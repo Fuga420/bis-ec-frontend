@@ -243,7 +243,7 @@ async function listInboxFiles(token) {
   const q = encodeURIComponent(`'${CONFIG.inboxFolderId}' in parents and trashed = false and mimeType = 'application/pdf'`);
   do {
     const pageParam = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : "";
-    const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name,mimeType,size,md5Checksum,modifiedTime)&pageSize=100${pageParam}`;
+    const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name,mimeType,size,md5Checksum,modifiedTime)&pageSize=100&supportsAllDrives=true&includeItemsFromAllDrives=true${pageParam}`;
     const res = await fetch(url, {
       headers: { "Authorization": `Bearer ${token}` }
     });
@@ -261,7 +261,7 @@ async function listInboxFiles(token) {
 
 // Drive API: ファイルメタデータ取得 (親フォルダ確認用)
 async function getDriveFileMetadata(fileId, token) {
-  const url = `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,parents,trashed`;
+  const url = `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,parents,trashed&supportsAllDrives=true`;
   const res = await fetch(url, {
     headers: { "Authorization": `Bearer ${token}` }
   });
@@ -275,7 +275,7 @@ async function getDriveFileMetadata(fileId, token) {
 // Drive ファイルのバイナリ取得 (Drive API直接 -> GAS v97 get_drive_file_content フォールバック)
 export async function downloadDriveFile(fileId, token) {
   try {
-    const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+    const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true`;
     const res = await fetch(url, {
       headers: { "Authorization": `Bearer ${token}` }
     });
