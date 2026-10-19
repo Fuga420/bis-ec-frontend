@@ -208,6 +208,34 @@ export async function invokeRelay(payload) {
   return { status: res.status, ok: res.ok, data };
 }
 
+// documents-relay API: 全ページの書類を取得 (ページネーション全件取得・上限超過時の重複防止)
+export async function fetchAllExistingDocuments(relayInvoker = invokeRelay, pageSize = 100) {
+  const allDocs = [];
+  let page = 1;
+  let totalPages = 1;
+
+  do {
+    const listRes = await relayInvoker({
+      action: "list_documents",
+      page,
+      page_size: pageSize
+    });
+
+    if (!listRes.ok || !listRes.data?.success) {
+      const errMsg = listRes.data?.error || listRes.data?.message || `HTTP ${listRes.status}`;
+      throw new Error(`list_documents API 呼出失敗 (page=${page}): ${errMsg}`);
+    }
+
+    const docs = listRes.data.documents || [];
+    allDocs.push(...docs);
+
+    totalPages = listRes.data.total_pages || Math.ceil((listRes.data.count || 0) / pageSize) || 1;
+    page++;
+  } while (page <= totalPages);
+
+  return allDocs;
+}
+
 // Drive API: inbox内のPDF一覧取得 (ページネーション対応・50件上限撤廃)
 async function listInboxFiles(token) {
   let allFiles = [];
@@ -534,13 +562,9 @@ export async function runDriveAutoImport(options = {}) {
     throw new Error("Google Drive Access Token is missing. Provide GOOGLE_ACCESS_TOKEN or configure .clasprc.json.");
   }
 
-  // 既存書類一覧をサーバー側API (list_documents) 経由で取得
-  console.log("  サーバー側API (list_documents) より既存書類一覧を取得中...");
-  const listRes = await invokeRelay({ action: "list_documents" });
-  if (!listRes.ok || !listRes.data?.success) {
-    throw new Error(`list_documents API 呼出失敗: HTTP ${listRes.status} ${JSON.stringify(listRes.data)}`);
-  }
-  const existingDocs = listRes.data.documents || [];
+  // 既存書類一覧をサーバー側API (list_documents) 経由で全ページ取得
+  console.log("  サーバー側API (list_documents) より既存書類一覧を全ページ取得中...");
+  const existingDocs = await fetchAllExistingDocuments(invokeRelay);
   console.log(`  取得済み既存書類件数: ${existingDocs.length} 件`);
 
   // 不整合リカバリの実行 (Drive移動後DB更新失敗分の自動回復)
