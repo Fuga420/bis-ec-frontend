@@ -322,7 +322,20 @@ serve(async (req: Request) => {
         return errorResponse(authResult.code, authResult.message, authResult.status, cors);
       }
 
-      const confirmedBy = inputConfirmedBy || (authResult.callerType === "authenticated_user" ? (authResult.userEmail || authResult.userId) : "staff");
+      // 画面起動の保留判定:
+      // 現行Readdyにはサーバー側でスタッフを限定できるログインセッションが存在しないため、
+      // 公開anon_key + 任意のconfirmed_by による画面直接起動は保留 (403) とし、
+      // 権限のある担当者による Cloud Run Job 手動起動または管理者トークン実行のみを許可する。
+      if (authResult.callerType === "frontend_staff") {
+        return errorResponse(
+          "UI_LAUNCH_ON_HOLD",
+          "現在、Readdy画面からの直接起動はアクセス制御の厳格化に伴い保留されています。取込ジョブは権限のある担当者が Cloud Run Jobs（手動起動または管理者トークン）から実行してください。本画面からは処理結果および台帳の照会が可能です。",
+          403,
+          cors
+        );
+      }
+
+      const confirmedBy = inputConfirmedBy || (authResult.callerType === "authenticated_user" ? (authResult.userEmail || authResult.userId) : "worker_direct");
 
       // 一意なジョブIDの採番 (画面・DB・コンテナ・Execution名で同期)
       const jobId = String(body.job_id || "").trim() || `job_${new Date().toISOString().replace(/[-:T.Z]/g, "").slice(0, 14)}_${Math.random().toString(36).slice(2, 6)}`;

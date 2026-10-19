@@ -111,3 +111,4 @@ main().catch(err => {
   console.error("調査エラー:", err);
   process.exit(1);
 });
+

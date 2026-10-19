@@ -121,6 +121,16 @@ async function run() {
           return;
         }
 
+        if (auth.callerType === "frontend_staff") {
+          res.writeHead(403, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            success: false,
+            error_code: "UI_LAUNCH_ON_HOLD",
+            error: "現在、Readdy画面からの直接起動はアクセス制御の厳格化に伴い保留されています。取込ジョブは権限のある担当者が Cloud Run Jobs（手動起動または管理者トークン）から実行してください。"
+          }));
+          return;
+        }
+
         const jobId = parsed.job_id || "job_test_12345";
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({
@@ -129,7 +139,7 @@ async function run() {
           job_id: jobId,
           status: "running",
           caller_type: auth.callerType,
-          confirmed_by: inputConfirmedBy || (auth.callerType === "authenticated_user" ? auth.userEmail : "staff"),
+          confirmed_by: inputConfirmedBy || (auth.callerType === "authenticated_user" ? auth.userEmail : "worker_direct"),
           operator_user_id: auth.userId || null
         }));
         return;
@@ -158,9 +168,9 @@ async function run() {
 
   try {
     // -------------------------------------------------------------------------
-    // Test 1: 現行Readdy画面からの正規呼出 (anon key + confirmed_by: "staff_suzuki")
+    // Test 1: 現行Readdy画面からの呼出 (anon key + confirmed_by) -> 403 UI_LAUNCH_ON_HOLD で保留
     // -------------------------------------------------------------------------
-    console.log("[Test 1] 現行Readdy画面からの呼出 (anon key + confirmed_by: 'staff_suzuki')");
+    console.log("[Test 1] 現行Readdy画面からの直接呼出 (anon key + confirmed_by: 'staff_suzuki')");
     const res1 = await postApi(
       {
         "apikey": ANON_KEY,
@@ -173,8 +183,8 @@ async function run() {
     );
     console.log(`  -> 応答ステータス: HTTP ${res1.status}`);
     console.log(`  -> 応答ボディ:`, res1.data);
-    if (res1.status === 200 && res1.data.success && res1.data.caller_type === "frontend_staff") {
-      console.log("  ✓ PASS: 現行Readdy画面からの呼出が正常に受付された！\n");
+    if (res1.status === 403 && res1.data.error_code === "UI_LAUNCH_ON_HOLD") {
+      console.log("  ✓ PASS: 画面直接起動が 403 UI_LAUNCH_ON_HOLD で安全に保留・遮断された！\n");
     } else {
       throw new Error(`Test 1 失敗: 想定外の応答 ${res1.status}`);
     }
