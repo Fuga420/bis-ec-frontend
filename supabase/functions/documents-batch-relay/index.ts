@@ -270,7 +270,61 @@ serve(async (req: Request) => {
         console.warn("[documents-batch-relay] 台帳一覧取得エラー:", err.message);
       }
 
-      // 1-3. ワーカーサーバーが生きていればよりリアルタイムなジョブ状態を取得・マージ
+      // 1-3. Google Cloud Run Jobs の Execution 状態照会 (GCP設定がある場合)
+      if (gcpProjectId && gcpAccessToken) {
+        try {
+          let targetExecutionName = requestedJobId;
+          if (!targetExecutionName || !targetExecutionName.startsWith(gcpJobName)) {
+            const listExecUrl = `https://run.googleapis.com/v2/projects/${gcpProjectId}/locations/${gcpRegion}/jobs/${gcpJobName}/executions?pageSize=1`;
+            const listExecRes = await fetch(listExecUrl, {
+              headers: { Authorization: `Bearer ${gcpAccessToken}` }
+            });
+            if (listExecRes.ok) {
+              const execsJson = await listExecRes.json();
+              const latest = (execsJson.executions || [])[0];
+              if (latest?.name) {
+                targetExecutionName = latest.name.split("/").pop();
+              }
+            }
+          }
+
+          if (targetExecutionName) {
+            const execUrl = `https://run.googleapis.com/v2/projects/${gcpProjectId}/locations/${gcpRegion}/jobs/${gcpJobName}/executions/${targetExecutionName}`;
+            const execRes = await fetch(execUrl, {
+              headers: { Authorization: `Bearer ${gcpAccessToken}` }
+            });
+            if (execRes.ok) {
+              const execData = await execRes.json();
+              const conditions = execData.conditions || [];
+              const completedCond = conditions.find((c: any) => c.type === "Completed");
+
+              let execStatus = "running";
+              if (completedCond) {
+                if (completedCond.state === "CONDITION_SUCCEEDED" || completedCond.status === "True") {
+                  execStatus = "completed";
+                } else if (completedCond.state === "CONDITION_FAILED" || completedCond.status === "False") {
+                  execStatus = "failed";
+                }
+              }
+
+              currentJob = {
+                job_id: requestedJobId || targetExecutionName,
+                execution_name: targetExecutionName,
+                status: execStatus,
+                runner: "cloud_run_job",
+                started_at: execData.startTime || null,
+                finished_at: execData.completionTime || null,
+                summary: currentJob?.summary || null,
+                file_results: currentJob?.file_results || []
+              };
+            }
+          }
+        } catch (crErr: any) {
+          console.warn("[documents-batch-relay] Cloud Run Execution 照会エラー:", crErr.message);
+        }
+      }
+
+      // 1-4. ワーカーサーバーが生きていればよりリアルタイムなジョブ状態を取得・マージ
       try {
         const statusUrl = requestedJobId
           ? `${workerServerUrl}/status?job_id=${encodeURIComponent(requestedJobId)}`
@@ -283,7 +337,7 @@ serve(async (req: Request) => {
           }
         }
       } catch (workerErr: any) {
-        console.warn("[documents-batch-relay] ワーカーサーバー状態照会未達 (DB永続化状態を使用):", workerErr.message);
+        console.warn("[documents-batch-relay] ワーカーサーバー状態照会未達:", workerErr.message);
       }
 
       return jsonResponse({
@@ -392,7 +446,8 @@ serve(async (req: Request) => {
             );
           }
 
-          const executionName = runJson.name || "";
+          const rawExecutionName = runJson.metadata?.name ? runJson.metadata.name.split("/").pop() : (runJson.name ? runJson.name.split("/").pop() : "");
+          const executionName = rawExecutionName || jobId;
           return jsonResponse({
             success: true,
             action: "start_inbox_import",

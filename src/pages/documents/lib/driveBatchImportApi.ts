@@ -38,11 +38,29 @@ export interface BatchImportSummary {
 export interface StartBatchImportResponse {
   success: boolean;
   action: string;
+  job_id: string;
+  execution_name?: string;
+  status: "running" | "completed" | "failed";
+  runner?: string;
+  operator?: string;
+  max_files?: number;
   dry_run: boolean;
-  summary: BatchImportSummary;
-  file_results: BatchImportFileResult[];
-  error?: string;
   message?: string;
+  summary?: BatchImportSummary;
+  file_results?: BatchImportFileResult[];
+  error?: string;
+}
+
+export interface CurrentBatchJobState {
+  job_id: string;
+  execution_name?: string;
+  status: "running" | "completed" | "partially_failed" | "failed";
+  runner?: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  summary?: BatchImportSummary | null;
+  file_results?: BatchImportFileResult[];
+  error?: string | null;
 }
 
 export interface BatchImportStatusResponse {
@@ -59,6 +77,7 @@ export interface BatchImportStatusResponse {
     flagged_count: number;
     pending_count: number;
   };
+  current_job?: CurrentBatchJobState | null;
 }
 
 /**
