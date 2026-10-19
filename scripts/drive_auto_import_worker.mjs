@@ -912,35 +912,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const maxFiles = process.env.MAX_FILES ? parseInt(process.env.MAX_FILES, 10) : undefined;
   const dryRun = process.env.DRY_RUN === "true" || process.env.DRY_RUN === "1";
   const targetFileId = process.env.TARGET_FILE_ID || undefined;
-  const startedAt = new Date().toISOString();
-
-  const initialJobState = {
-    job_id: jobId,
-    status: "running",
-    started_at: startedAt,
-    finished_at: null,
-    confirmed_by: confirmedBy,
-    operator_user_id: process.env.OPERATOR_USER_ID || null,
-    operator_email: process.env.OPERATOR_EMAIL || null,
-    total_detected: 0,
-    processed_count: 0,
-    flagged_count: 0,
-    skipped_count: 0,
-    error_count: 0,
-    file_results: [],
-    error: null
-  };
 
   (async () => {
     try {
       console.log(`[Worker CLI] ジョブ開始: ID=${jobId}, confirmed_by=${confirmedBy}, max_files=${maxFiles ?? "all"}, dry_run=${dryRun}`);
-      if (!dryRun) {
-        await saveJobStateToDatabase(initialJobState).catch(err => {
-          console.warn("[Worker CLI] ジョブ開始状態のDB保存警告:", err.message);
-        });
-      } else {
-        console.log("[Worker CLI] [Dry-run] ジョブ開始状態のDB保存をスキップします (完全無書込)");
-      }
 
       const result = await runDriveAutoImport({
         maxFiles,
@@ -949,49 +924,13 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         jobId
       });
 
-      const finalJobState = {
-        ...initialJobState,
-        status: result.error_count > 0 && result.processed_count === 0 ? "failed" : "completed",
-        finished_at: new Date().toISOString(),
-        total_detected: result.total_detected,
-        processed_count: result.processed_count,
-        flagged_count: result.flagged_count,
-        skipped_count: result.skipped_count,
-        error_count: result.error_count,
-        file_results: result.file_results,
-        error: result.error_count > 0 ? `${result.error_count} 件の処理でエラーが発生しました。` : null
-      };
-
-      if (!dryRun) {
-        await saveJobStateToDatabase(finalJobState).catch(err => {
-          console.warn("[Worker CLI] 完了状態のDB保存警告:", err.message);
-        });
-
-        const token = await getDriveAccessToken();
-        if (token) {
-          await saveJobStateToDrive(finalJobState, token).catch(err => {
-            console.warn("[Worker CLI] 完了状態のDrive保存警告:", err.message);
-          });
-        }
-      } else {
-        console.log("[Worker CLI] [Dry-run] 完了状態のDB保存およびDrive保存をスキップします (完全無書込)");
-      }
-
-      console.log(`[Worker CLI] ジョブ完了記録成功: ID=${jobId}, status=${finalJobState.status}`);
-      if (finalJobState.status === "failed") {
+      const finalStatus = result.error_count > 0 && result.processed_count === 0 ? "failed" : "completed";
+      console.log(`[Worker CLI] ジョブ実行完了: ID=${jobId}, status=${finalStatus}, detected=${result.total_detected}, processed=${result.processed_count}, flagged=${result.flagged_count}, skipped=${result.skipped_count}, errors=${result.error_count}`);
+      if (finalStatus === "failed") {
         process.exit(1);
       }
     } catch (err) {
       console.error("FATAL PIPELINE ERROR:", err);
-      const failedJobState = {
-        ...initialJobState,
-        status: "failed",
-        finished_at: new Date().toISOString(),
-        error: err.message
-      };
-      if (!dryRun) {
-        await saveJobStateToDatabase(failedJobState).catch(() => {});
-      }
       process.exit(1);
     }
   })();
