@@ -6,7 +6,7 @@ try {
     { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 }
   );
   const logs = JSON.parse(jsonStr);
-  const targetLogs = logs.filter(l => l.labels?.["run.googleapis.com/execution_name"] === "drive-auto-import-worker-lmgsw");
+  const targetLogs = logs.filter(l => l.labels?.["run.googleapis.com/execution_name"] === "drive-auto-import-worker-dxtnc");
   targetLogs.reverse();
   for (const log of targetLogs) {
     if (log.textPayload) {
