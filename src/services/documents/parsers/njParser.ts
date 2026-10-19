@@ -134,32 +134,36 @@ export function parseNjInvoice(text: string): ParsedInvoiceResult {
     result.lines.push(...allocatedBuyLines);
 
     // 3. 雑費明細行の抽出 (4ページ目)
-    const expenseNetMatch = text.match(/雑費明細書[\s\S]*?課税金額\s*([\d,]+)\s*円/);
-    const expenseTaxMatch = text.match(/雑費明細書[\s\S]*?消費税\(10%\)\s*([\d,]+)\s*円/);
-    const expenseTotalMatch = text.match(/雑費明細書[\s\S]*?\(6\)\s*合計\(▲\)\s*([\d,]+)\s*円/);
+    const expSectionMatch = text.match(/雑費明細書[\s\S]*?(?=株式会社ネットジャパン|-- 4 of 4 --|$)/);
+    if (expSectionMatch) {
+      const expText = expSectionMatch[0];
+      const expenseNetMatch = expText.match(/(?:^|\n)\s*課税金額\s*([\d,]+)\s*円/);
+      const expenseTaxMatch = expText.match(/消費税\(10%\)\s*([\d,]+)\s*円/);
+      const expenseTotalMatch = expText.match(/\(6\)\s*合計\(▲\)\s*([\d,]+)\s*円/);
 
-    if (expenseTotalMatch) {
-      const expNet = expenseNetMatch ? parseInt(expenseNetMatch[1].replace(/,/g, ""), 10) : 2728;
-      const expTax = expenseTaxMatch ? parseInt(expenseTaxMatch[1].replace(/,/g, ""), 10) : 272;
-      const expTotal = parseInt(expenseTotalMatch[1].replace(/,/g, ""), 10);
+      if (expenseTotalMatch) {
+        const expTotal = parseInt(expenseTotalMatch[1].replace(/,/g, ""), 10);
+        const expTax = expenseTaxMatch ? parseInt(expenseTaxMatch[1].replace(/,/g, ""), 10) : 0;
+        const expNet = expenseNetMatch ? parseInt(expenseNetMatch[1].replace(/,/g, ""), 10) : (expTotal - expTax);
 
-      result.lines.push({
-        line_number: result.lines.length + 1,
-        page_number: 4,
-        reception_number_raw: null,
-        reception_number_normalized: null,
-        lot_number: null,
-        branch_number: null,
-        item_name_raw: "雑費 (参加諸費用)",
-        brand_name_raw: null,
-        transaction_type: "other_expense",
-        item_amount: expNet,
-        tax_amount: expTax,
-        fee_amount: 0,
-        fee_tax_amount: 0,
-        total_line_amount: expTotal,
-        notes: `4P 雑費明細書 参加費 (本体: ${expNet.toLocaleString()} 円, 税: ${expTax.toLocaleString()} 円)`
-      });
+        result.lines.push({
+          line_number: result.lines.length + 1,
+          page_number: 4,
+          reception_number_raw: null,
+          reception_number_normalized: null,
+          lot_number: null,
+          branch_number: null,
+          item_name_raw: "雑費 (参加諸費用)",
+          brand_name_raw: null,
+          transaction_type: "other_expense",
+          item_amount: expNet,
+          tax_amount: expTax,
+          fee_amount: 0,
+          fee_tax_amount: 0,
+          total_line_amount: expTotal,
+          notes: `4P 雑費明細書 参加費 (本体: ${expNet.toLocaleString()} 円, 税: ${expTax.toLocaleString()} 円)`
+        });
+      }
     }
   } else if (result.declared_net_amount === 1673518 || (result.member_number === "10773" && result.issue_date === "2026-06-12")) {
     // 代表原本のフォールバック (最大剰余方式適用済み)
