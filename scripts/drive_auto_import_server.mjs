@@ -25,10 +25,13 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import {
+  CONFIG,
   runDriveAutoImport,
   getDriveAccessToken,
   saveJobStateToDrive,
-  getJobStateFromDrive
+  getJobStateFromDrive,
+  saveJobStateToDatabase,
+  getJobStateFromDatabase
 } from "./drive_auto_import_worker.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -72,9 +75,16 @@ async function persistJobState(job) {
     console.warn("[Server] ローカルジョブ状態の書き込み失敗:", err.message);
   }
 
-  // Google Drive 共有ストレージへの同期保存
+  // 1. Readdy 内蔵 Backend Database への永続化保存
   try {
-    const token = getDriveAccessToken();
+    await saveJobStateToDatabase(job);
+  } catch (dbErr) {
+    console.warn("[Server] Readdy内蔵DBへのジョブ状態保存失敗:", dbErr.message);
+  }
+
+  // 2. Google Drive 共有ストレージへの同期保存
+  try {
+    const token = await getDriveAccessToken();
     if (token) {
       await saveJobStateToDrive(job, token);
     }
@@ -87,7 +97,7 @@ async function persistJobState(job) {
 async function executeJobCore(jobId, options = {}) {
   try {
     console.log(`\n[Server] === ジョブ開始: ${jobId} ===`);
-    const summary = await runDriveAutoImport(options);
+    const summary = await runDriveAutoImport({ ...options, job_id: jobId });
 
     currentJob.status = "completed";
     currentJob.finished_at = new Date().toISOString();
@@ -134,10 +144,21 @@ const server = http.createServer(async (req, res) => {
 
   // 2. GET /status : 最新ジョブの進捗・結果取得 (メモリ + Drive共有ストレージ照合)
   if (req.method === "GET" && (pathname === "/status" || pathname === "/api/import-status")) {
-    // もしメモリ上のジョブが空、または最新情報を確認したい場合、Drive共有ストレージを照会
+    // もしメモリ上のジョブが空、または最新情報を確認したい場合、Readdy内蔵DBおよびDrive共有ストレージを照会
+    if (!currentJob.job_id || url.searchParams.get("sync_db") === "true") {
+      try {
+        const dbJob = await getJobStateFromDatabase();
+        if (dbJob && dbJob.job_id) {
+          currentJob = dbJob;
+        }
+      } catch (err) {
+        console.warn("[Server] Readdy内蔵DBジョブ状態照会例外:", err.message);
+      }
+    }
+
     if (!currentJob.job_id || url.searchParams.get("sync_drive") === "true") {
       try {
-        const token = getDriveAccessToken();
+        const token = await getDriveAccessToken();
         if (token) {
           const driveJob = await getJobStateFromDrive(token);
           if (driveJob && driveJob.job_id) {
@@ -159,6 +180,17 @@ const server = http.createServer(async (req, res) => {
 
   // 3. POST /start : 一括取込ジョブの開始依頼
   if (req.method === "POST" && (pathname === "/start" || pathname === "/api/start-import")) {
+    const tokenHeader = req.headers["x-bis-worker-token"] || "";
+    if (CONFIG.workerSecret && tokenHeader !== CONFIG.workerSecret) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: false,
+        error_code: "UNAUTHORIZED_WORKER_ACCESS",
+        message: "ワーカーへの実行依頼には有効な管理者トークン (x-bis-worker-token) が必要です。"
+      }));
+      return;
+    }
+
     if (currentJob.status === "running") {
       res.writeHead(409, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
@@ -229,9 +261,10 @@ const server = http.createServer(async (req, res) => {
   res.end(JSON.stringify({ success: false, error: "Not Found" }));
 });
 
-export function startServer() {
-  server.listen(PORT, () => {
-    console.log(`[Server] Drive Auto Import Server listening on port ${PORT}`);
+export function startServer(port = PORT) {
+  const p = port || PORT;
+  server.listen(p, () => {
+    console.log(`[Server] Drive Auto Import Server listening on port ${p}`);
   });
 }
 

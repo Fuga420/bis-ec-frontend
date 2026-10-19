@@ -64,7 +64,7 @@ function loadEnv() {
 loadEnv();
 
 // 設定パラメータ
-const CONFIG = {
+export const CONFIG = {
   supabaseUrl: process.env.VITE_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "https://yg9qauzldubdo1ca5z0z.helloreaddy.com",
   supabaseAnonKey: process.env.VITE_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "",
   workerSecret: process.env.DOCUMENTS_WORKER_SECRET || "",
@@ -162,7 +162,7 @@ async function callGas(payload) {
 }
 
 // documents-relay Edge Function 呼び出し (サーバー側権限API)
-async function invokeRelay(payload) {
+export async function invokeRelay(payload) {
   const url = `${CONFIG.supabaseUrl}/functions/v1/documents-relay`;
   const headers = {
     "apikey": CONFIG.supabaseAnonKey,
@@ -224,7 +224,7 @@ async function getDriveFileMetadata(fileId, token) {
 }
 
 // Drive ファイルのバイナリ取得 (Drive API直接 -> GAS v97 get_drive_file_content フォールバック)
-async function downloadDriveFile(fileId, token) {
+export async function downloadDriveFile(fileId, token) {
   try {
     const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
     const res = await fetch(url, {
@@ -334,6 +334,58 @@ export async function getJobStateFromDrive(token) {
     return await dlRes.json();
   } catch (err) {
     console.warn("  [Warn] Drive共有ストレージからのジョブ状態取得失敗:", err.message);
+    return null;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Readdy 内蔵 Backend Database: ジョブ状態 (documentsテーブル) の保存・取得
+// -----------------------------------------------------------------------------
+export async function saveJobStateToDatabase(jobState) {
+  try {
+    const payload = {
+      action: "register_drive_document",
+      drive_file_id: `job:${jobState.job_id}:${jobState.status}`,
+      file_name: `import_job_${jobState.job_id}.json`,
+      document_type: "batch_import_job",
+      document_number: jobState.job_id,
+      supplier_name: "SYSTEM_BATCH_JOB",
+      notes: JSON.stringify(jobState),
+      confirmed_by: "cloud-run-job",
+      status: jobState.status === "completed" ? "processed" : "pending"
+    };
+    const res = await invokeRelay(payload);
+    return Boolean(res.ok && res.data?.success);
+  } catch (err) {
+    console.warn("  [Warn] Readdy内蔵DBへのジョブ状態保存失敗:", err.message);
+    return false;
+  }
+}
+
+export async function getJobStateFromDatabase() {
+  try {
+    const res = await invokeRelay({ action: "list_documents" });
+    if (!res.ok || !res.data?.success) return null;
+    const docs = res.data.documents || [];
+    const jobDocs = docs.filter((d) => d.document_type === "batch_import_job");
+    if (jobDocs.length === 0) return null;
+
+    jobDocs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const latestDoc = jobDocs[0];
+    if (latestDoc.notes) {
+      try {
+        return JSON.parse(latestDoc.notes);
+      } catch {
+        return {
+          job_id: latestDoc.document_number,
+          status: latestDoc.status === "processed" ? "completed" : latestDoc.status,
+          raw_notes: latestDoc.notes
+        };
+      }
+    }
+    return null;
+  } catch (err) {
+    console.warn("  [Warn] Readdy内蔵DBからのジョブ状態取得失敗:", err.message);
     return null;
   }
 }
@@ -540,6 +592,9 @@ export async function runDriveAutoImport(options = {}) {
           drive_file_url: `https://drive.google.com/file/d/${file.id}/view`,
           status: "pending_amount"
         };
+        if (options.job_id || options.jobId) {
+          payload.notes = JSON.stringify({ job_id: options.job_id || options.jobId });
+        }
 
         if (!isDryRun) {
           const regRes = await invokeRelay(payload);

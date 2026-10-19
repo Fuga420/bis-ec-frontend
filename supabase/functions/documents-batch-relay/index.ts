@@ -127,20 +127,38 @@ serve(async (req: Request) => {
           flagged_count: docs.filter((d: any) => d.drive_folder_id === flaggedFolderId).length,
           pending_count: docs.filter((d: any) => d.status === "pending_amount" && d.drive_folder_id !== flaggedFolderId).length,
         };
+        // 1-2. Readdy内蔵DBの documents から最新 batch_import_job を復元
+        const jobDocs = docs.filter((d: any) => d.document_type === "batch_import_job");
+        if (jobDocs.length > 0) {
+          jobDocs.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+          const latestDoc = jobDocs[0];
+          if (latestDoc.notes) {
+            try {
+              currentJob = JSON.parse(latestDoc.notes);
+            } catch {
+              currentJob = {
+                job_id: latestDoc.document_number,
+                status: latestDoc.status === "processed" ? "completed" : latestDoc.status,
+                raw_notes: latestDoc.notes
+              };
+            }
+          }
+        }
       } catch (err: any) {
         console.warn("[documents-batch-relay] 台帳一覧取得エラー:", err.message);
       }
 
-      // 1-2. ワーカーサーバーの最新ジョブ状態を取得
-      let currentJob: any = null;
+      // 1-3. ワーカーサーバーが生きていればよりリアルタイムなジョブ状態を取得・マージ
       try {
         const statusRes = await fetch(`${workerServerUrl}/status`, { method: "GET" });
         if (statusRes.ok) {
           const statusJson = await statusRes.json();
-          currentJob = statusJson.current_job || null;
+          if (statusJson.current_job?.job_id) {
+            currentJob = statusJson.current_job;
+          }
         }
       } catch (workerErr: any) {
-        console.warn("[documents-batch-relay] ワーカーサーバー状態照会未達:", workerErr.message);
+        console.warn("[documents-batch-relay] ワーカーサーバー状態照会未達 (DB永続化状態を使用):", workerErr.message);
       }
 
       return jsonResponse({
@@ -160,10 +178,21 @@ serve(async (req: Request) => {
     // 2. start_inbox_import: ワーカーサーバーへのジョブ開始依頼
     // -------------------------------------------------------------------------
     if (action === ACTIONS.start_inbox_import) {
+      // 管理者境界の制限: 実行権限の確認
+      const tokenHeader = req.headers.get("x-bis-worker-token") || "";
+      const confirmedBy = String(body.confirmed_by || "").trim();
+      const hasAdminAuth = (workerSecret && tokenHeader === workerSecret) || confirmedBy.length > 0;
+      if (!hasAdminAuth) {
+        return errorResponse("UNAUTHORIZED_ADMIN_ACTION", "一括取込の実行には管理者権限 (x-bis-worker-token または confirmed_by) が必要です。", 403, cors);
+      }
+
       try {
         const startRes = await fetch(`${workerServerUrl}/start`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "x-bis-worker-token": workerSecret
+          },
           body: JSON.stringify(body)
         });
 
