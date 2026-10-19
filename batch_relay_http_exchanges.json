@@ -1,0 +1,200 @@
+{
+  "start_request": {
+    "url": "http://localhost:54321/functions/v1/documents-batch-relay",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json",
+      "x-bis-worker-token": "[REDACTED_WORKER_SECRET]"
+    },
+    "body": {
+      "action": "start_inbox_import",
+      "confirmed_by": "staff_readdy_test",
+      "max_files": 1,
+      "dry_run": true
+    }
+  },
+  "start_response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "action": "start_inbox_import",
+      "job_id": "job_20261019092157_yow2",
+      "execution_name": "drive-auto-import-worker-npjpb",
+      "status": "running",
+      "runner": "cloud_run_job",
+      "operator": "staff_readdy_test",
+      "max_files": 1,
+      "dry_run": true,
+      "message": "Cloud Run Job の実行を開始しました。"
+    }
+  },
+  "running_request": {
+    "url": "http://localhost:54321/functions/v1/documents-batch-relay",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "action": "get_inbox_import_status",
+      "job_id": "drive-auto-import-worker-npjpb"
+    }
+  },
+  "running_response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "action": "get_inbox_import_status",
+      "folders": {
+        "inbox_folder_id": "1ctLRUQbwINARCDuGdYnpkrCkkK287HV5",
+        "processed_folder_id": "1MUpsttOl2MY1Q8QAptSX_1vBGjl_aXY3",
+        "flagged_folder_id": "1kgnzKvslB0J2Mq8ZM8-PqsTjret1CQ3E"
+      },
+      "document_ledger_summary": {
+        "total_documents": 20,
+        "processed_count": 4,
+        "flagged_count": 2,
+        "pending_count": 13
+      },
+      "current_job": {
+        "job_id": "drive-auto-import-worker-npjpb",
+        "execution_name": "drive-auto-import-worker-npjpb",
+        "status": "running",
+        "result_status": "in_progress",
+        "runner": "cloud_run_job",
+        "started_at": null,
+        "finished_at": null,
+        "message": "ジョブ実行中...",
+        "summary": null,
+        "file_results": null
+      }
+    }
+  },
+  "completed_request": {
+    "url": "http://localhost:54321/functions/v1/documents-batch-relay",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "action": "get_inbox_import_status",
+      "job_id": "drive-auto-import-worker-npjpb"
+    }
+  },
+  "completed_response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "action": "get_inbox_import_status",
+      "folders": {
+        "inbox_folder_id": "1ctLRUQbwINARCDuGdYnpkrCkkK287HV5",
+        "processed_folder_id": "1MUpsttOl2MY1Q8QAptSX_1vBGjl_aXY3",
+        "flagged_folder_id": "1kgnzKvslB0J2Mq8ZM8-PqsTjret1CQ3E"
+      },
+      "document_ledger_summary": {
+        "total_documents": 20,
+        "processed_count": 4,
+        "flagged_count": 2,
+        "pending_count": 13
+      },
+      "current_job": {
+        "job_id": "drive-auto-import-worker-npjpb",
+        "execution_name": "drive-auto-import-worker-npjpb",
+        "status": "completed",
+        "result_status": "retrieved",
+        "runner": "cloud_run_job",
+        "started_at": "2026-10-19T09:22:01.048826Z",
+        "finished_at": "2026-10-19T09:22:22.986191Z",
+        "message": "ジョブ完了（実績取得済み）",
+        "summary": {
+          "total_detected": 1,
+          "processed_count": 0,
+          "flagged_count": 0,
+          "skipped_count": 1,
+          "error_count": 0
+        },
+        "file_results": [
+          {
+            "file_id": "1Dfx3hFIL6Ghv-f-RVgB0V_p_DRj3L18z",
+            "file_name": "CR_RELAY_TEST_577-20260126-20260129-10773.pdf",
+            "file_size": 632172,
+            "status": "skipped",
+            "document_id": "f20aeb19-cd78-4cc2-bafb-f3c6a93edc58",
+            "supplier_name": null,
+            "document_number": null,
+            "declared_net_amount": null,
+            "calculated_total": null,
+            "discrepancy": null,
+            "lines_count": 0,
+            "is_balanced": false,
+            "needs_review_reasons": [],
+            "error": null
+          }
+        ]
+      }
+    }
+  },
+  "reopen_request": {
+    "url": "http://localhost:54321/functions/v1/documents-batch-relay",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "action": "get_inbox_import_status",
+      "job_id": "drive-auto-import-worker-npjpb"
+    }
+  },
+  "reopen_response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "action": "get_inbox_import_status",
+      "folders": {
+        "inbox_folder_id": "1ctLRUQbwINARCDuGdYnpkrCkkK287HV5",
+        "processed_folder_id": "1MUpsttOl2MY1Q8QAptSX_1vBGjl_aXY3",
+        "flagged_folder_id": "1kgnzKvslB0J2Mq8ZM8-PqsTjret1CQ3E"
+      },
+      "document_ledger_summary": {
+        "total_documents": 20,
+        "processed_count": 4,
+        "flagged_count": 2,
+        "pending_count": 13
+      },
+      "current_job": {
+        "job_id": "drive-auto-import-worker-npjpb",
+        "execution_name": "drive-auto-import-worker-npjpb",
+        "status": "completed",
+        "result_status": "retrieved",
+        "runner": "cloud_run_job",
+        "started_at": "2026-10-19T09:22:01.048826Z",
+        "finished_at": "2026-10-19T09:22:22.986191Z",
+        "message": "ジョブ完了（実績取得済み）",
+        "summary": {
+          "total_detected": 1,
+          "processed_count": 0,
+          "flagged_count": 0,
+          "skipped_count": 1,
+          "error_count": 0
+        },
+        "file_results": [
+          {
+            "file_id": "1Dfx3hFIL6Ghv-f-RVgB0V_p_DRj3L18z",
+            "file_name": "CR_RELAY_TEST_577-20260126-20260129-10773.pdf",
+            "file_size": 632172,
+            "status": "skipped",
+            "document_id": "f20aeb19-cd78-4cc2-bafb-f3c6a93edc58",
+            "supplier_name": null,
+            "document_number": null,
+            "declared_net_amount": null,
+            "calculated_total": null,
+            "discrepancy": null,
+            "lines_count": 0,
+            "is_balanced": false,
+            "needs_review_reasons": [],
+            "error": null
+          }
+        ]
+      }
+    }
+  }
+}

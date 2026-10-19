@@ -55,9 +55,11 @@ export interface CurrentBatchJobState {
   job_id: string;
   execution_name?: string;
   status: "running" | "completed" | "partially_failed" | "failed";
+  result_status?: "in_progress" | "retrieved" | "not_retrieved";
   runner?: string;
   started_at?: string | null;
   finished_at?: string | null;
+  message?: string;
   summary?: BatchImportSummary | null;
   file_results?: BatchImportFileResult[];
   error?: string | null;
