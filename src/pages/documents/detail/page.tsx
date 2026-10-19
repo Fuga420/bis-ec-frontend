@@ -9,6 +9,7 @@ import {
   deleteDocumentLine,
   fetchDocumentDetail,
   linkLineToProduct,
+  linkLineWithBreakdown,
   saveDocumentLines,
   unlinkProductManual,
 } from "@/pages/documents/lib/documentLedgerApi";
@@ -142,7 +143,7 @@ export default function DocumentDetailPage() {
     }
   };
 
-  // 商品の手動紐付け（link_product_manual）。
+  // 商品の手動紐付け（link_product_manual / linkLineWithBreakdown）。
   const handleLink = async (
     line: DocumentLedgerLine,
     product: { product_id: string; product_name: string },
@@ -156,14 +157,49 @@ export default function DocumentDetailPage() {
     setBusyLineId(line.line_id);
     setMessage(null);
     try {
-      await linkLineToProduct({
-        documentLineId: line.server_id,
-        productId: product.product_id,
-        allocatedAmount:
-          allocatedAmountText.trim() === "" ? null : Number(allocatedAmountText),
-      });
+      // ユーザー要求: スタッフが受付番号候補を確認して一度確定するだけで、商品代金と落札手数料が別項目として紐付くようにする
+      // 明細行に商品代金税込および落札手数料税込が存在し、割当金額の手動上書きがない場合は自動分離紐付けを実行
+      if (
+        line.fee_amount_tax_included &&
+        line.fee_amount_tax_included > 0 &&
+        allocatedAmountText.trim() === ""
+      ) {
+        const breakdownRes = await linkLineWithBreakdown({
+          documentLineId: line.server_id,
+          productId: product.product_id,
+          itemAmountTaxIncluded: line.item_amount_tax_included,
+          feeAmountTaxIncluded: line.fee_amount_tax_included,
+          totalLineAmount: line.amount,
+          confirmedBy: "staff",
+        });
+
+        if (!breakdownRes.isComplete) {
+          setMessage({
+            type: "error",
+            text:
+              breakdownRes.error ||
+              "内訳の紐付けが一部未完了です。再度確定して修復してください。",
+          });
+        } else {
+          setMessage({
+            type: "success",
+            text: `商品を紐付けました（商品代: ¥${(
+              line.item_amount_tax_included ?? 0
+            ).toLocaleString()} / 落札手数料: ¥${line.fee_amount_tax_included.toLocaleString()}）。`,
+          });
+        }
+      } else {
+        await linkLineToProduct({
+          documentLineId: line.server_id,
+          productId: product.product_id,
+          allocatedAmount:
+            allocatedAmountText.trim() === ""
+              ? null
+              : Number(allocatedAmountText),
+        });
+        setMessage({ type: "success", text: "商品を紐付けました。" });
+      }
       await loadDetail();
-      setMessage({ type: "success", text: "商品を紐付けました。" });
     } catch (e) {
       if (
         e instanceof DocumentLedgerApiError &&
@@ -186,12 +222,22 @@ export default function DocumentDetailPage() {
 
   // 紐付け解除（unlink_product_manual）。
   const handleUnlink = async (line: DocumentLedgerLine) => {
-    if (!line.link_id) return;
+    if (!line.link_id && (!line.links || line.links.length === 0)) return;
     setBusyLineId(line.line_id);
     setMessage(null);
     try {
-      await unlinkProductManual(line.link_id);
+      if (line.links && line.links.length > 0) {
+        const activeLinks = line.links.filter(
+          (l) => !l.is_deleted && l.status === "confirmed"
+        );
+        for (const l of activeLinks) {
+          await unlinkProductManual(l.id);
+        }
+      } else if (line.link_id) {
+        await unlinkProductManual(line.link_id);
+      }
       await loadDetail();
+      setMessage({ type: "success", text: "紐付けを解除しました。" });
     } catch (e) {
       setMessage({
         type: "error",

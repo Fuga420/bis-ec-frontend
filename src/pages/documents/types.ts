@@ -64,6 +64,21 @@ export interface DocumentLedgerLine {
   link_id?: string;
   // 割当金額（allocated_amount）
   allocated_amount?: number | null;
+  // 商品代金税込（item_amount_tax_included）
+  item_amount_tax_included?: number | null;
+  // 落札手数料税込（fee_amount_tax_included）
+  fee_amount_tax_included?: number | null;
+  // 受付番号（receipt_number）
+  receipt_number?: string | null;
+  // 紐付け履歴・内訳一覧（商品代・手数料の複数リンク管理用）
+  links?: Array<{
+    id: string;
+    product_id: string;
+    link_type: string;
+    allocated_amount: number | null;
+    status: string;
+    is_deleted?: boolean;
+  }>;
 }
 
 // 書類1件（原本は Drive に保管、構造化データは台帳に保存する想定）。

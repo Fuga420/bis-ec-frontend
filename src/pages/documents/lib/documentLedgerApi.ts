@@ -98,7 +98,8 @@ async function invokeRelay(body: RelayRecord): Promise<RelayRecord> {
 // 明細行の応答を画面表示用に写像する。
 function mapLine(raw: RelayRecord): DocumentLedgerLine {
   const links = Array.isArray(raw.links) ? (raw.links as RelayRecord[]) : [];
-  const firstLink = links[0];
+  const activeLinks = links.filter((l) => !l.is_deleted);
+  const firstLink = activeLinks[0] || links[0];
   const serverId = raw.id !== undefined && raw.id !== null ? String(raw.id) : undefined;
   return {
     line_id: serverId ?? `local-${Math.random().toString(36).slice(2, 10)}`,
@@ -112,6 +113,23 @@ function mapLine(raw: RelayRecord): DocumentLedgerLine {
     product_name: "",
     link_id: firstLink ? asString(firstLink.id) : undefined,
     allocated_amount: firstLink ? toNumberOrNull(firstLink.allocated_amount) : null,
+    item_amount_tax_included: toNumberOrNull(raw.item_amount_tax_included),
+    fee_amount_tax_included: toNumberOrNull(raw.fee_amount_tax_included),
+    receipt_number: raw.receipt_number_normalized
+      ? asString(raw.receipt_number_normalized)
+      : raw.reception_number_normalized
+        ? asString(raw.reception_number_normalized)
+        : raw.receipt_number
+          ? asString(raw.receipt_number)
+          : null,
+    links: links.map((l) => ({
+      id: asString(l.id),
+      product_id: asString(l.product_id),
+      link_type: asString(l.link_type),
+      allocated_amount: toNumberOrNull(l.allocated_amount),
+      status: asString(l.status),
+      is_deleted: Boolean(l.is_deleted),
+    })),
   };
 }
 
@@ -259,14 +277,128 @@ export interface LinkProductInput {
   linkType?: string;
 }
 
-export async function linkLineToProduct(input: LinkProductInput): Promise<void> {
-  await invokeRelay({
+export async function linkLineToProduct(input: LinkProductInput): Promise<RelayRecord> {
+  const res = await invokeRelay({
     action: "link_product_manual",
     document_line_id: input.documentLineId,
     product_id: input.productId,
     link_type: input.linkType ?? "primary_cost",
     allocated_amount: input.allocatedAmount ?? null,
   });
+  return (res.link as RelayRecord) ?? {};
+}
+
+// 商品代金と落札手数料の自動分離紐付け (ワンクリック確定用)
+export interface LinkWithBreakdownInput {
+  documentLineId: string;
+  productId: string;
+  itemAmountTaxIncluded?: number | null;
+  feeAmountTaxIncluded?: number | null;
+  totalLineAmount?: number | null;
+  confirmedBy?: string;
+}
+
+export interface LinkWithBreakdownResult {
+  primaryLink: RelayRecord | null;
+  commissionLink: RelayRecord | null;
+  isComplete: boolean;
+  error?: string;
+}
+
+export async function linkLineWithBreakdown(input: LinkWithBreakdownInput): Promise<LinkWithBreakdownResult> {
+  const result: LinkWithBreakdownResult = {
+    primaryLink: null,
+    commissionLink: null,
+    isComplete: false,
+  };
+
+  const hasCommission = Boolean(input.feeAmountTaxIncluded && input.feeAmountTaxIncluded > 0);
+
+  // 1. 商品代金の紐付け (primary_cost)
+  const primaryAmount = hasCommission
+    ? input.itemAmountTaxIncluded
+    : (input.totalLineAmount ?? input.itemAmountTaxIncluded);
+
+  try {
+    const res1 = await invokeRelay({
+      action: "link_product_manual",
+      document_line_id: input.documentLineId,
+      product_id: input.productId,
+      link_type: "primary_cost",
+      allocated_amount: primaryAmount ?? null,
+      confirmed_by: input.confirmedBy || "staff",
+    });
+    result.primaryLink = (res1.link as RelayRecord) ?? null;
+  } catch (err: any) {
+    result.error = `primary_cost 割当失敗: ${err.message}`;
+    return result;
+  }
+
+  // 2. 落札手数料が存在する場合の紐付け (commission)
+  if (hasCommission) {
+    try {
+      const res2 = await invokeRelay({
+        action: "link_product_manual",
+        document_line_id: input.documentLineId,
+        product_id: input.productId,
+        link_type: "commission",
+        allocated_amount: input.feeAmountTaxIncluded ?? null,
+        confirmed_by: input.confirmedBy || "staff",
+      });
+      result.commissionLink = (res2.link as RelayRecord) ?? null;
+      result.isComplete = true;
+    } catch (err: any) {
+      result.error = `commission 割当失敗 (片方未完了): ${err.message}`;
+      result.isComplete = false;
+      return result;
+    }
+  } else {
+    result.isComplete = true;
+  }
+
+  return result;
+}
+
+// 片方の保存だけが成功した場合の検出と再試行 (整合回復)
+export async function repairIncompleteLinks(
+  documentLineId: string,
+  productId: string,
+  existingLinks: RelayRecord[],
+  expectedAmounts: { itemAmountTaxIncluded?: number | null; feeAmountTaxIncluded?: number | null }
+): Promise<{ repaired: boolean; message: string }> {
+  const hasPrimary = existingLinks.some(l => l.link_type === "primary_cost" && !l.is_deleted && l.status === "confirmed");
+  const hasCommission = existingLinks.some(l => l.link_type === "commission" && !l.is_deleted && l.status === "confirmed");
+
+  const needsCommission = Boolean(expectedAmounts.feeAmountTaxIncluded && expectedAmounts.feeAmountTaxIncluded > 0);
+
+  // すでに両方揃っている場合
+  if (hasPrimary && (!needsCommission || hasCommission)) {
+    return { repaired: false, message: "リンクは既に完全な状態です。" };
+  }
+
+  // primary_cost が不足している場合
+  if (!hasPrimary) {
+    await invokeRelay({
+      action: "link_product_manual",
+      document_line_id: documentLineId,
+      product_id: productId,
+      link_type: "primary_cost",
+      allocated_amount: expectedAmounts.itemAmountTaxIncluded ?? null,
+    });
+  }
+
+  // commission が不足している場合
+  if (needsCommission && !hasCommission) {
+    await invokeRelay({
+      action: "link_product_manual",
+      document_line_id: documentLineId,
+      product_id: productId,
+      link_type: "commission",
+      allocated_amount: expectedAmounts.feeAmountTaxIncluded ?? null,
+    });
+  }
+
+  return { repaired: true, message: "不足していた片方のリンクを追加登録し、内訳の整合性を回復しました。" };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -379,3 +511,68 @@ export async function updateDocumentFolder(
   });
   return mapDocument(result.document as RelayRecord);
 }
+
+// ─────────────────────────────────────────────────────────────
+// 一括取込 (documents-batch-relay) 連携API
+// ブラウザからは DOCUMENTS_WORKER_SECRET を一切要求せず、
+// Supabase Auth (JWT) または confirmed_by だけで中継を呼び出す。
+// ─────────────────────────────────────────────────────────────
+
+const BATCH_RELAY_FUNCTION = "documents-batch-relay";
+
+export async function invokeBatchRelay(body: RelayRecord): Promise<RelayRecord> {
+  const client = getSupabaseClient();
+  if (!client) {
+    throw new DocumentLedgerApiError(
+      "BACKEND_NOT_CONNECTED",
+      "バックエンドに接続されていません。"
+    );
+  }
+
+  const { data, error } = await client.functions.invoke(BATCH_RELAY_FUNCTION, { body });
+
+  if (error) {
+    let code = "BATCH_RELAY_FAILED";
+    let message = error.message || "一括取込中継の呼び出しに失敗しました。";
+    const context = (error as { context?: Response }).context;
+    if (context && typeof context.json === "function") {
+      try {
+        const payload = (await context.json()) as RelayRecord;
+        code = asString(payload.error_code) || code;
+        message = asString(payload.message) || asString(payload.error) || message;
+      } catch {}
+    }
+    throw new DocumentLedgerApiError(code, message);
+  }
+
+  const result = (data ?? {}) as RelayRecord;
+  if (result.success !== true) {
+    throw new DocumentLedgerApiError(
+      asString(result.error_code) || "BATCH_RELAY_ERROR",
+      asString(result.message) || asString(result.error) || "一括取込処理に失敗しました。"
+    );
+  }
+  return result;
+}
+
+/**
+ * Drive 01_inbox の一括取込を開始する。
+ * ブラウザに秘密鍵を持たせず、操作者名 (confirmedBy) のみを送信する。
+ */
+export async function startInboxImport(confirmedBy = "staff"): Promise<RelayRecord> {
+  return invokeBatchRelay({
+    action: "start_inbox_import",
+    confirmed_by: confirmedBy,
+  });
+}
+
+/**
+ * 一括取込ジョブの進捗・ファイル別結果を照会する。
+ * タブを閉じた後やリロード後でも、特定の jobId または最新ジョブの永続化結果を再取得できる。
+ */
+export async function fetchInboxImportStatus(jobId?: string): Promise<RelayRecord> {
+  return invokeBatchRelay({
+    action: "get_inbox_import_status",
+    job_id: jobId,
+  });
+}

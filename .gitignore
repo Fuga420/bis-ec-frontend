@@ -8,3 +8,5 @@ out/
 .DS_Store
 supabase/.temp/
 .import_job_*.json
+auto-imports.d.ts
+*.code-workspace

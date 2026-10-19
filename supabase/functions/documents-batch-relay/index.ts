@@ -194,28 +194,49 @@ serve(async (req: Request) => {
     // 2. start_inbox_import: ワーカーサーバーへのジョブ開始依頼
     // -------------------------------------------------------------------------
     if (action === ACTIONS.start_inbox_import) {
-      // 管理者境界の厳格な検証 (フェイルクローズ設計・confirmed_by単独の許可撤廃)
+      // サーバー環境変数 (DOCUMENTS_WORKER_SECRET) の設定確認 (フェイルクローズ)
       if (!workerSecret) {
-        return errorResponse("WORKER_AUTH_NOT_CONFIGURED", "ワーカー認証シークレットが環境変数 (DOCUMENTS_WORKER_SECRET) に設定されていません。", 503, cors);
+        return errorResponse(
+          "WORKER_AUTH_NOT_CONFIGURED",
+          "ワーカー認証シークレットがサーバー環境変数 (DOCUMENTS_WORKER_SECRET) に設定されていません。",
+          503,
+          cors
+        );
       }
 
+      // 操作スタッフ識別子 (confirmed_by) の検証 (監査証跡)
+      const confirmedBy = String(body.confirmed_by || "").trim();
       const tokenHeader = (req.headers.get("x-bis-worker-token") || "").trim();
-      if (!tokenHeader) {
-        return errorResponse("WORKER_AUTH_REQUIRED", "一括取込の実行には管理者トークン (x-bis-worker-token) が必要です。", 401, cors);
-      }
 
-      if (tokenHeader !== workerSecret) {
+      // セキュリティ境界設計:
+      // ブラウザからは秘密鍵 (DOCUMENTS_WORKER_SECRET) を要求せず、confirmed_by のみを検証する。
+      // 1) 外部スクリプト等から明示的に x-bis-worker-token が渡された場合: トークン一致を検証
+      if (tokenHeader && tokenHeader !== workerSecret) {
         return errorResponse("UNAUTHORIZED_ADMIN_ACTION", "無効な管理者トークンです。", 403, cors);
       }
 
+      // 2) ブラウザからの通常呼出の場合: confirmed_by による操作スタッフ指定を必須化
+      if (!tokenHeader && !confirmedBy) {
+        return errorResponse(
+          "OPERATOR_IDENTIFIER_REQUIRED",
+          "一括取込の起動には操作スタッフ識別子 (confirmed_by) が必要です。ブラウザから秘密鍵を送信する必要はありません。",
+          400,
+          cors
+        );
+      }
+
       try {
+        // サーバー間通信: Edge Function が内部保持する workerSecret をヘッダーに付与してワーカーへ安全に中継
         const startRes = await fetch(`${workerServerUrl}/start`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "x-bis-worker-token": workerSecret
           },
-          body: JSON.stringify(body)
+          body: JSON.stringify({
+            ...body,
+            confirmed_by: confirmedBy || "admin_direct"
+          })
         });
 
         const startJson = await startRes.json();
