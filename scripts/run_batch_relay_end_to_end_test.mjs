@@ -341,3 +341,4 @@ main().catch(err => {
   console.error("\n実測テスト実行時例外:", err);
   process.exit(1);
 });
+

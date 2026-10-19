@@ -41,3 +41,4 @@ export async function getAccessTokenFromServiceAccount(keyFile) {
 getAccessTokenFromServiceAccount("sa_key.json")
   .then(r => console.log("Token generation success:", { token_type: r.token_type, expires_in: r.expires_in, has_token: r.has_token }))
   .catch(console.error);
+

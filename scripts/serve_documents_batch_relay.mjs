@@ -105,3 +105,4 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`[documents-batch-relay] Relay server running at http://localhost:${PORT}/functions/v1/documents-batch-relay`);
 });
+

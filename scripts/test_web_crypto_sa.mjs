@@ -65,3 +65,4 @@ const keyJson = fs.readFileSync("sa_key.json", "utf8");
 getGcpAccessTokenFromServiceAccount(keyJson)
   .then(token => console.log("WebCrypto SA Token Success! Length:", token.length))
   .catch(console.error);
+
