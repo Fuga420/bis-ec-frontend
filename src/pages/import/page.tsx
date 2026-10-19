@@ -6,7 +6,7 @@ import { useMultiSetImport } from "@/pages/import/hooks/useMultiSetImport";
 
 export default function ImportPage() {
   const importer = useMultiSetImport();
-  const { sets, isImporting, summary, documentSummary } = importer;
+  const { sets, isImporting, summary } = importer;
 
   const anyDone =
     summary.success > 0 || summary.error > 0 || summary.unknown > 0;
@@ -88,10 +88,6 @@ export default function ImportPage() {
                   <i className="ri-checkbox-blank-circle-fill w-3.5 h-3.5 flex items-center justify-center text-[6px] text-primary-500"></i>
                   成功したセットは再送しません
                 </li>
-                <li className="flex items-center gap-1.5">
-                  <i className="ri-checkbox-blank-circle-fill w-3.5 h-3.5 flex items-center justify-center text-[6px] text-primary-500"></i>
-                  書類（請求書・領収書）を任意で1件添付できます
-                </li>
               </ul>
               <p className="mt-2.5 flex items-start gap-1.5 rounded-md bg-background-100 px-3 py-2 text-[11px] leading-relaxed text-foreground-500">
                 <i className="ri-information-line mt-0.5 w-4 h-4 flex items-center justify-center"></i>
@@ -118,9 +114,6 @@ export default function ImportPage() {
               onAcknowledgeNewId={(ack) =>
                 importer.acknowledgeNewId(set.id, ack)
               }
-              onDocumentSelect={(file) => importer.setDocument(set.id, file)}
-              onDocumentAttach={() => importer.attachDocument(set.id)}
-              onDocumentResend={() => importer.resendDocument(set.id)}
             />
           ))}
         </div>
@@ -164,39 +157,8 @@ export default function ImportPage() {
             </div>
           </div>
 
-          {/* 書類添付の結果（商品登録とは別） */}
-          {documentSummary.total > 0 && (
-            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-background-100 pt-3">
-              <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-background-100 px-3 py-1 text-xs font-medium text-foreground-700">
-                <i className="ri-file-text-line w-3.5 h-3.5 flex items-center justify-center"></i>
-                書類 対象 {documentSummary.total}
-              </span>
-              {documentSummary.attached > 0 && (
-                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-primary-100 px-3 py-1 text-xs font-bold text-primary-700">
-                  <i className="ri-checkbox-circle-line w-3.5 h-3.5 flex items-center justify-center"></i>
-                  添付済み {documentSummary.attached}
-                </span>
-              )}
-              {documentSummary.pending > 0 && (
-                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-secondary-100 px-3 py-1 text-xs font-bold text-secondary-900">
-                  <i className="ri-loader-4-line w-3.5 h-3.5 flex items-center justify-center"></i>
-                  添付待ち {documentSummary.pending}
-                </span>
-              )}
-              {documentSummary.conflict > 0 && (
-                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">
-                  <i className="ri-alert-line w-3.5 h-3.5 flex items-center justify-center"></i>
-                  競合 {documentSummary.conflict}
-                </span>
-              )}
-              {documentSummary.error > 0 && (
-                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700">
-                  <i className="ri-error-warning-line w-3.5 h-3.5 flex items-center justify-center"></i>
-                  未添付 {documentSummary.error}
-                </span>
-              )}
-            </div>
-          )}
+          {/* 書類（請求書・領収書）の商品への直接添付は撤去済み。
+              仕入書類は独立した書類台帳で取り込む。 */}
 
           <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
             <button

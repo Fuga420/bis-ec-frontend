@@ -1,6 +1,5 @@
 import { Link } from "react-router-dom";
 import SetImageEditor from "@/pages/import/components/SetImageEditor";
-import ImportSetDocumentField from "@/pages/import/components/ImportSetDocumentField";
 import {
   IMPORT_PAYLOAD_MISMATCH_CODE,
   evaluateRejectionRisk,
@@ -20,10 +19,6 @@ interface ImportSetCardProps {
   onResend: () => void;
   // success:false のセットで内容を変更した後、新IDでの取り込みに進む前の明示承認。
   onAcknowledgeNewId: (acknowledged: boolean) => void;
-  // 書類（請求書・領収書）。商品登録とは別リクエストで送る。
-  onDocumentSelect: (file: File | null) => void;
-  onDocumentAttach: () => void;
-  onDocumentResend: () => void;
 }
 
 const STATUS_LABELS: Record<ImportSetStatus, string> = {
@@ -50,9 +45,6 @@ export default function ImportSetCard({
   onRemove,
   onResend,
   onAcknowledgeNewId,
-  onDocumentSelect,
-  onDocumentAttach,
-  onDocumentResend,
 }: ImportSetCardProps) {
   const isProcessing = set.status === "processing";
   const isSuccess = set.status === "success";
@@ -133,19 +125,8 @@ export default function ImportSetCard({
         />
       </div>
 
-      {/* 書類（請求書・領収書）：商品登録とは独立に、別リクエストで添付する */}
-      <ImportSetDocumentField
-        document={set.document}
-        status={set.documentStatus}
-        result={set.documentResult}
-        errorCode={set.documentErrorCode}
-        errorMessage={set.documentErrorMessage}
-        productId={set.productId}
-        globalDisabled={disabled}
-        onSelect={onDocumentSelect}
-        onAttach={onDocumentAttach}
-        onResend={onDocumentResend}
-      />
+      {/* 書類（請求書・領収書）：商品への直接アップロード導線は撤去済み。
+          仕入書類は独立した書類台帳で取り込み、商品との照合を行う。 */}
 
       {/* 状態ごとの表示 */}
       {isProcessing && (

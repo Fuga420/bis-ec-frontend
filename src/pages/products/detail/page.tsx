@@ -7,7 +7,6 @@ import type {
   AdminProductDetailResponse,
   AdminProductImage,
   AdminProductListResponse,
-  ProductDocument,
   ProductImagesUpdateResponse,
   PublishStatusUpdateResponse,
   ProductUpdateResponse,
@@ -27,7 +26,9 @@ import ImageEditor, { type ImageSavePayload } from "./components/ImageEditor";
 import ImageLightbox from "./components/ImageLightbox";
 import ProductTranslationSection from "./components/ProductTranslationSection";
 import SquareIntegrationSection from "./components/SquareIntegrationSection";
-import ProductDocumentPanel from "./components/ProductDocumentPanel";
+import ProductDocumentSection, {
+  hasAttachedDocument,
+} from "./components/ProductDocumentSection";
 
 type LoadState = "loading" | "success" | "error";
 type SaveState = "idle" | "saving";
@@ -386,26 +387,6 @@ export default function ProductDetailPage() {
       // 反映自体は成功しているため、再取得失敗は無視する
     }
   }, [loadProduct]);
-
-  // 書類（請求書・領収書）の添付結果を受け取る。
-  // 添付成功時は応答で得た書類を即時反映し、あわせて書類情報を再取得する。
-  const handleDocumentAttached = useCallback(
-    async (doc: ProductDocument | null) => {
-      if (doc) {
-        setProduct((prev) => (prev ? { ...prev, document: doc } : prev));
-      }
-      // 添付成功後は書類情報を再取得して最新の状態を反映する。
-      try {
-        const updated = await loadProduct();
-        setProduct(updated);
-        setSelectedStatus(updated.publish_status);
-        setSelectedInventoryStatus(updated.inventory_status);
-      } catch {
-        // 再取得に失敗しても、応答で得た書類情報があれば表示を維持する
-      }
-    },
-    [loadProduct]
-  );
 
   // 一括AI生成はGAS側で同じ商品の下書きへ自動反映されるため、他タブ等で処理が進んだ後に
   // この画面へ戻ってきたときは最新の商品情報を再取得して表示する。
@@ -1036,7 +1017,6 @@ export default function ProductDetailPage() {
                   saving={editSaveState === "saving"}
                   error={editMessage?.type === "error" ? editMessage.text : ""}
                   aiPriceSuggestion={aiDraftPrice}
-                  onDocumentAttached={handleDocumentAttached}
                   onCancel={handleCancelEdit}
                   onSave={handleSaveEdit}
                 />
@@ -1232,14 +1212,14 @@ export default function ProductDetailPage() {
                     <DescriptionBlock label="備考" value={product.notes ?? ""} />
                   </div>
 
-                  {/* 書類（請求書・領収書）: 管理画面のみ。未添付の既存商品には後から添付できる。公開ページには表示しない。 */}
-                  <div className="border-t border-background-100 px-4 py-3 md:px-5">
-                    <ProductDocumentPanel
-                      productId={product.product_id}
-                      document={product.document}
-                      onAttached={handleDocumentAttached}
-                    />
-                  </div>
+                  {/* 書類（請求書・領収書）: 既存の添付がある場合のみ閲覧リンクを表示する。
+                      商品への新規アップロード導線は撤去済み（仕入書類は独立した書類台帳で取り込む）。
+                      未添付の場合は何も表示せず、区切り線も増やさない。 */}
+                  {hasAttachedDocument(product.document) && (
+                    <div className="border-t border-background-100 px-4 py-3 md:px-5">
+                      <ProductDocumentSection doc={product.document} />
+                    </div>
+                  )}
 
                   {/* 商品情報を編集 */}
                   <div className="flex flex-col gap-3 border-t border-background-100 px-4 py-3 md:px-5">

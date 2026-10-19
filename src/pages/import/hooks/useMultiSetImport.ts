@@ -8,12 +8,6 @@ import {
   sameFiles,
   type ImportImagePayload,
 } from "@/pages/import/lib/multiImport";
-import {
-  attachProductDocument,
-  createDocumentIdempotencyKey,
-  type AttachedDocument,
-  type DocumentAttachStatus,
-} from "@/pages/import/lib/productDocument";
 
 export type ImportSetStatus =
   | "idle"
@@ -41,17 +35,6 @@ export interface ImportSet {
   productId: string | null;
   errorCode: string | null;
   errorMessage: string | null;
-  // --- 書類（請求書・領収書）: 画像取込とは独立に管理する（任意・MVPは1件） ---
-  // 選択した書類ファイル（PDF / JPG / PNG・1件）。
-  document: File | null;
-  // 書類添付の状態（商品登録の status とは別）。
-  documentStatus: DocumentAttachStatus;
-  // 書類用の再送識別子。再送時は同じIDを再利用して冪等にする。
-  documentAttemptId: string | null;
-  // 添付済み（または競合時に既存）の書類情報。
-  documentResult: AttachedDocument | null;
-  documentErrorCode: string | null;
-  documentErrorMessage: string | null;
 }
 
 let setSeq = 0;
@@ -72,12 +55,6 @@ function emptySet(): ImportSet {
     productId: null,
     errorCode: null,
     errorMessage: null,
-    document: null,
-    documentStatus: "idle",
-    documentAttemptId: null,
-    documentResult: null,
-    documentErrorCode: null,
-    documentErrorMessage: null,
   };
 }
 
@@ -169,110 +146,6 @@ export function useMultiSetImport() {
     [updateSet]
   );
 
-  // 書類ファイルをセットに設定する（null で解除）。
-  // 添付中・添付済み・競合時は変更させない（上書き防止）。
-  const setDocument = useCallback(
-    (id: string, file: File | null) => {
-      updateSet(id, (s) => {
-        if (
-          s.documentStatus === "attaching" ||
-          s.documentStatus === "attached" ||
-          s.documentStatus === "conflict"
-        ) {
-          return s;
-        }
-        return {
-          ...s,
-          document: file,
-          documentStatus: "idle",
-          documentAttemptId: null,
-          documentResult: null,
-          documentErrorCode: null,
-          documentErrorMessage: null,
-        };
-      });
-    },
-    [updateSet]
-  );
-
-  // 選択した書類を、画像取込で得た同じ product_id へ「書類だけ」送信する。
-  // 商品の再登録は行わない（画像取込とは別リクエスト・別識別子）。
-  // 再送時は同じ idempotency_key を再利用する（冪等）。
-  const attachDocument = useCallback(
-    async (id: string) => {
-      const set = setsRef.current.find((s) => s.id === id);
-      if (!set || !set.document || !set.productId) return;
-      if (set.documentStatus === "attaching") return;
-      // 添付済み・競合は上書きしない。
-      if (
-        set.documentStatus === "attached" ||
-        set.documentStatus === "conflict"
-      ) {
-        return;
-      }
-
-      const attemptId =
-        set.documentAttemptId ?? createDocumentIdempotencyKey();
-      updateSet(id, (s) => ({
-        ...s,
-        documentStatus: "attaching",
-        documentAttemptId: attemptId,
-        documentErrorCode: null,
-        documentErrorMessage: null,
-      }));
-
-      const result = await attachProductDocument({
-        productId: set.productId as string,
-        idempotencyKey: attemptId,
-        // 取込画面には書類種別の選択がないため、請求書を既定として送る。
-        documentType: "invoice",
-        file: set.document as File,
-      });
-
-      if (result.kind === "success") {
-        updateSet(id, (s) => ({
-          ...s,
-          documentStatus: "attached",
-          documentResult: result.document,
-          documentErrorCode: null,
-          documentErrorMessage: null,
-        }));
-      } else if (result.kind === "conflict") {
-        // 別の書類が既に添付済み。勝手に上書きせず、競合として表示する。
-        updateSet(id, (s) => ({
-          ...s,
-          documentStatus: "conflict",
-          documentResult: result.existing,
-          documentErrorCode: "DOCUMENT_ALREADY_ATTACHED",
-          documentErrorMessage: result.message,
-        }));
-      } else if (result.kind === "rejected") {
-        updateSet(id, (s) => ({
-          ...s,
-          documentStatus: "error",
-          documentErrorCode: result.errorCode || null,
-          documentErrorMessage: result.message,
-        }));
-      } else {
-        updateSet(id, (s) => ({
-          ...s,
-          documentStatus: "unknown",
-          documentErrorCode: null,
-          documentErrorMessage: result.message,
-        }));
-      }
-    },
-    [updateSet]
-  );
-
-  // 書類のみ再送（商品は再登録しない）。
-  const resendDocument = useCallback(
-    async (id: string) => {
-      await attachDocument(id);
-    },
-    [attachDocument]
-  );
-
   // 実際の送信と、結果に応じた状態更新。
   const sendSet = useCallback(
     async (id: string, attemptId: string, payload: ImportImagePayload[]) => {
@@ -299,12 +172,6 @@ export function useMultiSetImport() {
           retainedPayload: null,
           newIdAckFiles: null,
         }));
-        // 商品登録に成功し、書類が選択されていれば、別リクエストで書類のみ添付する
-        // （商品は再登録しない）。
-        const current = setsRef.current.find((s) => s.id === id);
-        if (current?.document) {
-          void attachDocument(id);
-        }
       } else if (result.kind === "rejected") {
         // 応答本文 success:false を明示。ただし Drive 保存や本票書込みの「途中」で失敗した
         // 可能性があり、受付済みか判断できないケースがある。送信時のペイロードと
@@ -328,7 +195,7 @@ export function useMultiSetImport() {
         }));
       }
     },
-    [attachDocument, updateSet]
+    [updateSet]
   );
 
   // 1セットを（必要なら再送として）処理する。
@@ -477,36 +344,18 @@ export function useMultiSetImport() {
   };
 
   // 商品登録の結果とは別に、書類添付の結果を集計する。
-  const documentSummary = {
-    total: sets.filter((s) => s.document !== null).length,
-    attached: sets.filter((s) => s.documentStatus === "attached").length,
-    conflict: sets.filter((s) => s.documentStatus === "conflict").length,
-    error: sets.filter(
-      (s) =>
-        s.documentStatus === "error" || s.documentStatus === "unknown"
-    ).length,
-    pending: sets.filter(
-      (s) =>
-        s.document !== null &&
-        (s.documentStatus === "idle" || s.documentStatus === "attaching")
-    ).length,
-  };
 
   return {
     sets,
     isImporting,
     hasImportableSet,
     summary,
-    documentSummary,
     addSet,
     removeSet,
     setImages,
     moveImage,
     setMainImage,
     acknowledgeNewId,
-    setDocument,
-    attachDocument,
-    resendDocument,
     importAll,
     resendSet,
     resetAll,

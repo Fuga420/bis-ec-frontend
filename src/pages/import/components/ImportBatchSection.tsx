@@ -1,12 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import AiBatchConfirmModal from "@/pages/products/components/AiBatchConfirmModal";
-import AiBatchResultModal from "@/pages/products/components/AiBatchResultModal";
-import { useAiBatchGeneration } from "@/pages/products/hooks/useAiBatchGeneration";
+import { useAiBatch } from "@/pages/products/context/AiBatchProvider";
 import {
   AI_BATCH_STATUS_LABELS,
   MAX_AI_BATCH_SIZE,
-  isTerminalBatchStatus,
 } from "@/pages/products/lib/aiBatch";
 import type { AiBatchTarget } from "@/pages/products/types";
 
@@ -26,15 +24,10 @@ interface ImportBatchSectionProps {
 export default function ImportBatchSection({
   products,
 }: ImportBatchSectionProps) {
-  const batch = useAiBatchGeneration();
+  // バッチ状態は管理画面共通のプロバイダーが保持する（ここで独自にポーリングしない）。
+  const batch = useAiBatch();
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [pendingTargets, setPendingTargets] = useState<AiBatchTarget[]>([]);
-  const [isResultOpen, setIsResultOpen] = useState(false);
-
-  // バッチが開始（または再読込で復帰）したら進捗・結果モーダルを表示する。
-  useEffect(() => {
-    if (batch.items) setIsResultOpen(true);
-  }, [batch.items]);
 
   // 20件ずつに区切る。20件以下なら1グループ。
   const groups = useMemo(() => {
@@ -61,14 +54,6 @@ export default function ImportBatchSection({
     await batch.start(pendingTargets);
   };
 
-  const closeResult = () => {
-    setIsResultOpen(false);
-    // 終了状態ならバッチ状態を破棄する。処理中は裏で継続し、再読込でも復帰できる。
-    if (isTerminalBatchStatus(batch.batchStatus)) {
-      batch.dismiss();
-    }
-  };
-
   return (
     <div className="mt-4 rounded-lg border border-accent-200 bg-white p-4 md:p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -93,7 +78,7 @@ export default function ImportBatchSection({
             </span>
             <button
               type="button"
-              onClick={() => setIsResultOpen(true)}
+              onClick={batch.openResult}
               className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border border-accent-300 bg-accent-50 px-3 py-1.5 text-xs font-medium text-accent-900 transition-colors hover:bg-accent-100"
             >
               <i className="ri-list-check-2 w-4 h-4 flex items-center justify-center"></i>
@@ -194,18 +179,6 @@ export default function ImportBatchSection({
         onConfirm={confirmStart}
       />
 
-      {/* 一括AI生成 進捗・結果モーダル（既存UIを再利用） */}
-      <AiBatchResultModal
-        open={isResultOpen}
-        items={batch.items}
-        batchStatus={batch.batchStatus}
-        isPolling={batch.isPolling}
-        isSubmitting={batch.isSubmitting}
-        pollError={batch.pollError}
-        errorMessage={batch.errorMessage}
-        onRetryFailed={batch.retryFailed}
-        onClose={closeResult}
-      />
     </div>
   );
 }

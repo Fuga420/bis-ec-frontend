@@ -83,16 +83,16 @@
   - success:false の後にセット内容を変更して「新しい import_attempt_id」で取り込む操作は、前回の試行で商品が作成されている可能性（＝重複リスク）をカード上に表示し、スタッフが「前回の取込結果を確認した」と明示承認した場合のみ実行（自動での新規取込み・自動新ID再送はしない）
   - `IMPORT_IDEMPOTENCY_PAYLOAD_MISMATCH` と、Drive保存・本票書込みの途中失敗で商品作成の可能性がある success:false は「先の取込結果を確認する操作」として扱い、内容変更後の新ID取り込みは承認必須。内容が送信時と同一の明示再送は同一ID・同一ペイロードを維持
   - 「まとめて取り込む」は同期フラグ（ref）でガードし、連打しても逐次処理を二重起動しない
-- [x] ② 画像だけの取込に、商品セットごとの任意の「書類（請求書・領収書）」添付を追加（PRODUCT_DOCUMENT_ATTACH_API_CONTRACT.md 準拠）
+- [x] ~~② 画像だけの取込に、商品セットごとの任意の「書類（請求書・領収書）」添付を追加~~ → **撤去済み（本セクション末尾の方針変更を参照）**
   - MVP: PDF / JPG / PNG を1商品につき1件。未添付でも商品登録は従来どおり完了
   - 画像取込が成功して product_id を取得した後、**別リクエスト** `action: "attach_product_document"` で同じ商品へ書類のみ送信（商品の再登録はしない）
   - セットごとに書類用の再送識別子 `idempotency_key` を保持し、通信失敗・受付不明時は同じ product_id へ書類だけ再送（冪等）
   - 画面では「商品登録」と「書類添付」の結果を別々に表示（状態バッジ・対象/添付済み/添付待ち/未添付/競合の集計）
   - 別書類の競合エラー時は勝手に上書きせず、既存書類を提示
-  - 商品詳細・商品編集画面では管理APIレスポンスの `product.document` を用い、添付済みなら元ファイル名と「書類を開く」リンクを表示。未添付はその旨を表示。**公開ページには表示しない**
+  - 商品詳細・商品編集画面では管理APIレスポンスの `product.document` を用い、添付済みなら元ファイル名と「書類を開く」リンクを表示。未添付は何も表示しない（添付導線は撤去済み）。**公開ページには表示しない**
   - 書類（JPG/PNG含む）は商品画像のサムネイル・AI生成対象画像として扱わない。書類の金額を仕入原価へ反映しない。OCR・複数明細は対象外
-  - [x] 商品詳細・編集画面（BIS）から、書類が未添付の既存商品に後から書類を1件だけ添付できる（同じ `attach_product_document` へ既存 product_id で別リクエスト送信）。送信項目は action / product_id / idempotency_key / document_type / file_name / mime_type / base64。失敗しても商品は再登録せず書類だけ再試行（同じファイルは同じ idempotency_key）。既に書類がある商品は添付欄を出さずリンクのみ表示（差し替えなし）
-  - 稼働状況（訂正）: GAS側の `attach_product_document`（1商品1書類の添付）は GAS v88 で配信済み。フロント実装済み・実機確認はスタッフが実施
+  - [x] 商品詳細・編集画面（BIS）の後付け添付機能は**撤去済み**。既存添付がある商品はリンクのみ表示し、無い商品は何も表示しない
+  - 稼働状況: GAS側の `attach_product_document` は残置（フロントからは呼ばない）。フロントの商品単位添付UIは撤去済み
 - [x] ポケモンカードの状態 A/B/C（商品詳細・編集画面）
   - 商品詳細レスポンスの `product.pokemon_card.card_condition` を状態欄の値として表示。未鑑定は `"A"/"B"/"C"`、鑑定済みは空文字
   - 編集は既存の `update_product` に `pokemon_card.card_condition` を載せて保存（新規API・新規フィールドは追加しない）。保存後に再取得して同じ値を表示
@@ -166,7 +166,7 @@
 - 背景：書類原本は Drive に保管し、構造化データ（明細・紐付け・照合状態）は PostgreSQL の書類台帳で管理する。
 - 方針（会長決定）：外部Supabaseへの切替は行わず、現行 Readdy Backend の PostgreSQL 内に独立した書類台帳を新設する（Notion の「新設Supabase」は MVP ではこの意味に読み替える）。Connects の切替・切断、外向きDB通信の検証は行わない。
 - 認証：現行水準を維持（新規スタッフログイン・権限管理は追加しない。既存の functions.invoke / JWT検証 / CORS を流用。service_role・GAS管理秘密鍵はブラウザに置かない）。
-- 今回の位置づけ：GAS 独立書類アップロードAPI（本番 Web App v91）配信済みを受け、Readdy Backend 内に独立した書類台帳を新設する。中継 `documents-relay` を `verify_jwt:true` で配信済み。DBマイグレーション `20261013_independent_documents_ledger.sql` を適用し、テーブル `documents` / `document_lines` / `document_product_links` を作成済み。ただし現行 Readdy Backend の SQL エディタは `CREATE VIEW` 非対応（公式制約）のため、ビュー `v_document_audit_summary` / `v_product_cost_breakdown` は作成できず、中継側のアプリ層集計（`computeAuditSummary` / `computeProductCostBreakdown`）で代替する。RLS は service_role のみに限定（anon/authenticated は全拒否）。外部APIの8 Action・レスポンス項目は不変。
+- 今回の位置づけ：GAS 独立書類アップロードAPI（本番 Web App v91）配信済みを受け、Readdy Backend 内に独立した書類台帳を新設する。中継 `documents-relay` を `verify_jwt:true` で配信済み。DBマイグレーション `20261013_independent_documents_ledger.sql` を適用し、テーブル `documents` / `document_lines` / `document_product_links` を作成済み。ただし現行 Readdy Backend の SQL エディタは `CREATE VIEW` 非対応（公式制約）のため、ビュー `v_document_audit_summary` / `v_product_cost_breakdown` は作成できず、中継側のアプリ層集計（`computeAuditSummary` / `computeProductCostBreakdown`）で代替する。2026-10-18 の実測では RLS は 3 テーブルとも無効で、`anon` / `authenticated` に INSERT/UPDATE/DELETE が付与されていた（公開キーのみの PostgREST 直接書込が可能な状態）。対策として 3 テーブルすべてで RLS を有効化し、SELECT のみ許可するポリシー（`documents_read_only` / `document_lines_read_only` / `document_product_links_read_only`）を新設。書込ポリシーは作成せず、書込は `documents-relay` の service_role 経由に一本化した。外部APIの8 Action・レスポンス項目は不変。
 - 画面構成（実装済み・表示のみ）
   - `/documents` 書類一覧（ファイル名・書類ID検索、照合状態の絞り込み）
   - 書類アップロード欄（PDF / JPG / PNG・1回1ファイル。既存の `validateDocumentFile` を再利用）
@@ -180,4 +180,11 @@
 - フロント接続：一覧 `list_documents` / 詳細 `get_document` / アップロード `import_document`（仕入先名必須） / 明細保存 `save_document_lines` / 明細削除 `delete_document_line` / 紐付け `link_product_manual` / 解除 `unlink_product_manual`。商品ID検索は既存の商品一覧APIを再利用。
 - 対象外（今回実装しない）：OCR、受付番号の自動照合、自動按分、利益計算、スタッフ認証、既存商品データの移行。
 - 独立書類取込API：中継 `documents-relay` を配信済み（`verify_jwt:true`、`GAS_WEBHOOK_URL` / `GAS_ADMIN_SECRET` を既存中継と共用）。`list_documents` は DB 層で 0 件応答を確認済み。HTTP 実通信の最終確認はプレビューで実施（実機未確認）。
+- 【2026-10-18 訂正】先行報告時点では、上記2 Action は**実際には配信されていなかった**（ワークスペースの `documents-relay/index.ts` に `ACTIONS` 追加・ハンドラ・ワーカートークン検証が存在せず、稼働中の関数は旧8 Action のまま）。ワーカーからの `register_drive_document` が `HTTP 400 UNSUPPORTED_ACTION` を返したのはこのため。`UNSUPPORTED_ACTION` は関数内の `KNOWN_ACTIONS` 判定でしか発生しないため、原因の特定はこれで確定。2 Action・`WORKER_ONLY_ACTIONS`・`requireWorkerToken`（`DOCUMENTS_WORKER_SECRET`、未設定 503 / 不一致 401、本文バリデーションより前に判定）・`x-bis-worker-token` の CORS 許可をファイルへ実装し、`documents-relay` を再配信した。
+- Drive自動取込向けに `register_drive_document` / `update_document_folder` の 2 Action を追加（中継 v1.0.0）。両 Action は `x-bis-worker-token` ヘッダ（Backend Secret `DOCUMENTS_WORKER_SECRET`）必須で、未設定なら 503、不一致なら 401 を返す。ブラウザには秘密値を渡さない。`validate_only:true` で DB 書込なしの検証応答に対応。`register_drive_document` は既存 `drive_file_id` を再利用し `status` は pending / pending_amount のみ、`update_document_folder` は `drive_folder_id`（必要時 `drive_file_url`）と明示指定時のみ `status='processed'` を更新する。既存 8 Action の認証・挙動は不変。
 - 表示確認データ：テスト書類1件（オークネット / 原本363,000 / 明細3行 / 差額0 / 確定紐付け1件）を登録。実取込ではなく表示確認用（論理削除で一覧から除外可能）。
+- [x] **② 商品単位の書類添付UIは撤去済み（方針変更）** — 今後の仕入書類は独立した書類台帳（フェーズ6）で取り込み、商品との照合を行う
+  - 撤去：商品詳細・商品編集の書類種別選択／ファイル選択／「書類を添付」ボタン／「未添付」表示（`ProductDocumentPanel`）、画像一括取込画面のセットごとの書類欄（`ImportSetDocumentField`）と、登録成功後の自動添付呼び出し（`useMultiSetImport` の document 状態・集計）
+  - 維持：既に商品へ添付された書類の**閲覧リンクのみ**（管理APIレスポンスの `product.document` を使用。存在する場合だけ表示し、無ければ何も描画しない）。既存ファイル・商品との関連付けは削除しない
+  - 不変更：GAS / Sheets / Drive のデータ・API（`attach_product_document` はGAS側に残置し、フロントからは呼ばない）、`productDocument.ts` の検証ヘルパ（書類台帳が再利用）、書類台帳の画面・アップロード・照合機能、公開状態・商品編集などの周辺操作
+  - 実装状況：フロント撤去・ビルド成功。プレビューでの最終確認はスタッフが実施

@@ -262,6 +262,10 @@ export interface AdminProduct {
   category: string;
   brand: string;
   product_name: string;
+  // 一覧API（GAS GET ?mode=admin）が返す保存済みの英語タイトル。
+  // 未作成の場合は空文字。スニーカーの先頭タイトル表示・名前順ソートと、
+  // 一覧インライン編集（下書きのみ／update_product の translated_title）で使う。
+  // 本票の product_name とは別項目（保存時に product_name を書き換えない）。
   translated_title?: string;
   condition: string;
   purchase_price: number | null;

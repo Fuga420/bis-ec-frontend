@@ -9,6 +9,14 @@ function resolveUrl(doc: ProductDocument | null | undefined): string {
   return doc.view_url || doc.display_url || "";
 }
 
+/** 既存の添付書類があるか（無い場合は何も表示しない）。 */
+export function hasAttachedDocument(
+  doc: ProductDocument | null | undefined
+): boolean {
+  if (!doc) return false;
+  return Boolean(doc.file_name || resolveUrl(doc));
+}
+
 function formatSize(size: number | null | undefined): string {
   if (size == null || size <= 0) return "";
   if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
@@ -16,29 +24,18 @@ function formatSize(size: number | null | undefined): string {
 }
 
 /**
- * 商品に添付された書類（請求書・領収書）を表示する。
- * 管理画面（商品詳細・商品編集）専用。公開ページには表示しない。
+ * 商品に添付された書類（請求書・領収書）の閲覧リンクを表示する。
+ * 商品への新規アップロード導線は撤去済みのため、既存の添付がある場合のみ表示する
+ * （未添付の場合は何も描画しない）。仕入書類の取り込みは独立した書類台帳で行う。
+ * 管理画面専用。公開ページには表示しない。
  * JPG/PNG の書類でもサムネイル表示はせず、ファイル名とリンクのみを提示する
  * （商品画像・AI生成対象とは完全に分離する）。
  */
 export default function ProductDocumentSection({
   doc,
 }: ProductDocumentSectionProps) {
-  const attached = Boolean(doc && (doc.file_name || resolveUrl(doc)));
-
-  if (!attached) {
-    return (
-      <div>
-        <p className="flex items-center gap-1.5 text-xs font-medium text-foreground-500">
-          <i className="ri-file-text-line w-3.5 h-3.5 flex items-center justify-center"></i>
-          書類（請求書・領収書）
-        </p>
-        <p className="mt-1.5 flex items-center gap-1.5 text-[13px] text-foreground-400">
-          <i className="ri-file-unknow-line w-4 h-4 flex items-center justify-center"></i>
-          未添付
-        </p>
-      </div>
-    );
+  if (!hasAttachedDocument(doc)) {
+    return null;
   }
 
   const url = resolveUrl(doc);

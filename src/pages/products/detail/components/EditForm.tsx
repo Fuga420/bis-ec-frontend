@@ -19,11 +19,7 @@ import {
   sneakerSizes,
   type CategoryId,
 } from "@/mocks/productForm";
-import type {
-  AdminProductDetail,
-  ProductDocument,
-} from "@/pages/products/types";
-import ProductDocumentPanel from "@/pages/products/detail/components/ProductDocumentPanel";
+import type { AdminProductDetail } from "@/pages/products/types";
 
 interface EditFormProps {
   product: AdminProductDetail;
@@ -32,8 +28,6 @@ interface EditFormProps {
   // AIドラフト（get_ai_product_draft）の candidate.price。
   // 本票の販売予定価格が未設定のときだけ編集可能な初期値として提示する。
   aiPriceSuggestion?: number | null;
-  // 書類（請求書・領収書）の添付成功時に親へ通知する（親が書類情報を再取得する）。
-  onDocumentAttached?: (doc: ProductDocument | null) => void;
   onCancel: () => void;
   onSave: (payload: Record<string, unknown>) => void;
 }
@@ -91,7 +85,6 @@ export default function EditForm({
   saving,
   error,
   aiPriceSuggestion = null,
-  onDocumentAttached,
   onCancel,
   onSave,
 }: EditFormProps) {
@@ -464,15 +457,6 @@ export default function EditForm({
           {error}
         </p>
       )}
-
-      {/* 書類（請求書・領収書）: 管理画面のみ。未添付の既存商品には後から添付できる。公開ページには表示しない。 */}
-      <div className="mt-3 border-t border-background-200 pt-3">
-        <ProductDocumentPanel
-          productId={product.product_id}
-          document={product.document}
-          onAttached={onDocumentAttached ?? (() => {})}
-        />
-      </div>
 
       <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
         <button

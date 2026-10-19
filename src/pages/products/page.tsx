@@ -11,12 +11,12 @@ import ProductEmptyState from "./components/ProductEmptyState";
 import ProductFilterEmptyState from "./components/ProductFilterEmptyState";
 import ProductLoadErrorState from "./components/ProductLoadErrorState";
 import AiBatchConfirmModal from "./components/AiBatchConfirmModal";
-import AiBatchResultModal from "./components/AiBatchResultModal";
 import BulkArchiveConfirmModal from "./components/BulkArchiveConfirmModal";
 import BulkArchiveResultModal from "./components/BulkArchiveResultModal";
-import { useAiBatchGeneration } from "./hooks/useAiBatchGeneration";
+import { useAiBatch } from "./context/AiBatchProvider";
 import { useBulkArchive } from "./hooks/useBulkArchive";
 import { useProductList } from "./hooks/useProductList";
+import { useProductInlineEdit } from "./hooks/useProductInlineEdit";
 import {
   AI_BATCH_STATUS_LABELS,
   deriveAiBatchDisplayStatus,
@@ -374,14 +374,19 @@ export default function ProductsPage() {
   const selectAllRef = useRef<HTMLInputElement>(null);
 
   // 一括AI生成の状態（バッチ受付＋進捗ポーリング。一括公開・決済リンク処理とは別操作）
+  // 状態は管理画面共通のプロバイダーが保持する。ここで独自にポーリングしない。
   const [isAiConfirmOpen, setIsAiConfirmOpen] = useState(false);
-  const [isAiResultOpen, setIsAiResultOpen] = useState(false);
-  const aiBatch = useAiBatchGeneration();
-  const prevHadAiItems = useRef(false);
+  const aiBatch = useAiBatch();
 
   // 一括アーカイブ（既存の単品APIを1件ずつ実行）
   const archive = useBulkArchive();
   const [isArchiveConfirmOpen, setIsArchiveConfirmOpen] = useState(false);
+
+  // 一覧のインライン編集（下書きの「表示タイトル」「販売予定価格」のみ）。
+  // 保存（成功・失敗）後は一覧を再取得して実際の保存値を表示する。
+  const inlineEdit = useProductInlineEdit({
+    onSaved: () => setReloadKey((k) => k + 1),
+  });
 
   // 一括系の処理中は選択・チェックの操作をまとめてロックする
   const isAnyBulkBusy =
@@ -430,13 +435,6 @@ export default function ProductsPage() {
   useEffect(() => {
     setSelectedIds(new Set());
   }, [isArchived]);
-
-  // バッチが開始（または再読込で復帰）したら結果モーダルを自動表示する
-  useEffect(() => {
-    const has = aiBatch.items !== null;
-    if (has && !prevHadAiItems.current) setIsAiResultOpen(true);
-    prevHadAiItems.current = has;
-  }, [aiBatch.items]);
 
   // バッチが終了状態（完了/一部失敗/失敗）になったら、下書きへ自動反映された
   // 最新の商品名・説明・価格等を表示するため、一覧を再取得する。
@@ -567,21 +565,6 @@ export default function ProductsPage() {
     if (aiBatch.isBusy || selectedProducts.length === 0) return;
     setIsAiConfirmOpen(false);
     await aiBatch.start(selectedProducts);
-  };
-
-  const retryFailedAi = async () => {
-    if (aiBatch.isBusy) return;
-    await aiBatch.retryFailed();
-  };
-
-  const closeAiResultModal = () => {
-    setIsAiResultOpen(false);
-    // 終了状態ならバッチ状態を破棄して一覧を更新する。処理中は裏で継続し、再読込でも復帰できる。
-    if (isTerminalBatchStatus(aiBatch.batchStatus)) {
-      aiBatch.dismiss();
-      clearSelection();
-      setReloadKey((k) => k + 1);
-    }
   };
 
   const hasSelection = selectedIds.size > 0;
@@ -735,11 +718,7 @@ export default function ProductsPage() {
                 )}
                 {aiBatch.items && (
                   <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-accent-900">
-                    {aiBatch.isPolling ? (
-                      <i className="ri-loader-4-line animate-spin w-4 h-4 flex items-center justify-center"></i>
-                    ) : (
-                      <i className="ri-checkbox-circle-line w-4 h-4 flex items-center justify-center"></i>
-                    )}
+                    <i className="ri-sparkling-line w-4 h-4 flex items-center justify-center"></i>
                     AI生成 {aiBatch.items.filter((item) => deriveAiBatchDisplayStatus(item) === "success").length} / {aiBatch.items.length}件
                     {aiBatch.batchStatus ? `（${AI_BATCH_STATUS_LABELS[aiBatch.batchStatus]}）` : ""}
                   </span>
@@ -753,7 +732,7 @@ export default function ProductsPage() {
                 {aiBatch.items && (
                   <button
                     type="button"
-                    onClick={() => setIsAiResultOpen(true)}
+                    onClick={aiBatch.openResult}
                     className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border border-accent-300 bg-accent-50 px-3.5 py-2 text-sm font-medium text-accent-900 transition-colors hover:bg-accent-100"
                   >
                     <i className="ri-list-check-2 w-4 h-4 flex items-center justify-center"></i>
@@ -813,7 +792,7 @@ export default function ProductsPage() {
               <div className="overflow-hidden rounded-lg border border-background-200 bg-white">
                 {/* 横幅が不足する場合は重ねずに横スクロールで対応する */}
                 <div className="overflow-x-auto">
-                  <div className="min-w-full lg:min-w-[1160px]">
+                  <div className="min-w-full lg:min-w-[1200px]">
                     {/* ヘッダー行（デスクトップ） */}
                     <div className="hidden items-center border-b border-background-200 bg-background-50 py-2.5 lg:flex">
                       <div className="flex w-10 shrink-0 items-center justify-center">
@@ -859,6 +838,7 @@ export default function ProductsPage() {
                           登録日時
                         </span>
                         <span className="w-5 shrink-0"></span>
+                        <span className="w-10 shrink-0"></span>
                       </div>
                     </div>
 
@@ -869,6 +849,19 @@ export default function ProductsPage() {
                         isSelected={selectedIds.has(product.product_id)}
                         onToggleSelect={toggleSelect}
                         selectDisabled={isAnyBulkBusy}
+                        canEdit={
+                          product.publish_status === "draft" && !isAnyBulkBusy
+                        }
+                        isEditing={
+                          inlineEdit.editingId === product.product_id
+                        }
+                        draft={inlineEdit.draft}
+                        saving={inlineEdit.savingId === product.product_id}
+                        editError={inlineEdit.errors[product.product_id]}
+                        onStartEdit={inlineEdit.startEdit}
+                        onCancelEdit={inlineEdit.cancelEdit}
+                        onDraftChange={inlineEdit.updateDraft}
+                        onSave={inlineEdit.save}
                       />
                     ))}
                   </div>
@@ -1077,19 +1070,6 @@ export default function ProductsPage() {
         errorMessage={aiBatch.errorMessage}
         onCancel={() => setIsAiConfirmOpen(false)}
         onConfirm={startAiBatch}
-      />
-
-      {/* 一括AI生成 進捗・結果モーダル */}
-      <AiBatchResultModal
-        open={isAiResultOpen}
-        items={aiBatch.items}
-        batchStatus={aiBatch.batchStatus}
-        isPolling={aiBatch.isPolling}
-        isSubmitting={aiBatch.isSubmitting}
-        pollError={aiBatch.pollError}
-        errorMessage={aiBatch.errorMessage}
-        onRetryFailed={retryFailedAi}
-        onClose={closeAiResultModal}
       />
 
       {/* 一括アーカイブ 確認ダイアログ */}

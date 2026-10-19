@@ -1,4 +1,5 @@
 import type { AdminProduct } from "../types";
+import { getProductDisplayTitle } from "./productTitle";
 
 // 一覧の並び替えキー（フロントエンドのみ。取得済みの商品だけを対象にする）
 export type ProductSortKey =
@@ -41,11 +42,6 @@ function compareId(a: AdminProduct, b: AdminProduct): number {
   return jaCollator.compare(a.product_id ?? "", b.product_id ?? "");
 }
 
-// 表示名（英語タイトル優先、フォールバックで日本語商品名）を取得する
-export function getProductDisplayName(product: AdminProduct): string {
-  return (product.translated_title && product.translated_title.trim()) || product.product_name || "";
-}
-
 // 元配列を直接変更しないようコピーした配列をソートして返す
 export function sortProducts(
   products: AdminProduct[],
@@ -65,9 +61,21 @@ export function sortProducts(
       case "price_asc":
         return toPrice(a) - toPrice(b) || compareId(a, b);
       case "name_asc":
-        return jaCollator.compare(getProductDisplayName(a), getProductDisplayName(b)) || compareId(a, b);
+        // 名前順は「画面に表示しているタイトル」（スニーカーは英語タイトル優先、
+        // それ以外は本票の商品名）を基準にする。
+        return (
+          jaCollator.compare(
+            getProductDisplayTitle(a),
+            getProductDisplayTitle(b)
+          ) || compareId(a, b)
+        );
       case "name_desc":
-        return jaCollator.compare(getProductDisplayName(b), getProductDisplayName(a)) || compareId(a, b);
+        return (
+          jaCollator.compare(
+            getProductDisplayTitle(b),
+            getProductDisplayTitle(a)
+          ) || compareId(a, b)
+        );
       default:
         return 0;
     }

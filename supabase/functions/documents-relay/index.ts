@@ -16,6 +16,7 @@
 // SUPABASE_SERVICE_ROLE_KEY : サービスロールキー(DBフル権限)
 // GAS_WEBHOOK_URL : GAS Web App の /exec URL
 // GAS_ADMIN_SECRET : GAS 管理者キー(Drive保存用)
+// DOCUMENTS_WORKER_SECRET : 自動取込ワーカー専用トークン(サーバー側のみ。ブラウザへ渡さない)
 // ALLOWED_ORIGINS : 許可オリジン(カンマ区切り、任意)
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
@@ -29,7 +30,16 @@ const ACTIONS = {
   link_product_manual: "link_product_manual",
   unlink_product_manual: "unlink_product_manual",
   get_product_cost: "get_product_cost",
+  // --- 自動取込ワーカー専用アクション(x-bis-worker-token 必須) ---
+  register_drive_document: "register_drive_document",
+  update_document_folder: "update_document_folder",
 } as const;
+
+// ワーカー専用トークンが必須となるアクション(この2つだけ)
+const WORKER_ONLY_ACTIONS: string[] = [
+  ACTIONS.register_drive_document,
+  ACTIONS.update_document_folder,
+];
 
 const KNOWN_ACTIONS: string[] = Object.values(ACTIONS);
 
@@ -72,7 +82,7 @@ function corsHeaders(origin: string): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Headers":
-      "authorization, x-client-info, apikey, content-type",
+      "authorization, x-client-info, apikey, content-type, x-bis-worker-token",
     "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
     Vary: "Origin",
   };
@@ -131,6 +141,71 @@ async function computeSha256(str: string): Promise<string> {
   const hashBuffer = await crypto.subtle.digest("SHA-256", data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// ---------- Worker Authentication (自動取込ワーカー専用) ----------
+// 公開キー(anon)でも verify_jwt は通ってしまうため、ゲートウェイだけでは不十分。
+// 新2アクションはサーバー側にのみ保持するトークンとの一致を必須にする。
+// 秘密値はブラウザへ一切返さない(レスポンス・ログに出さない)。
+
+const WORKER_TOKEN_HEADER = "x-bis-worker-token";
+
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+// 戻り値: null = 認証OK / Response = そのまま返すべき拒否レスポンス
+type WorkerAuthResult = { ok: true } | { ok: false; response: Response };
+
+function requireWorkerToken(
+  req: Request,
+  cors: Record<string, string>
+): WorkerAuthResult {
+  const expected = Deno.env.get("DOCUMENTS_WORKER_SECRET") ?? "";
+
+  // 未設定時は「オープンにフォールバック」せず、必ず拒否する(503)
+  if (!expected) {
+    return {
+      ok: false,
+      response: errorResponse(
+        "WORKER_AUTH_NOT_CONFIGURED",
+        "ワーカー認証が構成されていません。",
+        503,
+        cors
+      ),
+    };
+  }
+
+  const provided = (req.headers.get(WORKER_TOKEN_HEADER) ?? "").trim();
+  if (!provided || !safeEqual(provided, expected)) {
+    return {
+      ok: false,
+      response: errorResponse(
+        "WORKER_AUTH_REQUIRED",
+        "この操作にはワーカー認証が必要です。",
+        401,
+        cors
+      ),
+    };
+  }
+
+  return { ok: true };
+}
+
+function optionalNumber(value: unknown): number | null {
+  if (value === undefined || value === null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function optionalText(value: unknown): string | null {
+  const s = asString(value);
+  return s ? s : null;
 }
 
 // ---------- Supabase Admin Client ----------
@@ -449,6 +524,15 @@ serve(async (req: Request): Promise<Response> => {
       400,
       cors
     );
+  }
+
+  // ワーカー専用アクションは「本文バリデーションより前」に認証を確定させる。
+  // 未認証の呼び出しでは入力内容を一切評価しない。
+  if (WORKER_ONLY_ACTIONS.includes(action)) {
+    const auth = requireWorkerToken(req, cors);
+    if (!auth.ok) {
+      return auth.response;
+    }
   }
 
   try {
@@ -1365,6 +1449,288 @@ serve(async (req: Request): Promise<Response> => {
           product_id: productId,
           cost_breakdown: breakdown || null,
           links: links || [],
+        },
+        200,
+        cors
+      );
+    }
+
+    // ----------------------------------------------------
+    // 9. register_drive_document: Drive自動取込の原本を台帳へ登録
+    //    - 原本は既にDriveにある前提(アップロードしない)
+    //    - status は pending / pending_amount のみ。processed にはしない
+    //    - 同じ drive_file_id の再送は重複登録しない
+    //    - validate_only: true は DB を一切読み書きしない
+    // ----------------------------------------------------
+    if (action === ACTIONS.register_drive_document) {
+      const driveFileId = asString(
+        body.drive_file_id ?? body.file_id ?? body.driveFileId
+      );
+      if (!driveFileId) {
+        return errorResponse(
+          "DRIVE_FILE_ID_REQUIRED",
+          "drive_file_id は必須です。",
+          400,
+          cors
+        );
+      }
+
+      const fileName = asString(body.file_name ?? body.fileName ?? body.name);
+      if (!fileName) {
+        return errorResponse(
+          "FILE_NAME_REQUIRED",
+          "file_name は必須です。",
+          400,
+          cors
+        );
+      }
+
+      // 入力検証のみで終了(DB書込なし・DB読取なし)
+      if (body.validate_only === true) {
+        return jsonResponse(
+          {
+            success: true,
+            validate_only: true,
+            action,
+            writes_performed: false,
+            would_insert: {
+              drive_file_id: driveFileId,
+              file_name: fileName,
+              status: optionalNumber(body.total_amount) === null
+                ? "pending_amount"
+                : "pending",
+            },
+          },
+          200,
+          cors
+        );
+      }
+
+      // 重複判定: 同じ Drive ファイルIDの再送は既存を返す(二重登録しない)
+      const { data: existingByDriveId, error: driveIdErr } = await supabase
+        .from("documents")
+        .select("*")
+        .eq("drive_file_id", driveFileId)
+        .eq("is_deleted", false)
+        .maybeSingle();
+      if (driveIdErr) {
+        return errorResponse("DB_QUERY_ERROR", driveIdErr.message, 500, cors);
+      }
+      if (existingByDriveId) {
+        const audit = await computeAuditSummary(
+          supabase,
+          String(existingByDriveId.id)
+        );
+        return jsonResponse(
+          {
+            success: true,
+            is_reused: true,
+            matched_by: "drive_file_id",
+            document: existingByDriveId,
+            audit: formatAuditSummary(audit),
+          },
+          200,
+          cors
+        );
+      }
+
+      const idempotencyKey =
+        asString(body.idempotency_key) || `drive:${driveFileId}`;
+
+      const { data: existingByKey, error: keyErr } = await supabase
+        .from("documents")
+        .select("*")
+        .eq("idempotency_key", idempotencyKey)
+        .eq("is_deleted", false)
+        .maybeSingle();
+      if (keyErr) {
+        return errorResponse("DB_QUERY_ERROR", keyErr.message, 500, cors);
+      }
+      if (existingByKey) {
+        const audit = await computeAuditSummary(
+          supabase,
+          String(existingByKey.id)
+        );
+        return jsonResponse(
+          {
+            success: true,
+            is_reused: true,
+            matched_by: "idempotency_key",
+            document: existingByKey,
+            audit: formatAuditSummary(audit),
+          },
+          200,
+          cors
+        );
+      }
+
+      const totalAmount = optionalNumber(body.total_amount);
+      // processed にはしない。金額未確定なら pending_amount。
+      const initialStatus = totalAmount === null ? "pending_amount" : "pending";
+
+      const insertRecord = {
+        idempotency_key: idempotencyKey,
+        document_number: optionalText(body.document_number),
+        invoice_registration_number: optionalText(
+          body.invoice_registration_number
+        ),
+        document_type: asString(body.document_type) || "invoice",
+        supplier_name: asString(body.supplier_name) || "未設定",
+        supplier_code: optionalText(body.supplier_code),
+        issue_date: optionalText(body.issue_date),
+        due_date: optionalText(body.due_date),
+        currency: asString(body.currency) || "JPY",
+        total_amount: totalAmount,
+        tax_amount: optionalNumber(body.tax_amount),
+        drive_file_id: driveFileId,
+        drive_folder_id: optionalText(
+          body.drive_folder_id ?? body.folder_id
+        ),
+        drive_file_url: optionalText(
+          body.drive_file_url ?? body.file_url ?? body.view_url
+        ),
+        file_name: fileName,
+        mime_type:
+          asString(body.mime_type).toLowerCase() || "application/pdf",
+        file_size: optionalNumber(body.file_size) ?? 0,
+        file_fingerprint: await computeSha256(`drive:${driveFileId}`),
+        status: initialStatus,
+        notes: optionalText(body.notes ?? body.note),
+        created_by: asString(body.confirmed_by) || "drive-worker",
+      };
+
+      const { data: newDoc, error: insertErr } = await supabase
+        .from("documents")
+        .insert(insertRecord)
+        .select()
+        .single();
+      if (insertErr) {
+        return errorResponse("DB_INSERT_ERROR", insertErr.message, 500, cors);
+      }
+
+      return jsonResponse(
+        {
+          success: true,
+          is_reused: false,
+          document: newDoc,
+          audit: formatAuditSummary(
+            await computeAuditSummary(supabase, String(newDoc.id))
+          ),
+        },
+        201,
+        cors
+      );
+    }
+
+    // ----------------------------------------------------
+    // 10. update_document_folder: 原本のDrive移動結果を台帳へ反映
+    //     - drive_folder_id / drive_file_url の更新が主目的
+    //     - processed へ変えるのは mark_processed: true を明示した時だけ
+    //       (body.status では絶対に変えない)
+    //     - validate_only: true は DB を一切読み書きしない
+    // ----------------------------------------------------
+    if (action === ACTIONS.update_document_folder) {
+      const documentId = asString(body.document_id)
+        || asString(body.id);
+      const driveFileId = asString(
+        body.drive_file_id ?? body.file_id ?? body.driveFileId
+      );
+
+      if (!documentId && !driveFileId) {
+        return errorResponse(
+          "DOCUMENT_ID_REQUIRED",
+          "document_id または drive_file_id は必須です。",
+          400,
+          cors
+        );
+      }
+
+      const nextFolderId = optionalText(
+        body.drive_folder_id ?? body.folder_id
+      );
+      const nextFileUrl = optionalText(
+        body.drive_file_url ?? body.file_url ?? body.view_url
+      );
+      const markProcessed = body.mark_processed === true;
+
+      if (nextFolderId === null && nextFileUrl === null && !markProcessed) {
+        return errorResponse(
+          "NO_UPDATE_FIELDS",
+          "更新対象がありません (drive_folder_id / drive_file_url / mark_processed)。",
+          400,
+          cors
+        );
+      }
+
+      if (body.validate_only === true) {
+        return jsonResponse(
+          {
+            success: true,
+            validate_only: true,
+            action,
+            writes_performed: false,
+            would_update: {
+              lookup: documentId
+                ? { document_id: documentId }
+                : { drive_file_id: driveFileId },
+              drive_folder_id: nextFolderId,
+              drive_file_url: nextFileUrl,
+              status: markProcessed ? "processed" : "(変更なし)",
+            },
+          },
+          200,
+          cors
+        );
+      }
+
+      let docQuery = supabase
+        .from("documents")
+        .select("*")
+        .eq("is_deleted", false);
+      docQuery = documentId
+        ? docQuery.eq("id", documentId)
+        : docQuery.eq("drive_file_id", driveFileId);
+
+      const { data: doc, error: docErr } = await docQuery.maybeSingle();
+      if (docErr) {
+        return errorResponse("DB_QUERY_ERROR", docErr.message, 500, cors);
+      }
+      if (!doc) {
+        return errorResponse(
+          "DOCUMENT_NOT_FOUND",
+          "指定された書類が見つかりません。",
+          404,
+          cors
+        );
+      }
+
+      const updateRecord: Record<string, unknown> = {
+        updated_at: new Date().toISOString(),
+      };
+      if (nextFolderId !== null) updateRecord.drive_folder_id = nextFolderId;
+      if (nextFileUrl !== null) updateRecord.drive_file_url = nextFileUrl;
+      // 明示的な mark_processed のみ processed へ
+      if (markProcessed) updateRecord.status = "processed";
+
+      const { data: updatedDoc, error: updErr } = await supabase
+        .from("documents")
+        .update(updateRecord)
+        .eq("id", doc.id)
+        .select()
+        .single();
+      if (updErr) {
+        return errorResponse("DB_UPDATE_ERROR", updErr.message, 500, cors);
+      }
+
+      return jsonResponse(
+        {
+          success: true,
+          is_reused: false,
+          mark_processed_applied: markProcessed,
+          document: updatedDoc,
+          audit: formatAuditSummary(
+            await computeAuditSummary(supabase, String(doc.id))
+          ),
         },
         200,
         cors
