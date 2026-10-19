@@ -152,6 +152,38 @@ assert("5-9. NJ複合票: 売上相殺1行目の受付番号(283-1)・品名・�
   firstSale.total_line_amount === -26157 &&
   firstSale.item_name_raw.includes("0.301ct E VS2")
 );
+// 6. オークネット 別日原本 (463027 - 2026/02/03)
+const aucnet463027Path = path.join(fixturesDir, "aucnet_463027_sample.txt");
+const aucnet463027Text = fs.readFileSync(aucnet463027Path, "utf8");
+const aucnet463027Res = parseAucnetInvoice(aucnet463027Text);
+
+console.log("\n--- 6. オークネット 別日原本 (463027) 検算結果 ---");
+console.log(`  計算書番号: ${aucnet463027Res.document_number}, 原本公称額: ${aucnet463027Res.declared_net_amount} 円`);
+console.log(`  抽出明細行数: ${aucnet463027Res.lines.length} 行, 明細合計: ${aucnet463027Res.calculated_total} 円, 差額: ${aucnet463027Res.discrepancy} 円`);
+
+assert("6-1. オークネット別日: 計算書番号が463027として抽出される", aucnet463027Res.document_number === "463027");
+assert("6-2. オークネット別日: 原本公称額が1,280,609円", aucnet463027Res.declared_net_amount === 1280609);
+assert("6-3. オークネット別日: 明細2件 (落札1件 + 配送費1件) が動的抽出される", aucnet463027Res.lines.length === 2);
+assert("6-4. オークネット別日: 金額検算差額が0円 (is_balanced === true)", aucnet463027Res.is_balanced === true && aucnet463027Res.discrepancy === 0);
+assert("6-5. オークネット別日: 受付番号852-30191が抽出される", aucnet463027Res.lines[0].reception_number_normalized === "852-30191");
+
+// 7. KOMEHYO 別日原本 (2764-20260128)
+const komehyo260128Path = path.join(fixturesDir, "komehyo_260128_sample.txt");
+const komehyo260128Text = fs.readFileSync(komehyo260128Path, "utf8");
+const komehyo260128Res = parseKomehyoInvoice(komehyo260128Text);
+
+console.log("\n--- 7. KOMEHYO 別日原本 (2764-20260128) 検算結果 ---");
+console.log(`  書類番号: ${komehyo260128Res.document_number}, 原本請求額: ${komehyo260128Res.declared_net_amount} 円`);
+console.log(`  抽出明細行数: ${komehyo260128Res.lines.length} 行, 明細合計: ${komehyo260128Res.calculated_total} 円, 差額: ${komehyo260128Res.discrepancy} 円`);
+
+assert("7-1. KOMEHYO別日: 原本請求合計が2,767,820円", komehyo260128Res.declared_net_amount === 2767820);
+assert("7-2. KOMEHYO別日: 明細6件 (諸経費3件 + 購入3件) が動的抽出される", komehyo260128Res.lines.length === 6);
+assert("7-3. KOMEHYO別日: 金額検算差額が0円 (is_balanced === true)", komehyo260128Res.is_balanced === true && komehyo260128Res.discrepancy === 0);
+assert("7-4. KOMEHYO別日: 各明細の受付番号が正確 (532-10, 577-5, 1456-6)",
+  komehyo260128Res.lines[3].reception_number_normalized === "532-10" &&
+  komehyo260128Res.lines[4].reception_number_normalized === "577-5" &&
+  komehyo260128Res.lines[5].reception_number_normalized === "1456-6"
+);
 
 console.log("\n==================================================");
 console.log(`=== 全テスト結果: ${passed}/${passed + failed} PASS (失敗: ${failed}) ===`);

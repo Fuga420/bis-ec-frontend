@@ -81,100 +81,141 @@ export function parseAucnetInvoice(text: string): ParsedInvoiceResult {
     }
   }
 
-  // 3. 代表例 466935 の固定明細抽出（※代表原本に厳格限定。別日原本は固定明細を流用せず要確認へ退避）
-  if (result.document_number === "466935" && result.declared_net_amount === 157245) {
-    result.lines = [
-      {
-        line_number: 1,
-        page_number: 1,
-        reception_number_raw: "855-19157",
-        reception_number_normalized: "855-19157",
-        lot_number: "855",
-        branch_number: "19157",
-        auction_bid_number: "40276",
-        item_name_raw: "０．４４３ｃｔ ＦＶＹＯ ＶＳ１ ＊",
-        brand_name_raw: "ｊｅｗｅｌｒｙ（Ｎｏ Ｂｒａｎｄ）",
-        transaction_type: "purchase",
-        item_amount: 140000,
-        tax_amount: 14000,
-        fee_amount: 5600,
-        fee_tax_amount: 560,
-        total_line_amount: 160160,
-        notes: "落札商品 (本体+手数料)"
-      },
-      {
-        line_number: 2,
-        page_number: 1,
-        reception_number_raw: null,
-        reception_number_normalized: null,
-        lot_number: null,
-        branch_number: null,
-        auction_bid_number: null,
-        item_name_raw: "配送費",
-        brand_name_raw: null,
-        transaction_type: "shipping_cost",
-        item_amount: 0,
-        tax_amount: 0,
-        fee_amount: 750,
-        fee_tax_amount: 75,
-        total_line_amount: 825,
-        notes: "855回分落札商材配送費"
-      },
-      {
-        line_number: 3,
-        page_number: 1,
-        reception_number_raw: "856-44446",
-        reception_number_normalized: "856-44446",
-        lot_number: "856",
-        branch_number: "44446",
-        auction_bid_number: "82527",
-        item_name_raw: "ＤＳＱＵＡＲＥＤ２ その他ライン 衣類・ジーンズ",
-        brand_name_raw: "ＤＳＱＵＡＲＥＤ２",
-        transaction_type: "sale_settlement",
-        item_amount: -1000,
-        tax_amount: -100,
-        fee_amount: 700,
-        fee_tax_amount: 70,
-        total_line_amount: -330,
-        notes: "支払の部A (売却代金1,100円 - 出品手数料770円)"
-      },
-      {
-        line_number: 4,
-        page_number: 1,
-        reception_number_raw: "856-44449",
-        reception_number_normalized: "856-44449",
-        lot_number: "856",
-        branch_number: "44449",
-        auction_bid_number: "82528",
-        item_name_raw: "ＤＳＱＵＡＲＥＤ２ その他ライン 衣類・ジーンズ",
-        brand_name_raw: "ＤＳＱＵＡＲＥＤ２",
-        transaction_type: "sale_settlement",
-        item_amount: -2500,
-        tax_amount: -250,
-        fee_amount: 700,
-        fee_tax_amount: 70,
-        total_line_amount: -1980,
-        notes: "支払の部A (売却代金2,750円 - 出品手数料770円)"
-      },
-      {
-        line_number: 5,
-        page_number: 1,
-        reception_number_raw: "856-44450",
-        reception_number_normalized: "856-44450",
-        lot_number: "856",
-        branch_number: "44450",
-        auction_bid_number: "82529",
-        item_name_raw: "ＤＳＱＵＡＲＥＤ２ その他ライン 衣類・ジーンズ",
-        brand_name_raw: "ＤＳＱＵＡＲＥＤ２",
-        transaction_type: "sale_settlement",
-        item_amount: -2000,
-        tax_amount: -200,
-        fee_amount: 700,
-        fee_tax_amount: 70,
-        total_line_amount: -1430,
-        notes: "支払の部A (売却代金2,200円 - 出品手数料770円)"
+  // 3. 動的明細抽出 (落札・配送費・出品売却相殺)
+  const linesStartIdx = rawLines.findIndex((l) => l.includes("受付番号") || l.includes("セリ順"));
+  if (linesStartIdx !== -1) {
+    const targetSlice = rawLines.slice(linesStartIdx + 1);
+    let currentLine: { no: number; header: string; tokens: string[] } | null = null;
+    const itemBlocks: Array<{ no: number; header: string; tokens: string[] }> = [];
+
+    for (let i = 0; i < targetSlice.length; i++) {
+      const l = targetSlice[i];
+      if (l.startsWith("頁計") || l.startsWith("総合計")) {
+        if (currentLine) itemBlocks.push(currentLine);
+        break;
       }
-    ];
+
+      const m = l.match(/^(\d+)\s+(\d+-\d+|配送費.*)$/);
+      if (m) {
+        if (currentLine) itemBlocks.push(currentLine);
+        currentLine = {
+          no: parseInt(m[1], 10),
+          header: m[2],
+          tokens: [],
+        };
+      } else if (currentLine) {
+        currentLine.tokens.push(l);
+      }
+    }
+
+    for (const b of itemBlocks) {
+      if (b.header.startsWith("配送費")) {
+        let feeAmount = 0;
+        let feeTax = 0;
+        let total = 0;
+        let note = "配送費";
+
+        for (const tok of b.tokens) {
+          const mTotal = tok.match(/0\s+0\s+0\s+0\s+([\d,]+)/);
+          if (mTotal) {
+            total = parseInt(mTotal[1].replace(/,/g, ""), 10);
+          }
+          if (tok.includes("配送費") || tok.includes("配送")) {
+            note = tok;
+          }
+          const mFee = tok.match(/^(\d+)\s+.*$/);
+          if (mFee && !mTotal) {
+            feeTax = parseInt(mFee[1], 10);
+          } else if (/^\d+$/.test(tok) && parseInt(tok, 10) > 100) {
+            feeAmount = parseInt(tok, 10);
+          }
+        }
+        if (total === 0 && feeAmount > 0) {
+          total = feeAmount + feeTax;
+        }
+
+        result.lines.push({
+          line_number: result.lines.length + 1,
+          page_number: 1,
+          reception_number_raw: null,
+          reception_number_normalized: null,
+          lot_number: null,
+          branch_number: null,
+          auction_bid_number: null,
+          item_name_raw: "配送費",
+          brand_name_raw: null,
+          transaction_type: "shipping_cost",
+          item_amount: 0,
+          tax_amount: 0,
+          fee_amount: feeAmount || Math.round(total / 1.1),
+          fee_tax_amount: feeTax || (total - Math.round(total / 1.1)),
+          total_line_amount: total,
+          notes: note,
+        });
+      } else {
+        const recMatch = b.header.match(/^(\d+)-(\d+)$/);
+        const lotNumber = recMatch ? recMatch[1] : null;
+        const branchNumber = recMatch ? recMatch[2] : null;
+
+        const bidNumber = b.tokens[0] || null;
+        const brandName = b.tokens[1] || null;
+        const itemName = b.tokens[2] || null;
+
+        let itemAmt = 0;
+        let itemTax = 0;
+        let feeAmt = 0;
+        let feeTax = 0;
+        let totalLineAmt = 0;
+        let isSale = false;
+
+        const summaryLine = b.tokens.find((t) => t.includes(" ") && /^[\d,\s]+$/.test(t));
+        if (summaryLine) {
+          const sNums = summaryLine.split(/\s+/).map((p) => parseInt(p.replace(/,/g, ""), 10));
+          if (sNums.length >= 4) {
+            const paySalesIncl = sNums[0] || 0;
+            const claimItemIncl = sNums[2] || 0;
+            const feeIncl = sNums[3] || 0;
+
+            if (paySalesIncl > 0) {
+              isSale = true;
+              itemAmt = Math.round(paySalesIncl / 1.1);
+              itemTax = paySalesIncl - itemAmt;
+              feeAmt = Math.round(feeIncl / 1.1);
+              feeTax = feeIncl - feeAmt;
+              totalLineAmt = -(paySalesIncl - feeIncl);
+            } else if (claimItemIncl > 0 || feeIncl > 0) {
+              isSale = false;
+              itemAmt = Math.round(claimItemIncl / 1.1);
+              itemTax = claimItemIncl - itemAmt;
+              feeAmt = Math.round(feeIncl / 1.1);
+              feeTax = feeIncl - feeAmt;
+              totalLineAmt = claimItemIncl + feeIncl;
+            }
+          }
+        }
+
+        result.lines.push({
+          line_number: result.lines.length + 1,
+          page_number: 1,
+          reception_number_raw: b.header,
+          reception_number_normalized: b.header,
+          lot_number: lotNumber,
+          branch_number: branchNumber,
+          auction_bid_number: bidNumber,
+          item_name_raw: itemName,
+          brand_name_raw: brandName,
+          transaction_type: isSale ? "sale_settlement" : "purchase",
+          item_amount: isSale ? -itemAmt : itemAmt,
+          tax_amount: isSale ? -itemTax : itemTax,
+          fee_amount: feeAmt,
+          fee_tax_amount: feeTax,
+          total_line_amount: totalLineAmt,
+          notes: isSale
+            ? `支払の部 (売却代金${(itemAmt + itemTax).toLocaleString()}円 - 出品手数料${(feeAmt + feeTax).toLocaleString()}円)`
+            : "落札商品 (本体+手数料)",
+        });
+      }
+    }
   }
 
   // 4. 金額検算 (明細合算と原本公称純請求額の照合)

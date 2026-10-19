@@ -51,232 +51,158 @@ export function parseKomehyoInvoice(text: string): ParsedInvoiceResult {
     result.declared_total_claim = result.declared_net_amount;
   }
 
-  // 2. 代表例 2764_ご精算書 - 26.8.5.pdf の固定明細（※代表原本に厳格限定。別日原本は固定明細を流用せず要確認へ退避）
-  if (result.member_number === "2764" && result.issue_date === "2026-08-05" && result.declared_net_amount === 2186360) {
-    result.document_number = "2764-20260805";
-    result.lines = [
-      {
-        line_number: 1,
-        page_number: 4,
-        reception_number_raw: "175-3",
-        reception_number_normalized: "175-3",
-        lot_number: "175",
-        branch_number: "3",
-        item_name_raw: "CHROME HEARTS スウェットプルオーバー ブラック ピンク",
-        brand_name_raw: "CHROME HEARTS",
-        transaction_type: "purchase",
-        item_amount: 105000,
-        tax_amount: 10500,
-        fee_amount: 5250,
-        fee_tax_amount: 525,
-        total_line_amount: 121275, // (105k + 5.25k) * 1.1 = 121,275
-        notes: "ロットNo: 175-3 (手数料5%)"
-      },
-      {
-        line_number: 2,
-        page_number: 4,
-        reception_number_raw: "175-4",
-        reception_number_normalized: "175-4",
-        lot_number: "175",
-        branch_number: "4",
-        item_name_raw: "CHROME HEARTS スウェットプルオーバー ブラック ピンク",
-        brand_name_raw: "CHROME HEARTS",
-        transaction_type: "purchase",
-        item_amount: 105000,
-        tax_amount: 10500,
-        fee_amount: 5250,
-        fee_tax_amount: 525,
-        total_line_amount: 121275,
-        notes: "ロットNo: 175-4 (手数料5%)"
-      },
-      {
-        line_number: 3,
-        page_number: 4,
-        reception_number_raw: "194-8",
-        reception_number_normalized: "194-8",
-        lot_number: "194",
-        branch_number: "8",
-        item_name_raw: "CHROME HEARTS アーチロゴ ロングTシャツ コットン ブラック",
-        brand_name_raw: "CHROME HEARTS",
-        transaction_type: "purchase",
-        item_amount: 46000,
-        tax_amount: 4600,
-        fee_amount: 2300,
-        fee_tax_amount: 230,
-        total_line_amount: 53130,
-        notes: "ロットNo: 194-8 (手数料5%)"
-      },
-      {
-        line_number: 4,
-        page_number: 4,
-        reception_number_raw: "198-4",
-        reception_number_normalized: "198-4",
-        lot_number: "198",
-        branch_number: "4",
-        item_name_raw: "CHROME HEARTS トレーナー ネックロゴ 正面汚れ 背面汚れ",
-        brand_name_raw: "CHROME HEARTS",
-        transaction_type: "purchase",
-        item_amount: 105000,
-        tax_amount: 10500,
-        fee_amount: 5250,
-        fee_tax_amount: 525,
-        total_line_amount: 121275,
-        notes: "ロットNo: 198-4 (手数料5%)"
-      },
-      {
-        line_number: 5,
-        page_number: 4,
-        reception_number_raw: "198-5",
-        reception_number_normalized: "198-5",
-        lot_number: "198",
-        branch_number: "5",
-        item_name_raw: "CHROME HEARTS ネックロゴ スウェット トレーナー 長袖 ホワイト",
-        brand_name_raw: "CHROME HEARTS",
-        transaction_type: "purchase",
-        item_amount: 71000,
-        tax_amount: 7100,
-        fee_amount: 3550,
-        fee_tax_amount: 355,
-        total_line_amount: 82005,
-        notes: "ロットNo: 198-5 (手数料5%)"
-      },
-      {
-        line_number: 6,
-        page_number: 4,
-        reception_number_raw: "200-5",
-        reception_number_normalized: "200-5",
-        lot_number: "200",
-        branch_number: "5",
-        item_name_raw: "CHROME HEARTS ネックロゴ 長袖 ホワイト パープル",
-        brand_name_raw: "CHROME HEARTS",
-        transaction_type: "purchase",
-        item_amount: 60000,
-        tax_amount: 6000,
-        fee_amount: 3000,
-        fee_tax_amount: 300,
-        total_line_amount: 69300,
-        notes: "ロットNo: 200-5 (手数料5%)"
-      },
-      {
-        line_number: 7,
-        page_number: 4,
-        reception_number_raw: "203-10",
-        reception_number_normalized: "203-10",
-        lot_number: "203",
-        branch_number: "10",
-        item_name_raw: "CHROME HEARTS トップス パーカー",
-        brand_name_raw: "CHROME HEARTS",
-        transaction_type: "purchase",
-        item_amount: 115000,
-        tax_amount: 11500,
-        fee_amount: 5750,
-        fee_tax_amount: 575,
-        total_line_amount: 132825,
-        notes: "ロットNo: 203-10 (手数料5%)"
-      },
-      {
-        line_number: 8,
-        page_number: 4,
-        reception_number_raw: "204-2",
-        reception_number_normalized: "204-2",
-        lot_number: "204",
-        branch_number: "2",
-        item_name_raw: "CHROME HEARTS Tシャツ トップス",
-        brand_name_raw: "CHROME HEARTS",
-        transaction_type: "purchase",
-        item_amount: 52000,
-        tax_amount: 5200,
-        fee_amount: 2600,
-        fee_tax_amount: 260,
-        total_line_amount: 60060,
-        notes: "ロットNo: 204-2 (手数料5%)"
-      },
-      {
-        line_number: 9,
-        page_number: 4,
-        reception_number_raw: "485-10",
-        reception_number_normalized: "485-10",
-        lot_number: "485",
-        branch_number: "10",
-        item_name_raw: "Christian Dior x Nike Air Jordan 1 Low 未使用",
-        brand_name_raw: "Christian Dior",
-        transaction_type: "purchase",
-        item_amount: 590000,
-        tax_amount: 59000,
-        fee_amount: 29500,
-        fee_tax_amount: 2950,
-        total_line_amount: 681450,
-        notes: "ロットNo: 485-10 (Dior AJ1 Low)"
-      },
-      {
-        line_number: 10,
-        page_number: 4,
-        reception_number_raw: "486-1",
-        reception_number_normalized: "486-1",
-        lot_number: "486",
-        branch_number: "1",
-        item_name_raw: "Christian Dior x Nike Air Jordan 1 High 未使用",
-        brand_name_raw: "Christian Dior",
-        transaction_type: "purchase",
-        item_amount: 550000,
-        tax_amount: 55000,
-        fee_amount: 27500,
-        fee_tax_amount: 2750,
-        total_line_amount: 635250,
-        notes: "ロットNo: 486-1 (Dior AJ1 High)"
-      },
-      {
-        line_number: 11,
-        page_number: 4,
-        reception_number_raw: "610-2",
-        reception_number_normalized: "610-2",
-        lot_number: "610",
-        branch_number: "2",
-        item_name_raw: "CHROME HEARTS ライター 現状品",
-        brand_name_raw: "CHROME HEARTS",
-        transaction_type: "purchase",
-        item_amount: 55000,
-        tax_amount: 5500,
-        fee_amount: 2750,
-        fee_tax_amount: 275,
-        total_line_amount: 63525,
-        notes: "ロットNo: 610-2 (ライター)"
-      },
-      {
-        line_number: 12,
-        page_number: 4,
-        reception_number_raw: "610-5",
-        reception_number_normalized: "610-5",
-        lot_number: "610",
-        branch_number: "5",
-        item_name_raw: "CHROME HEARTS PETCOCK 度入り サングラス",
-        brand_name_raw: "CHROME HEARTS",
-        transaction_type: "purchase",
-        item_amount: 38000,
-        tax_amount: 3800,
-        fee_amount: 1900,
-        fee_tax_amount: 190,
-        total_line_amount: 43890,
-        notes: "ロットNo: 610-5 (アイウェア)"
-      },
-      {
-        line_number: 13,
-        page_number: 3,
-        reception_number_raw: null,
-        reception_number_normalized: null,
-        lot_number: null,
-        branch_number: null,
-        item_name_raw: "事務諸費用 (落札)",
-        brand_name_raw: null,
-        transaction_type: "other_expense",
-        item_amount: 0,
-        tax_amount: 0,
-        fee_amount: 1000,
-        fee_tax_amount: 100,
-        total_line_amount: 1100,
-        notes: "3P 諸経費明細 事務諸費用(落札)"
+  if (result.member_number && result.issue_date) {
+    result.document_number = `${result.member_number}-${result.issue_date.replace(/-/g, "")}`;
+  }
+
+  let declaredListingFee = 0;
+  const listingFeeMatch = text.match(/出品ご利用額（①）\s*[￥¥]([\d,]+)/);
+  if (listingFeeMatch) {
+    declaredListingFee = parseInt(listingFeeMatch[1].replace(/,/g, ""), 10);
+  }
+
+  // 2. 動的明細抽出
+  const pages = text.split(/--\s*\d+\s+of\s+\d+\s*--/);
+
+  for (let pageIdx = 0; pageIdx < pages.length; pageIdx++) {
+    const pageText = pages[pageIdx];
+    const pageNumber = pageIdx + 1;
+
+    // A. 諸経費等明細 (通常3P)
+    if (pageText.includes("諸経費等 明細") || pageText.includes("諸経費等")) {
+      const feeMatches = pageText.matchAll(/G\s+([^\s]+)\s+([^\s]+)\s+(\d+)\s+[￥¥]([\d,]+)/g);
+      for (const fm of feeMatches) {
+        const itemType = fm[1];
+        const category = fm[2];
+        const count = parseInt(fm[3], 10);
+        const fee = parseInt(fm[4].replace(/,/g, ""), 10);
+        const feeTax = Math.round(fee * 0.1);
+        const total = fee + feeTax;
+
+        result.lines.push({
+          line_number: result.lines.length + 1,
+          page_number: pageNumber,
+          reception_number_raw: null,
+          reception_number_normalized: null,
+          lot_number: null,
+          branch_number: null,
+          item_name_raw: `${itemType} (${category})`,
+          brand_name_raw: null,
+          transaction_type: "other_expense",
+          item_amount: 0,
+          tax_amount: 0,
+          fee_amount: fee,
+          fee_tax_amount: feeTax,
+          total_line_amount: total,
+          notes: `${itemType} ${category} ${count}点`,
+        });
       }
-    ];
+    }
+
+    // B. ご購入商品明細 (通常4P)
+    if (pageText.includes("ご購入商品明細")) {
+      const rawLines = pageText.split("\n").map((l) => l.trim()).filter(Boolean);
+      const headerIdx = rawLines.findIndex((l) => l.includes("ご購入商品明細") || l.includes("ロットNo."));
+      const topSlice = headerIdx !== -1 ? rawLines.slice(0, headerIdx) : rawLines;
+      const bottomSlice = headerIdx !== -1 ? rawLines.slice(headerIdx) : [];
+
+      const items: Array<{ no: number; lot: string; itemName: string; amount: number }> = [];
+      for (let i = 0; i < topSlice.length; i++) {
+        const l = topSlice[i];
+        const noMatch = l.match(/^(\d+)\s+(\d+-\d+)$/);
+        if (noMatch) {
+          const no = parseInt(noMatch[1], 10);
+          const lot = noMatch[2];
+          let itemName = "";
+          let amount = 0;
+
+          for (let j = i + 1; j < topSlice.length; j++) {
+            const nextL = topSlice[j];
+            if (nextL.match(/^(\d+)\s+(\d+-\d+)$/)) break;
+
+            const amtM = nextL.match(/([\d,]+)$/);
+            if (amtM) {
+              const val = parseInt(amtM[1].replace(/,/g, ""), 10);
+              if (val >= 10000) {
+                amount = val;
+                const namePart = nextL.slice(0, amtM.index).replace(/\d+\s*$/, "").trim();
+                if (namePart) itemName = namePart;
+              }
+            } else if (!itemName) {
+              itemName = nextL;
+            }
+          }
+
+          items.push({ no, lot, itemName: itemName || "落札商品", amount });
+        }
+      }
+
+      const feeDetails: number[] = [];
+      for (let i = 0; i < bottomSlice.length; i++) {
+        const l = bottomSlice[i];
+        const directFee = l.match(/(\d+)\s*\(\d+\.\d+%\)/);
+        if (directFee) {
+          feeDetails.push(parseInt(directFee[1], 10));
+          continue;
+        }
+        if (i + 1 < bottomSlice.length && bottomSlice[i + 1].match(/^\(\d+\.\d+%\)$/)) {
+          const m = l.match(/(\d+)\s*$/);
+          if (m) {
+            feeDetails.push(parseInt(m[1], 10));
+          }
+        }
+      }
+
+      for (let idx = 0; idx < items.length; idx++) {
+        const item = items[idx];
+        const fee = feeDetails[idx] || 0;
+        const taxAmount = Math.round(item.amount * 0.1);
+        const feeTaxAmount = Math.round(fee * 0.1);
+        const totalLineAmount = item.amount + taxAmount + fee + feeTaxAmount;
+        const lotParts = item.lot.split("-");
+
+        result.lines.push({
+          line_number: result.lines.length + 1,
+          page_number: pageNumber,
+          reception_number_raw: item.lot,
+          reception_number_normalized: item.lot,
+          lot_number: lotParts[0] || null,
+          branch_number: lotParts[1] || null,
+          item_name_raw: item.itemName,
+          brand_name_raw: null,
+          transaction_type: "purchase",
+          item_amount: item.amount,
+          tax_amount: taxAmount,
+          fee_amount: fee,
+          fee_tax_amount: feeTaxAmount,
+          total_line_amount: totalLineAmount,
+          notes: `ロットNo: ${item.lot} (手数料${fee.toLocaleString()}円)`,
+        });
+      }
+    }
+  }
+
+  // C. 出品利用額がある場合 (出品取消手数料など)
+  if (declaredListingFee > 0) {
+    const feeWithoutTax = Math.round(declaredListingFee / 1.1);
+    const feeTax = declaredListingFee - feeWithoutTax;
+    result.lines.push({
+      line_number: result.lines.length + 1,
+      page_number: 1,
+      reception_number_raw: null,
+      reception_number_normalized: null,
+      lot_number: null,
+      branch_number: null,
+      item_name_raw: "出品利用手数料 (取消/作業)",
+      brand_name_raw: null,
+      transaction_type: "commission",
+      item_amount: 0,
+      tax_amount: 0,
+      fee_amount: feeWithoutTax,
+      fee_tax_amount: feeTax,
+      total_line_amount: declaredListingFee,
+      notes: `出品利用額（①）`,
+    });
   }
 
   // 3. 金額検算 (明細合算と原本公称純請求額の照合)
