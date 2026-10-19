@@ -257,25 +257,34 @@ export async function buildKnownDocumentHashMap(existingDocs, token) {
     }
   }
 
-  // 2. Drive 02_processed 内のファイルの sha256Checksum を取得し、
-  //    drive_file_id または ファイル名経由で既存 doc と紐付け (過去登録原本への後方互換照合)
+  // 2. Drive 02_processed 内の全ファイルの sha256Checksum を取得し、
+  //    drive_file_id 一致のみに限定して既存 doc と紐付け (ファイル名のみでの別内容誤認を防止)
+  //    ※ nextPageToken による全ページ走査で 100件超の原本にも完全対応
   if (token && CONFIG.processedFolderId) {
     try {
+      const docByDriveId = new Map(existingDocs.filter(d => d.drive_file_id).map(d => [d.drive_file_id, d]));
       const q = encodeURIComponent(`'${CONFIG.processedFolderId}' in parents and trashed = false`);
-      const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,size,sha256Checksum)&pageSize=100&supportsAllDrives=true&includeItemsFromAllDrives=true`;
-      const res = await fetch(url, { headers: { "Authorization": `Bearer ${token}` } });
-      if (res.ok) {
+      let pageToken = null;
+
+      do {
+        const pageParam = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : "";
+        const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name,size,sha256Checksum)&pageSize=100&supportsAllDrives=true&includeItemsFromAllDrives=true${pageParam}`;
+        const res = await fetch(url, { headers: { "Authorization": `Bearer ${token}` } });
+        if (!res.ok) {
+          throw new Error(`Drive processed list error: ${res.status} ${await res.text()}`);
+        }
         const data = await res.json();
-        const docByDriveId = new Map(existingDocs.map(d => [d.drive_file_id, d]));
         for (const f of data.files || []) {
           if (f.sha256Checksum) {
-            const matchedDoc = docByDriveId.get(f.id) || existingDocs.find(d => d.file_name === f.name);
+            // 既存書類への紐付けは Drive ID の完全一致に限定 (同名・別内容の誤認を排除)
+            const matchedDoc = docByDriveId.get(f.id);
             if (matchedDoc) {
               hashToDoc.set(f.sha256Checksum, matchedDoc);
             }
           }
         }
-      }
+        pageToken = data.nextPageToken || null;
+      } while (pageToken);
     } catch (err) {
       console.warn("  [Warning] processedFolder sha256Checksum 取得失敗 (フォールバック照合を継続):", err.message);
     }
