@@ -10,3 +10,5 @@ supabase/.temp/
 .import_job_*.json
 auto-imports.d.ts
 *.code-workspace
+sa_key.json
+*.key.json

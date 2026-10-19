@@ -1020,6 +1020,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
       const finalStatus = result.error_count > 0 && result.processed_count === 0 ? "failed" : "completed";
       console.log(`[Worker CLI] ジョブ実行完了: ID=${jobId}, status=${finalStatus}, detected=${result.total_detected}, processed=${result.processed_count}, flagged=${result.flagged_count}, skipped=${result.skipped_count}, errors=${result.error_count}`);
+      console.log(`[JOB_RESULT_JSON] ${JSON.stringify(result)}`);
       if (finalStatus === "failed") {
         process.exit(1);
       }
