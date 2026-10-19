@@ -236,6 +236,54 @@ export async function fetchAllExistingDocuments(relayInvoker = invokeRelay, page
   return allDocs;
 }
 
+// Google Drive 上の処理済み原本(02_processed)の sha256Checksum を取得し、
+// DB既存レコード(existingDocs)とバイナリハッシュ(SHA-256)を結びつける照合マップを構築
+export async function buildKnownDocumentHashMap(existingDocs, token) {
+  const hashToDoc = new Map();
+
+  // 1. DB既存レコード自身が持つハッシュの登録 (idempotency_key または notes)
+  for (const doc of existingDocs) {
+    if (doc.idempotency_key && doc.idempotency_key.startsWith("sha256:")) {
+      const hash = doc.idempotency_key.slice(7);
+      if (hash) hashToDoc.set(hash, doc);
+    }
+    if (doc.notes) {
+      try {
+        const n = JSON.parse(doc.notes);
+        if (n.content_hash) {
+          hashToDoc.set(n.content_hash, doc);
+        }
+      } catch {}
+    }
+  }
+
+  // 2. Drive 02_processed 内のファイルの sha256Checksum を取得し、
+  //    drive_file_id または ファイル名経由で既存 doc と紐付け (過去登録原本への後方互換照合)
+  if (token && CONFIG.processedFolderId) {
+    try {
+      const q = encodeURIComponent(`'${CONFIG.processedFolderId}' in parents and trashed = false`);
+      const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,size,sha256Checksum)&pageSize=100&supportsAllDrives=true&includeItemsFromAllDrives=true`;
+      const res = await fetch(url, { headers: { "Authorization": `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        const docByDriveId = new Map(existingDocs.map(d => [d.drive_file_id, d]));
+        for (const f of data.files || []) {
+          if (f.sha256Checksum) {
+            const matchedDoc = docByDriveId.get(f.id) || existingDocs.find(d => d.file_name === f.name);
+            if (matchedDoc) {
+              hashToDoc.set(f.sha256Checksum, matchedDoc);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("  [Warning] processedFolder sha256Checksum 取得失敗 (フォールバック照合を継続):", err.message);
+    }
+  }
+
+  return hashToDoc;
+}
+
 // Drive API: inbox内のPDF一覧取得 (ページネーション対応・50件上限撤廃)
 async function listInboxFiles(token) {
   let allFiles = [];
@@ -243,7 +291,7 @@ async function listInboxFiles(token) {
   const q = encodeURIComponent(`'${CONFIG.inboxFolderId}' in parents and trashed = false and mimeType = 'application/pdf'`);
   do {
     const pageParam = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : "";
-    const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name,mimeType,size,md5Checksum,modifiedTime)&pageSize=100&supportsAllDrives=true&includeItemsFromAllDrives=true${pageParam}`;
+    const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name,mimeType,size,md5Checksum,sha256Checksum,modifiedTime)&pageSize=100&supportsAllDrives=true&includeItemsFromAllDrives=true${pageParam}`;
     const res = await fetch(url, {
       headers: { "Authorization": `Bearer ${token}` }
     });
@@ -567,6 +615,11 @@ export async function runDriveAutoImport(options = {}) {
   const existingDocs = await fetchAllExistingDocuments(invokeRelay);
   console.log(`  取得済み既存書類件数: ${existingDocs.length} 件`);
 
+  // 既存書類のバイナリハッシュ(SHA-256)照合マップを構築 (Drive ID差異による二重登録防止)
+  console.log("  既存原本のバイナリSHA-256照合マップを構築中...");
+  const knownHashToDoc = await buildKnownDocumentHashMap(existingDocs, driveToken);
+  console.log(`  照合可能バイナリSHA-256数: ${knownHashToDoc.size} 件`);
+
   // 不整合リカバリの実行 (Drive移動後DB更新失敗分の自動回復)
   await reconcileIncompleteDocuments(existingDocs, driveToken, isDryRun);
 
@@ -639,15 +692,31 @@ export async function runDriveAutoImport(options = {}) {
       const fingerprint = crypto.createHash("sha256").update(pdfBuf).digest("hex");
       console.log(`    SHA-256: ${fingerprint}`);
 
-      // 3. DB既存照合 (list_documents 結果から照合)
+      // 3. DB既存照合 (重複チェック: Drive ID および バイナリ SHA-256)
       console.log("  [Step 3] 既存書類照合 (重複チェック)...");
-      let docRecord = existingDocs.find(d => d.drive_file_id === file.id || d.file_fingerprint === fingerprint);
+      let docRecord = knownHashToDoc.get(fingerprint);
+      let matchedBy = docRecord ? "binary_sha256" : null;
+
+      if (!docRecord) {
+        docRecord = existingDocs.find(d => {
+          if (d.drive_file_id === file.id) { matchedBy = "drive_file_id"; return true; }
+          if (d.idempotency_key === `sha256:${fingerprint}`) { matchedBy = "idempotency_key"; return true; }
+          if (d.file_fingerprint === fingerprint) { matchedBy = "file_fingerprint"; return true; }
+          if (d.notes) {
+            try {
+              const n = JSON.parse(d.notes);
+              if (n.content_hash === fingerprint) { matchedBy = "notes_content_hash"; return true; }
+            } catch {}
+          }
+          return false;
+        });
+      }
 
       if (docRecord) {
         fileResult.document_id = docRecord.id;
-        console.log(`    既存レコード検出: ID=${docRecord.id}, Status=${docRecord.status}`);
-        if (docRecord.status === "processed" && docRecord.drive_folder_id === CONFIG.processedFolderId) {
-          console.log("    => 既に取込・処理完了済みです。スキップします。");
+        console.log(`    既存レコード検出 (${matchedBy}): ID=${docRecord.id}, Status=${docRecord.status}, ファイル名=${docRecord.file_name}`);
+        if (docRecord.status === "processed" || (docRecord.extracted_line_count && docRecord.extracted_line_count > 0)) {
+          console.log("    => 同一コンテンツの原本が既に処理・登録済みです。二重計上防止のためスキップします。");
           fileResult.status = "skipped";
           skippedCount++;
           fileResults.push(fileResult);
@@ -655,7 +724,12 @@ export async function runDriveAutoImport(options = {}) {
         }
       } else {
         console.log("    未登録原本です。サーバー側API (register_drive_document) 経由でDB原本レコードを作成します...");
-        const idempotencyKey = `drive_${file.id}_${Date.now()}`;
+        // 決定論的 idempotency_key として PDF本体の SHA-256 を採用 (Drive ID差異による二重作成防止)
+        const idempotencyKey = `sha256:${fingerprint}`;
+        const notesObj = {
+          job_id: options.job_id || options.jobId || "cli_runner",
+          content_hash: fingerprint
+        };
         const payload = {
           action: "register_drive_document",
           idempotency_key: idempotencyKey,
@@ -668,11 +742,9 @@ export async function runDriveAutoImport(options = {}) {
           drive_file_id: file.id,
           drive_folder_id: CONFIG.inboxFolderId,
           drive_file_url: `https://drive.google.com/file/d/${file.id}/view`,
-          status: "pending_amount"
+          status: "pending_amount",
+          notes: JSON.stringify(notesObj)
         };
-        if (options.job_id || options.jobId) {
-          payload.notes = JSON.stringify({ job_id: options.job_id || options.jobId });
-        }
 
         if (!isDryRun) {
           const regRes = await invokeRelay(payload);
@@ -689,6 +761,19 @@ export async function runDriveAutoImport(options = {}) {
           }
           docRecord = regRes.data.document;
           fileResult.document_id = docRecord.id;
+
+          // relay 側で idempotency_key 等により既存再利用 (is_reused: true) された場合の安全弁
+          if (regRes.data.is_reused) {
+            console.log(`    [冪等性検知] relay 側で既存原本が再利用されました (matched_by: ${regRes.data.matched_by})`);
+            if (docRecord.status === "processed" || (docRecord.extracted_line_count && docRecord.extracted_line_count > 0)) {
+              console.log("    => 既存原本は既に処理完了済みです。明細二重保存をスキップします。");
+              fileResult.status = "skipped";
+              skippedCount++;
+              fileResults.push(fileResult);
+              continue;
+            }
+          }
+
           console.log(`    ✓ DB原本登録完了: ID=${docRecord.id}`);
         } else {
           docRecord = { id: "dry-run-doc-id", status: "pending_amount" };
