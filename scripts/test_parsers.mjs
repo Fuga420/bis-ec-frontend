@@ -78,6 +78,10 @@ assert("3-1. NJ: 原本総合計金額が1,673,518円", njRes.declared_net_amoun
 assert("3-2. NJ: 明細8件 (商品7件 + 雑費1件) が抽出される", njRes.lines.length === 8);
 assert("3-3. NJ: 金額検算差額が0円 (is_balanced === true)", njRes.is_balanced === true && njRes.discrepancy === 0);
 assert("3-4. NJ: 各明細の total_line_amount 合計が原本公称総合計と完全一致する", njRes.lines.reduce((s, l) => s + l.total_line_amount, 0) === njRes.declared_net_amount);
+assert("3-5. NJ: 6月原本の各行ページ番号が正確 (買上=2P, 雑費=4P)",
+  njRes.lines.slice(0, 7).every(l => l.page_number === 2) &&
+  njRes.lines[7].page_number === 4
+);
 
 // 4. NJスキャン画像PDF (11.30.pdf) の文字層なし検出
 const njScanPath = path.join(fixturesDir, "nj_scan_sample.txt");
@@ -90,6 +94,64 @@ console.log(`  要確認理由: ${JSON.stringify(njScanRes.needs_review_reasons)
 
 assert("4-1. NJスキャンPDF: has_text_layer が false と判定される", njScanRes.has_text_layer === false);
 assert("4-2. NJスキャンPDF: TEXT_LAYER_MISSING_NEEDS_OCR が付与される", njScanRes.needs_review_reasons.includes("TEXT_LAYER_MISSING_NEEDS_OCR"));
+
+// 5. ネットジャパン 複合票 (566-20260108-20260111-10773)
+const njCompPath = path.join(fixturesDir, "nj_composite_sample.txt");
+const njCompText = fs.readFileSync(njCompPath, "utf8");
+const njCompRes = parseNjInvoice(njCompText);
+
+console.log("\n--- 5. ネットジャパン 複合票 (566-20260108-20260111-10773) 検算結果 ---");
+console.log(`  お客様コード: ${njCompRes.member_number}, 発行日: ${njCompRes.issue_date}`);
+console.log(`  原本総合計金額: ${njCompRes.declared_net_amount} 円`);
+console.log(`  抽出明細行数: ${njCompRes.lines.length} 行 (買上5件 + 売上相殺7件 + 手数料1件 + 雑費1件)`);
+console.log(`  明細合計: ${njCompRes.calculated_total} 円, 差額: ${njCompRes.discrepancy} 円`);
+
+const buyLines = njCompRes.lines.filter(l => l.transaction_type === "purchase");
+const saleLines = njCompRes.lines.filter(l => l.transaction_type === "sale_settlement");
+const feeLines = njCompRes.lines.filter(l => l.transaction_type === "commission");
+const expLines = njCompRes.lines.filter(l => l.transaction_type === "other_expense");
+
+const allLinesBalanced = njCompRes.lines.every(l => l.item_amount + l.tax_amount === l.total_line_amount);
+const saleNegative = saleLines.every(l => l.item_amount < 0 && l.tax_amount < 0 && l.total_line_amount < 0);
+
+assert("5-1. NJ複合票: 原本総合計金額が3,071,479円", njCompRes.declared_net_amount === 3071479);
+assert("5-2. NJ複合票: 明細14件 (買上5件 + 売上相殺7件 + 手数料1件 + 雑費1件) が動的抽出される",
+  njCompRes.lines.length === 14 &&
+  buyLines.length === 5 &&
+  saleLines.length === 7 &&
+  feeLines.length === 1 &&
+  expLines.length === 1
+);
+assert("5-3. NJ複合票: 金額検算差額が0円 (is_balanced === true)", njCompRes.is_balanced === true && njCompRes.discrepancy === 0);
+assert("5-4. NJ複合票: 各明細の total_line_amount 合計が原本公称総合計と完全一致する", njCompRes.lines.reduce((s, l) => s + l.total_line_amount, 0) === njCompRes.declared_net_amount);
+assert("5-5. NJ複合票: 全14行で item_amount + tax_amount === total_line_amount が成立する", allLinesBalanced);
+assert("5-6. NJ複合票: 売上明細が相殺額として全て負数 (マイナス) で記録される", saleNegative);
+
+// 各セクションの参照ページ番号検証
+assert("5-7. NJ複合票: 各セクションのページ番号が原本から動的抽出される (売上=2P, 買上=3P, 手数料=4P, 雑費=5P)",
+  saleLines.every(l => l.page_number === 2) &&
+  buyLines.every(l => l.page_number === 3) &&
+  feeLines.every(l => l.page_number === 4) &&
+  expLines.every(l => l.page_number === 5)
+);
+
+// 原本原文との照合
+const firstBuy = buyLines[0];
+assert("5-8. NJ複合票: 買上1行目の受付番号(1-5)・本体額(385,764円)・税額配分(38,576円)・行総額(424,340円)が正確",
+  firstBuy.reception_number_normalized === "1-5" &&
+  firstBuy.item_amount === 385764 &&
+  firstBuy.tax_amount === 38576 &&
+  firstBuy.total_line_amount === 424340 &&
+  firstBuy.item_name_raw.includes("1.037ct E VVS2")
+);
+const firstSale = saleLines[0];
+assert("5-9. NJ複合票: 売上相殺1行目の受付番号(283-1)・品名・本体額(-23,779円)・税額配分(-2,378円)・行総額(-26,157円)が正確",
+  firstSale.reception_number_normalized === "283-1" &&
+  firstSale.item_amount === -23779 &&
+  firstSale.tax_amount === -2378 &&
+  firstSale.total_line_amount === -26157 &&
+  firstSale.item_name_raw.includes("0.301ct E VS2")
+);
 
 console.log("\n==================================================");
 console.log(`=== 全テスト結果: ${passed}/${passed + failed} PASS (失敗: ${failed}) ===`);

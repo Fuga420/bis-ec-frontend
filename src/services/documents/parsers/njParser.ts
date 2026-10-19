@@ -7,19 +7,25 @@ import { ParsedInvoiceResult, ParsedDocumentLine } from "./types";
 
 // 最大剰余方式 (ハミルトン方式) による消費税端数配分関数
 export function allocateTaxByLargestRemainder(lines: ParsedDocumentLine[], totalTax: number): ParsedDocumentLine[] {
+  if (!lines || lines.length === 0) return [];
+  const isNegative = lines.every(l => (l.item_amount || 0) <= 0);
+  const sign = isNegative ? -1 : 1;
+  const targetTax = Math.abs(totalTax);
+
   const items = lines.map((line, idx) => {
-    const rawTax = (line.item_amount || 0) * 0.1;
+    const absNet = Math.abs(line.item_amount || 0);
+    const rawTax = absNet * 0.1;
     const baseTax = Math.floor(rawTax);
     const remainder = rawTax - baseTax;
-    return { idx, baseTax, remainder, original: line };
+    return { idx, baseTax, remainder, absNet, original: line };
   });
 
   const sumBaseTax = items.reduce((s, it) => s + it.baseTax, 0);
-  const diff = totalTax - sumBaseTax;
+  const diff = targetTax - sumBaseTax;
 
   const sorted = [...items].sort((a, b) => {
     if (b.remainder !== a.remainder) return b.remainder - a.remainder;
-    return (b.original.item_amount || 0) - (a.original.item_amount || 0);
+    return b.absNet - a.absNet;
   });
 
   for (let i = 0; i < diff && i < sorted.length; i++) {
@@ -27,7 +33,7 @@ export function allocateTaxByLargestRemainder(lines: ParsedDocumentLine[], total
   }
 
   return items.map(it => {
-    const taxAmount = it.baseTax;
+    const taxAmount = it.baseTax * sign;
     const totalLineAmount = (it.original.item_amount || 0) + taxAmount +
       (it.original.fee_amount || 0) + (it.original.fee_tax_amount || 0);
     return {
@@ -84,33 +90,51 @@ export function parseNjInvoice(text: string): ParsedInvoiceResult {
     result.document_number = `NJ-${result.issue_date.replace(/-/g, "")}-${result.member_number}`;
   }
 
+  // セクションの出現位置からページ番号を動的に判定するヘルパー
+  const extractSectionPageNumber = (rawText: string, sectionIndex?: number): number => {
+    if (sectionIndex == null || sectionIndex < 0) return 1;
+    // 1. 直前の "N/M" ページヘッダーを探す (例: "2/6", "3/6")
+    const prefix = rawText.slice(Math.max(0, sectionIndex - 100), sectionIndex);
+    const slashMatch = [...prefix.matchAll(/(?:^|\n)\s*(\d+)\s*\/\s*\d+/g)].pop();
+    if (slashMatch) return parseInt(slashMatch[1], 10);
+
+    // 2. 直後の "-- N of M --" ページフッターを探す (例: "-- 2 of 6 --")
+    const suffix = rawText.slice(sectionIndex, sectionIndex + 3000);
+    const dashMatch = suffix.match(/--\s*(\d+)\s+of\s+\d+\s*--/);
+    if (dashMatch) return parseInt(dashMatch[1], 10);
+
+    return 1;
+  };
+
   // 原本記載の御買上消費税額および合計額
   const buyTaxMatch = text.match(/御買上金額[\s\S]*?消費税\(10%\)\s*([\d,]+)\s*円/);
   const buyTotalMatch = text.match(/御買上金額[\s\S]*?\(2\)\s*合計\(▲\)\s*([\d,]+)\s*円/);
 
-  // 2. 御買上明細行の動的抽出 (2ページ目)
-  const purchaseLines: ParsedDocumentLine[] = [];
-  const p2Match = text.match(/開催日\s+箱ー枝\s+商品詳細[\s\S]*?(?=株式会社ネットジャパン|-- 2 of 4 --)/);
-  if (p2Match) {
-    const tableText = p2Match[0];
-    const lineRegex = /(\d+)\s+(\d{2}\/\d{2})\s+(\d+)-(\d+)\s+([\s\S]+?)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)(?:\r?\n|$)/g;
-    let m;
-    while ((m = lineRegex.exec(tableText)) !== null) {
-      const lineNo = parseInt(m[1], 10);
-      const lot = m[3];
-      const branch = m[4];
-      const detail = m[5].replace(/\s+/g, " ").trim();
-      const unitPrice = parseInt(m[6].replace(/,/g, ""), 10);
-      const amount = parseInt(m[7].replace(/,/g, ""), 10);
-      const fee = parseInt(m[8].replace(/,/g, ""), 10);
+  // 2. 御買上明細書 (落札購入) の動的抽出
+  const buySection = text.match(/御買上明細書[\s\S]*?(?=株式会社ネットジャパン|-- \d+ of \d+ --|$)/);
+  if (buySection) {
+    const buyPageNumber = extractSectionPageNumber(text, buySection.index);
+    const buyText = buySection[0];
+    const buyTaxMatch = buyText.match(/消費税\(10%\)\s*([\d,]+)\s*円/);
+    const buyTotalTax = buyTaxMatch ? parseInt(buyTaxMatch[1].replace(/,/g, ""), 10) : 0;
 
-      purchaseLines.push({
-        line_number: lineNo,
-        page_number: 2,
-        reception_number_raw: `${lot}-${branch}`,
-        reception_number_normalized: `${lot}-${branch}`,
-        lot_number: lot,
-        branch_number: branch,
+    const rawBuyLines: ParsedDocumentLine[] = [];
+    const lineRegex = /(\d+)\s+(\d{2}\/\d{2})\s+(\d+-\d+)\s+([\s\S]+?)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)(?:\r?\n|$)/g;
+    let m;
+    while ((m = lineRegex.exec(buyText)) !== null) {
+      const lotBranch = m[3];
+      const detail = m[4].replace(/\s+/g, " ").trim();
+      const unitPrice = parseInt(m[5].replace(/,/g, ""), 10);
+      const amount = parseInt(m[6].replace(/,/g, ""), 10);
+      const fee = parseInt(m[7].replace(/,/g, ""), 10);
+
+      rawBuyLines.push({
+        line_number: result.lines.length + rawBuyLines.length + 1,
+        page_number: buyPageNumber,
+        reception_number_raw: lotBranch,
+        reception_number_normalized: lotBranch,
+        lot_number: lotBranch.split("-")[0],
+        branch_number: lotBranch.split("-")[1],
         item_name_raw: detail,
         brand_name_raw: "ジュエリー",
         transaction_type: "purchase",
@@ -119,36 +143,112 @@ export function parseNjInvoice(text: string): ParsedInvoiceResult {
         fee_amount: fee,
         fee_tax_amount: 0,
         total_line_amount: 0,
-        notes: `箱ー枝: ${lot}-${branch} (単価: ${unitPrice.toLocaleString()})`
+        notes: `落札 (箱ー枝: ${lotBranch}, 単価: ${unitPrice.toLocaleString()})`
       });
+    }
+
+    if (rawBuyLines.length > 0) {
+      const allocatedBuy = allocateTaxByLargestRemainder(rawBuyLines, buyTotalTax);
+      result.lines.push(...allocatedBuy);
     }
   }
 
-  if (purchaseLines.length > 0) {
-    const sumNetBuy = purchaseLines.reduce((s, l) => s + (l.item_amount || 0), 0);
-    const declaredBuyTax = buyTaxMatch
-      ? parseInt(buyTaxMatch[1].replace(/,/g, ""), 10)
-      : Math.floor(sumNetBuy * 0.1);
+  // 3. 売上明細書 (御出品・売却相殺) の動的抽出
+  const saleSection = text.match(/売上明細書[\s\S]*?(?=株式会社ネットジャパン|-- \d+ of \d+ --|$)/);
+  if (saleSection) {
+    const salePageNumber = extractSectionPageNumber(text, saleSection.index);
+    const saleText = saleSection[0];
+    const saleTaxMatch = saleText.match(/消費税\(10%\)\s*([\d,]+)\s*円/);
+    const saleTotalTax = saleTaxMatch ? parseInt(saleTaxMatch[1].replace(/,/g, ""), 10) : 0;
 
-    const allocatedBuyLines = allocateTaxByLargestRemainder(purchaseLines, declaredBuyTax);
-    result.lines.push(...allocatedBuyLines);
+    const rawSaleLines: ParsedDocumentLine[] = [];
+    const lineRegex = /(\d+)\s+(\d{2}\/\d{2})\s+(\d+-\d+)\s+([\s\S]+?)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)(?:\r?\n|$)/g;
+    let m;
+    while ((m = lineRegex.exec(saleText)) !== null) {
+      const lotBranch = m[3];
+      const detail = m[4].replace(/\s+/g, " ").trim();
+      const unitPrice = parseInt(m[5].replace(/,/g, ""), 10);
+      const amount = parseInt(m[6].replace(/,/g, ""), 10);
 
-    // 3. 雑費明細行の抽出 (4ページ目)
-    const expSectionMatch = text.match(/雑費明細書[\s\S]*?(?=株式会社ネットジャパン|-- 4 of 4 --|$)/);
-    if (expSectionMatch) {
-      const expText = expSectionMatch[0];
-      const expenseNetMatch = expText.match(/(?:^|\n)\s*課税金額\s*([\d,]+)\s*円/);
-      const expenseTaxMatch = expText.match(/消費税\(10%\)\s*([\d,]+)\s*円/);
-      const expenseTotalMatch = expText.match(/\(6\)\s*合計\(▲\)\s*([\d,]+)\s*円/);
+      rawSaleLines.push({
+        line_number: result.lines.length + rawSaleLines.length + 1,
+        page_number: salePageNumber,
+        reception_number_raw: lotBranch,
+        reception_number_normalized: lotBranch,
+        lot_number: lotBranch.split("-")[0],
+        branch_number: lotBranch.split("-")[1],
+        item_name_raw: detail,
+        brand_name_raw: "ジュエリー",
+        transaction_type: "sale_settlement",
+        item_amount: -amount,
+        tax_amount: 0,
+        fee_amount: 0,
+        fee_tax_amount: 0,
+        total_line_amount: 0,
+        notes: `出品売却相殺 (箱ー枝: ${lotBranch}, 単価: ${unitPrice.toLocaleString()})`
+      });
+    }
 
-      if (expenseTotalMatch) {
-        const expTotal = parseInt(expenseTotalMatch[1].replace(/,/g, ""), 10);
-        const expTax = expenseTaxMatch ? parseInt(expenseTaxMatch[1].replace(/,/g, ""), 10) : 0;
-        const expNet = expenseNetMatch ? parseInt(expenseNetMatch[1].replace(/,/g, ""), 10) : (expTotal - expTax);
+    if (rawSaleLines.length > 0) {
+      const allocatedSale = allocateTaxByLargestRemainder(rawSaleLines, saleTotalTax);
+      result.lines.push(...allocatedSale);
+    }
+  }
 
+  // 4. 手数料明細書の動的抽出
+  const feeSection = text.match(/手数料明細書[\s\S]*?(?=株式会社ネットジャパン|-- \d+ of \d+ --|$)/);
+  if (feeSection) {
+    const feePageNumber = extractSectionPageNumber(text, feeSection.index);
+    const feeText = feeSection[0];
+    const feeNetMatch = feeText.match(/(?:^|\n)\s*課税金額\s*([\d,]+)\s*円/);
+    const feeTaxMatch = feeText.match(/消費税\(10%\)\s*([\d,]+)\s*円/);
+    const feeTotalMatch = feeText.match(/\(5\)\s*合計\(▲\)\s*([\d,]+)\s*円/);
+
+    if (feeTotalMatch) {
+      const feeTotal = parseInt(feeTotalMatch[1].replace(/,/g, ""), 10);
+      const feeTax = feeTaxMatch ? parseInt(feeTaxMatch[1].replace(/,/g, ""), 10) : 0;
+      const feeNet = feeNetMatch ? parseInt(feeNetMatch[1].replace(/,/g, ""), 10) : (feeTotal - feeTax);
+
+      if (feeTotal > 0) {
         result.lines.push({
           line_number: result.lines.length + 1,
-          page_number: 4,
+          page_number: feePageNumber,
+          reception_number_raw: null,
+          reception_number_normalized: null,
+          lot_number: null,
+          branch_number: null,
+          item_name_raw: "手数料 (売上/仕入手数料)",
+          brand_name_raw: null,
+          transaction_type: "commission",
+          item_amount: feeNet,
+          tax_amount: feeTax,
+          fee_amount: 0,
+          fee_tax_amount: 0,
+          total_line_amount: feeTotal,
+          notes: `手数料明細書 手数料合計 (本体: ${feeNet.toLocaleString()} 円, 税: ${feeTax.toLocaleString()} 円)`
+        });
+      }
+    }
+  }
+
+  // 5. 雑費明細書の動的抽出
+  const expSectionMatch = text.match(/雑費明細書[\s\S]*?(?=株式会社ネットジャパン|-- \d+ of \d+ --|$)/);
+  if (expSectionMatch) {
+    const expPageNumber = extractSectionPageNumber(text, expSectionMatch.index);
+    const expText = expSectionMatch[0];
+    const expenseNetMatch = expText.match(/(?:^|\n)\s*課税金額\s*([\d,]+)\s*円/);
+    const expenseTaxMatch = expText.match(/消費税\(10%\)\s*([\d,]+)\s*円/);
+    const expenseTotalMatch = expText.match(/\(6\)\s*合計\(▲\)\s*([\d,]+)\s*円/);
+
+    if (expenseTotalMatch) {
+      const expTotal = parseInt(expenseTotalMatch[1].replace(/,/g, ""), 10);
+      const expTax = expenseTaxMatch ? parseInt(expenseTaxMatch[1].replace(/,/g, ""), 10) : 0;
+      const expNet = expenseNetMatch ? parseInt(expenseNetMatch[1].replace(/,/g, ""), 10) : (expTotal - expTax);
+
+      if (expTotal > 0) {
+        result.lines.push({
+          line_number: result.lines.length + 1,
+          page_number: expPageNumber,
           reception_number_raw: null,
           reception_number_normalized: null,
           lot_number: null,
@@ -161,26 +261,13 @@ export function parseNjInvoice(text: string): ParsedInvoiceResult {
           fee_amount: 0,
           fee_tax_amount: 0,
           total_line_amount: expTotal,
-          notes: `4P 雑費明細書 参加費 (本体: ${expNet.toLocaleString()} 円, 税: ${expTax.toLocaleString()} 円)`
+          notes: `雑費明細書 雑費 (本体: ${expNet.toLocaleString()} 円, 税: ${expTax.toLocaleString()} 円)`
         });
       }
     }
-  } else if (result.declared_net_amount === 1673518 || (result.member_number === "10773" && result.issue_date === "2026-06-12")) {
-    // 代表原本のフォールバック (最大剰余方式適用済み)
-    result.document_number = "NJ-20260612-10773";
-    result.lines = [
-      { line_number: 1, page_number: 2, reception_number_raw: "138-4", reception_number_normalized: "138-4", lot_number: "138", branch_number: "4", item_name_raw: "22.1ct ダイヤモンド -6.5", brand_name_raw: "ジュエリー", transaction_type: "purchase", item_amount: 92820, tax_amount: 9282, fee_amount: 0, fee_tax_amount: 0, total_line_amount: 102102, notes: "箱ー枝: 138-4" },
-      { line_number: 2, page_number: 2, reception_number_raw: "206-8", reception_number_normalized: "206-8", lot_number: "206", branch_number: "8", item_name_raw: "20.57ct ダイヤモンド -6.5", brand_name_raw: "ジュエリー", transaction_type: "purchase", item_amount: 174845, tax_amount: 17484, fee_amount: 0, fee_tax_amount: 0, total_line_amount: 192329, notes: "箱ー枝: 206-8 (端数調整済)" },
-      { line_number: 3, page_number: 2, reception_number_raw: "206-9", reception_number_normalized: "206-9", lot_number: "206", branch_number: "9", item_name_raw: "20.62ct ダイヤモンド -6.5", brand_name_raw: "ジュエリー", transaction_type: "purchase", item_amount: 175270, tax_amount: 17527, fee_amount: 0, fee_tax_amount: 0, total_line_amount: 192797, notes: "箱ー枝: 206-9" },
-      { line_number: 4, page_number: 2, reception_number_raw: "305-3", reception_number_normalized: "305-3", lot_number: "305", branch_number: "3", item_name_raw: "1.005ct FANCY LIGHT BROWNISH GREENISH YELLOW SI2 PS カメレオン", brand_name_raw: "ジュエリー", transaction_type: "purchase", item_amount: 150750, tax_amount: 15075, fee_amount: 0, fee_tax_amount: 0, total_line_amount: 165825, notes: "箱ー枝: 305-3" },
-      { line_number: 5, page_number: 2, reception_number_raw: "352-1", reception_number_normalized: "352-1", lot_number: "352", branch_number: "1", item_name_raw: "3.224ct FANCY LIGHT BROWNISH YELLOW I1 PS", brand_name_raw: "ジュエリー", transaction_type: "purchase", item_amount: 257920, tax_amount: 25792, fee_amount: 0, fee_tax_amount: 0, total_line_amount: 283712, notes: "箱ー枝: 352-1" },
-      { line_number: 6, page_number: 2, reception_number_raw: "354-9", reception_number_normalized: "354-9", lot_number: "354", branch_number: "9", item_name_raw: "3.013ct FANCY DARK BROWN I2 RD", brand_name_raw: "ジュエリー", transaction_type: "purchase", item_amount: 108468, tax_amount: 10847, fee_amount: 0, fee_tax_amount: 0, total_line_amount: 119315, notes: "箱ー枝: 354-9" },
-      { line_number: 7, page_number: 2, reception_number_raw: "354-10", reception_number_normalized: "354-10", lot_number: "354", branch_number: "10", item_name_raw: "5.078ct FANCY DEEP BROWNISH GREEN YELLOW I1 OV", brand_name_raw: "ジュエリー", transaction_type: "purchase", item_amount: 558580, tax_amount: 55858, fee_amount: 0, fee_tax_amount: 0, total_line_amount: 614438, notes: "箱ー枝: 354-10" },
-      { line_number: 8, page_number: 4, reception_number_raw: null, reception_number_normalized: null, lot_number: null, branch_number: null, item_name_raw: "雑費 (参加諸費用)", brand_name_raw: null, transaction_type: "other_expense", item_amount: 2728, tax_amount: 272, fee_amount: 0, fee_tax_amount: 0, total_line_amount: 3000, notes: "4P 雑費明細書 参加費 (本体: 2,728 円, 税: 272 円)" }
-    ];
   }
 
-  // 4. 金額検算 (明細総額合算と原本公称総合計金額の厳格照合)
+  // 6. 金額検算 (明細総額合算と原本公称総合計金額の厳格照合・固定明細フォールバックなし)
   if (result.lines.length > 0) {
     result.calculated_total = result.lines.reduce((s, l) => s + (l.total_line_amount || 0), 0);
     result.discrepancy = result.declared_net_amount - result.calculated_total;
