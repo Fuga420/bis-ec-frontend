@@ -64,15 +64,17 @@ function safeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-// 呼び出し元の認証・セッション検証
-// confirmed_by は監査表示用の記録値であり、本人認証とは扱わない。
+// 呼び出し元の認証・権限検証
+// 現行Readdy画面（社内SPA）は Supabase anon_key を使用。
+// confirmed_by は操作スタッフの監査表示値として記録し、本人認証とは扱わない。
 async function verifyCallerAuth(
   req: Request,
   supabaseUrl: string,
   anonKey: string,
-  workerSecret: string
+  workerSecret: string,
+  confirmedBy: string
 ): Promise<
-  | { ok: true; callerType: "worker" | "authenticated_user"; userId?: string; userEmail?: string }
+  | { ok: true; callerType: "worker" | "authenticated_user" | "frontend_staff"; userId?: string; userEmail?: string }
   | { ok: false; status: number; code: string; message: string }
 > {
   // 1. マシン間通信 / 自動化スクリプト等によるワーカー専用トークン検証
@@ -89,22 +91,41 @@ async function verifyCallerAuth(
     };
   }
 
-  // 2. ブラウザ / 画面からのセッション検証 (Supabase Auth JWT)
+  // 2. ブラウザ / Readdy画面からの呼出検証
   const authHeader = (req.headers.get("authorization") || "").trim();
+  const apiKeyHeader = (req.headers.get("apikey") || "").trim();
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
   const bearerToken = match ? match[1].trim() : "";
 
-  // トークンが無い、または anon キーそのものの場合は未ログイン (セッションなし)
-  if (!bearerToken || bearerToken === anonKey) {
+  // 認証ヘッダーも apikey も完全に欠落している場合は遮断
+  if (!bearerToken && !apiKeyHeader) {
     return {
       ok: false,
       status: 401,
-      code: "AUTH_SESSION_REQUIRED",
-      message: "一括取込の起動には有効なスタッフログイン（認証セッション）が必要です。未認証のリクエストは許可されません。"
+      code: "AUTH_REQUIRED",
+      message: "API呼び出しには認証ヘッダーまたは apikey が必要です。"
     };
   }
 
-  // 3. Supabase Auth でトークンを検証
+  // 操作スタッフ識別子 (confirmed_by) の必須チェック (監査証跡)
+  if (!confirmedBy) {
+    return {
+      ok: false,
+      status: 400,
+      code: "OPERATOR_IDENTIFIER_REQUIRED",
+      message: "一括取込の起動には操作スタッフ識別子 (confirmed_by) が必要です。"
+    };
+  }
+
+  // 3-A. 現行Readdy画面 (anon key でのアクセス)
+  if (bearerToken === anonKey || (!bearerToken && apiKeyHeader === anonKey)) {
+    return {
+      ok: true,
+      callerType: "frontend_staff"
+    };
+  }
+
+  // 3-B. Supabase Auth ログインセッション (将来的なスタッフJWT導入時)
   try {
     const supabase = createClient(supabaseUrl, anonKey, {
       auth: { persistSession: false, autoRefreshToken: false }
@@ -292,19 +313,28 @@ serve(async (req: Request) => {
         );
       }
 
-      // 呼び出し元の認証・セッション検証 (confirmed_by は認証として使わない)
-      const authResult = await verifyCallerAuth(req, supabaseUrl, supabaseAnonKey, workerSecret);
+      // confirmed_by は操作スタッフの監査表示値
+      const inputConfirmedBy = String(body.confirmed_by || "").trim();
+
+      // 呼び出し元の認証・権限検証
+      const authResult = await verifyCallerAuth(req, supabaseUrl, supabaseAnonKey, workerSecret, inputConfirmedBy);
       if (!authResult.ok) {
         return errorResponse(authResult.code, authResult.message, authResult.status, cors);
       }
 
-      // confirmed_by は監査表示用の記録値 (未指定時はログインユーザー情報で補完)
-      const inputConfirmedBy = String(body.confirmed_by || "").trim();
-      const confirmedBy = inputConfirmedBy || (authResult.callerType === "authenticated_user" ? (authResult.userEmail || authResult.userId) : "worker_direct");
+      const confirmedBy = inputConfirmedBy || (authResult.callerType === "authenticated_user" ? (authResult.userEmail || authResult.userId) : "staff");
+
+      // 一意なジョブIDの採番 (画面・DB・コンテナ・Execution名で同期)
+      const jobId = String(body.job_id || "").trim() || `job_${new Date().toISOString().replace(/[-:T.Z]/g, "").slice(0, 14)}_${Math.random().toString(36).slice(2, 6)}`;
+      const maxFiles = Number.isFinite(body.max_files) ? Number(body.max_files) : 50;
+      const isDryRun = Boolean(body.dry_run);
 
       const executionPayload = {
         ...body,
+        job_id: jobId,
         confirmed_by: confirmedBy,
+        max_files: maxFiles,
+        dry_run: isDryRun,
         operator_user_id: authResult.callerType === "authenticated_user" ? authResult.userId : null,
         operator_email: authResult.callerType === "authenticated_user" ? authResult.userEmail : null,
       };
@@ -324,12 +354,14 @@ serve(async (req: Request) => {
                 containerOverrides: [
                   {
                     env: [
+                      { name: "IMPORT_JOB_ID", value: jobId },
                       { name: "DOCUMENTS_WORKER_SECRET", value: workerSecret },
                       { name: "CONFIRMED_BY", value: confirmedBy },
                       { name: "OPERATOR_USER_ID", value: executionPayload.operator_user_id || "" },
                       { name: "OPERATOR_EMAIL", value: executionPayload.operator_email || "" },
-                      { name: "MAX_FILES", value: String(body.max_files || 50) },
-                      { name: "DRY_RUN", value: body.dry_run ? "true" : "false" },
+                      { name: "MAX_FILES", value: String(maxFiles) },
+                      { name: "DRY_RUN", value: isDryRun ? "true" : "false" },
+                      { name: "TARGET_FILE_ID", value: String(body.file_id || "") }
                     ]
                   }
                 ]
@@ -348,7 +380,6 @@ serve(async (req: Request) => {
           }
 
           const executionName = runJson.name || "";
-          const jobId = executionName.split("/").pop() || `job_cr_${Date.now()}`;
           return jsonResponse({
             success: true,
             action: "start_inbox_import",
@@ -357,6 +388,8 @@ serve(async (req: Request) => {
             status: "running",
             runner: "cloud_run_job",
             operator: confirmedBy,
+            max_files: maxFiles,
+            dry_run: isDryRun,
             message: "Cloud Run Job の実行を開始しました。"
           }, 200, cors);
         } catch (cloudRunErr: any) {

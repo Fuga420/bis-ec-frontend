@@ -26,3 +26,4 @@ USER node
 # Cloud Run Jobs エントリポイント
 # ジョブ起動時に drive_auto_import_worker.mjs を実行し、全件処理後に exit code 0 で正常終了する
 ENTRYPOINT ["node", "scripts/drive_auto_import_worker.mjs"]
+

@@ -499,14 +499,29 @@ async function reconcileIncompleteDocuments(existingDocs, driveToken, isDryRun) 
 // メインパイプライン処理
 // -----------------------------------------------------------------------------
 export async function runDriveAutoImport(options = {}) {
-  const isDryRun = Boolean(options.dryRun ?? options.dry_run ?? process.argv.includes("--dry-run"));
-  const targetFileId = options.fileId || options.file_id || process.argv.find(a => a.startsWith("--file-id="))?.split("=")[1];
+  const isDryRun = Boolean(
+    options.dryRun ??
+    options.dry_run ??
+    (process.env.DRY_RUN === "true" || process.env.DRY_RUN === "1") ??
+    process.argv.includes("--dry-run")
+  );
+  const targetFileId = options.fileId || options.file_id || process.env.TARGET_FILE_ID || process.argv.find(a => a.startsWith("--file-id="))?.split("=")[1];
+  const maxFiles = Number.isFinite(options.maxFiles)
+    ? options.maxFiles
+    : Number.isFinite(options.max_files)
+    ? options.max_files
+    : process.env.MAX_FILES
+    ? parseInt(process.env.MAX_FILES, 10)
+    : undefined;
 
   console.log("================================================================================");
   console.log("=== B.I.S EC 仕入書類 Google Drive 自動取込パイプライン実行 ===");
   console.log("================================================================================");
   console.log(`実行日時: ${new Date().toISOString()}`);
   console.log(`ドライランモード: ${isDryRun ? "有効 (変更なし)" : "無効 (実処理)"}`);
+  if (Number.isFinite(maxFiles) && maxFiles > 0) {
+    console.log(`処理件数上限 (max_files): ${maxFiles} 件`);
+  }
   if (targetFileId) {
     console.log(`対象ファイル指定 (--file-id): ${targetFileId}`);
   }
@@ -544,6 +559,13 @@ export async function runDriveAutoImport(options = {}) {
       }
     }
   }
+
+  // maxFiles 制限の適用 (少数件指定が全件処理にならないよう厳格にスライス)
+  if (Number.isFinite(maxFiles) && maxFiles > 0 && files.length > maxFiles) {
+    console.log(`  [上限制限] 検出 ${files.length} 件中、指定件数上限 ${maxFiles} 件のみを処理対象とします。`);
+    files = files.slice(0, maxFiles);
+  }
+
   console.log(`検出対象PDF: ${files.length} 件`);
 
   if (files.length === 0) {
@@ -860,8 +882,12 @@ export async function runDriveAutoImport(options = {}) {
 
 // CLI直接実行時 (Cloud Run Jobs / ローカル実行)
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const jobId = process.env.IMPORT_JOB_ID || `job_cli_${Date.now()}`;
+  const cloudRunExecution = process.env.CLOUD_RUN_EXECUTION ? process.env.CLOUD_RUN_EXECUTION.split("/").pop() : null;
+  const jobId = process.env.IMPORT_JOB_ID || cloudRunExecution || `job_cli_${Date.now()}`;
   const confirmedBy = process.env.CONFIRMED_BY || "cli_runner";
+  const maxFiles = process.env.MAX_FILES ? parseInt(process.env.MAX_FILES, 10) : undefined;
+  const dryRun = process.env.DRY_RUN === "true" || process.env.DRY_RUN === "1";
+  const targetFileId = process.env.TARGET_FILE_ID || undefined;
   const startedAt = new Date().toISOString();
 
   const initialJobState = {
@@ -883,12 +909,17 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
   (async () => {
     try {
-      console.log(`[Worker CLI] ジョブ開始登録: ID=${jobId}, confirmed_by=${confirmedBy}`);
+      console.log(`[Worker CLI] ジョブ開始登録: ID=${jobId}, confirmed_by=${confirmedBy}, max_files=${maxFiles ?? "all"}, dry_run=${dryRun}`);
       await saveJobStateToDatabase(initialJobState).catch(err => {
         console.warn("[Worker CLI] ジョブ開始状態のDB保存警告:", err.message);
       });
 
-      const result = await runDriveAutoImport();
+      const result = await runDriveAutoImport({
+        maxFiles,
+        dryRun,
+        fileId: targetFileId,
+        jobId
+      });
 
       const finalJobState = {
         ...initialJobState,
