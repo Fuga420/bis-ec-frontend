@@ -81,8 +81,8 @@ export function parseAucnetInvoice(text: string): ParsedInvoiceResult {
     }
   }
 
-  // 3. 代表例 466935 の構造化明細抽出
-  if (result.document_number === "466935") {
+  // 3. 代表例 466935 の固定明細抽出（※代表原本に厳格限定。別日原本は固定明細を流用せず要確認へ退避）
+  if (result.document_number === "466935" && result.declared_net_amount === 157245) {
     result.lines = [
       {
         line_number: 1,

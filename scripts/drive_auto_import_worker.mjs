@@ -162,18 +162,27 @@ async function invokeRelay(payload) {
   return { status: res.status, ok: res.ok, data };
 }
 
-// Drive API: inbox内のPDF一覧取得
+// Drive API: inbox内のPDF一覧取得 (ページネーション対応・50件上限撤廃)
 async function listInboxFiles(token) {
+  let allFiles = [];
+  let pageToken = null;
   const q = encodeURIComponent(`'${CONFIG.inboxFolderId}' in parents and trashed = false and mimeType = 'application/pdf'`);
-  const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,mimeType,size,md5Checksum,modifiedTime)&pageSize=50`;
-  const res = await fetch(url, {
-    headers: { "Authorization": `Bearer ${token}` }
-  });
-  if (!res.ok) {
-    throw new Error(`Drive list error: ${res.status} ${await res.text()}`);
-  }
-  const json = await res.json();
-  return json.files || [];
+  do {
+    const pageParam = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : "";
+    const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name,mimeType,size,md5Checksum,modifiedTime)&pageSize=100${pageParam}`;
+    const res = await fetch(url, {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (!res.ok) {
+      throw new Error(`Drive list error: ${res.status} ${await res.text()}`);
+    }
+    const json = await res.json();
+    if (json.files && json.files.length > 0) {
+      allFiles.push(...json.files);
+    }
+    pageToken = json.nextPageToken || null;
+  } while (pageToken);
+  return allFiles;
 }
 
 // Drive API: ファイルメタデータ取得 (親フォルダ確認用)
@@ -334,240 +343,311 @@ export async function runDriveAutoImport(options = {}) {
 
   if (files.length === 0) {
     console.log("処理対象の新規PDFはありません。完了します。");
-    return { processedCount: 0, flaggedCount: 0, skippedCount: 0, errorCount: 0 };
+    return {
+      total_detected: 0,
+      processed_count: 0,
+      flagged_count: 0,
+      skipped_count: 0,
+      error_count: 0,
+      file_results: []
+    };
   }
 
   let processedCount = 0;
   let flaggedCount = 0;
   let skippedCount = 0;
   let errorCount = 0;
+  const fileResults = [];
 
   for (const file of files) {
-    console.log(`\n--------------------------------------------------------------------------------`);
-    console.log(`処理開始: ${file.name} (Drive ID: ${file.id}, サイズ: ${file.size} bytes)`);
-    console.log(`--------------------------------------------------------------------------------`);
+    const fileResult = {
+      file_id: file.id,
+      file_name: file.name,
+      file_size: parseInt(file.size || 0, 10),
+      status: "pending",
+      document_id: null,
+      supplier_name: null,
+      document_number: null,
+      declared_net_amount: null,
+      calculated_total: null,
+      discrepancy: null,
+      lines_count: 0,
+      is_balanced: false,
+      needs_review_reasons: [],
+      error: null
+    };
 
-    // 2. バイナリ取得とSHA-256指紋計算
-    console.log("  [Step 2] 原本バイナリ取得 & SHA-256 指紋計算...");
-    const pdfBuf = await downloadDriveFile(file.id, driveToken);
-    const fingerprint = crypto.createHash("sha256").update(pdfBuf).digest("hex");
-    console.log(`    SHA-256: ${fingerprint}`);
+    try {
+      console.log(`\n--------------------------------------------------------------------------------`);
+      console.log(`処理開始: ${file.name} (Drive ID: ${file.id}, サイズ: ${file.size} bytes)`);
+      console.log(`--------------------------------------------------------------------------------`);
 
-    // 3. DB既存照合 (list_documents 結果から照合)
-    console.log("  [Step 3] 既存書類照合 (重複チェック)...");
-    let docRecord = existingDocs.find(d => d.drive_file_id === file.id || d.file_fingerprint === fingerprint);
+      // 2. バイナリ取得とSHA-256指紋計算
+      console.log("  [Step 2] 原本バイナリ取得 & SHA-256 指紋計算...");
+      const pdfBuf = await downloadDriveFile(file.id, driveToken);
+      const fingerprint = crypto.createHash("sha256").update(pdfBuf).digest("hex");
+      console.log(`    SHA-256: ${fingerprint}`);
 
-    if (docRecord) {
-      console.log(`    既存レコード検出: ID=${docRecord.id}, Status=${docRecord.status}`);
-      if (docRecord.status === "processed" && docRecord.drive_folder_id === CONFIG.processedFolderId) {
-        console.log("    => 既に取込・処理完了済みです。スキップします。");
-        skippedCount++;
-        continue;
-      }
-    } else {
-      console.log("    未登録原本です。サーバー側API (register_drive_document) 経由でDB原本レコードを作成します...");
-      const idempotencyKey = `drive_${file.id}_${Date.now()}`;
-      const payload = {
-        action: "register_drive_document",
-        idempotency_key: idempotencyKey,
-        document_type: "invoice",
-        supplier_name: "自動判別中",
-        file_name: file.name,
-        mime_type: file.mimeType || "application/pdf",
-        file_size: parseInt(file.size || pdfBuf.length, 10),
-        file_fingerprint: fingerprint,
-        drive_file_id: file.id,
-        drive_folder_id: CONFIG.inboxFolderId,
-        drive_file_url: `https://drive.google.com/file/d/${file.id}/view`,
-        status: "pending_amount"
-      };
+      // 3. DB既存照合 (list_documents 結果から照合)
+      console.log("  [Step 3] 既存書類照合 (重複チェック)...");
+      let docRecord = existingDocs.find(d => d.drive_file_id === file.id || d.file_fingerprint === fingerprint);
 
-      if (!isDryRun) {
-        const regRes = await invokeRelay(payload);
-        console.log(`    register_drive_document 応答: HTTP ${regRes.status}`, JSON.stringify(regRes.data));
-
-        if (!regRes.ok || !regRes.data?.success) {
-          console.error(`    ✗ サーバー側API register_drive_document 呼出失敗:`, regRes.data?.error || regRes.data?.message);
-          console.error("    ※Fail-closed 原則に基づき、本原本の処理を安全に中断・未完了として記録します。");
-          errorCount++;
+      if (docRecord) {
+        fileResult.document_id = docRecord.id;
+        console.log(`    既存レコード検出: ID=${docRecord.id}, Status=${docRecord.status}`);
+        if (docRecord.status === "processed" && docRecord.drive_folder_id === CONFIG.processedFolderId) {
+          console.log("    => 既に取込・処理完了済みです。スキップします。");
+          fileResult.status = "skipped";
+          skippedCount++;
+          fileResults.push(fileResult);
           continue;
         }
-        docRecord = regRes.data.document;
-        console.log(`    ✓ DB原本登録完了: ID=${docRecord.id}`);
       } else {
-        docRecord = { id: "dry-run-doc-id", status: "pending_amount" };
-        console.log("    [Dry-run] DB原本登録をシミュレート");
-      }
-    }
+        console.log("    未登録原本です。サーバー側API (register_drive_document) 経由でDB原本レコードを作成します...");
+        const idempotencyKey = `drive_${file.id}_${Date.now()}`;
+        const payload = {
+          action: "register_drive_document",
+          idempotency_key: idempotencyKey,
+          document_type: "invoice",
+          supplier_name: "自動判別中",
+          file_name: file.name,
+          mime_type: file.mimeType || "application/pdf",
+          file_size: parseInt(file.size || pdfBuf.length, 10),
+          file_fingerprint: fingerprint,
+          drive_file_id: file.id,
+          drive_folder_id: CONFIG.inboxFolderId,
+          drive_file_url: `https://drive.google.com/file/d/${file.id}/view`,
+          status: "pending_amount"
+        };
 
-    // 4. PDF文字層抽出
-    console.log("  [Step 4] PDF文字層抽出...");
-    const { text, totalPages } = await extractTextFromPdf(pdfBuf);
-    const textLength = text.trim().length;
-    console.log(`    抽出文字数: ${textLength} 文字, ページ数: ${totalPages}`);
+        if (!isDryRun) {
+          const regRes = await invokeRelay(payload);
+          console.log(`    register_drive_document 応答: HTTP ${regRes.status}`, JSON.stringify(regRes.data));
 
-    // 5. パーサー実行・仕入先判別・金額検算
-    console.log("  [Step 5] パーサー実行 & 明細抽出・金額検算...");
-    const parsed = parseInvoiceDocument(text);
-    console.log(`    判定仕入先: ${parsed.supplier_name}`);
-    console.log(`    書類番号: ${parsed.document_number || "なし"}`);
-    console.log(`    計上日: ${parsed.accounting_date || parsed.issue_date || "なし"}`);
-    console.log(`    公称請求額: ${parsed.declared_total_claim?.toLocaleString()} 円`);
-    console.log(`    公称支払額: ${parsed.declared_total_payment?.toLocaleString()} 円`);
-    console.log(`    公称純請求額: ${parsed.declared_net_amount?.toLocaleString()} 円`);
-    console.log(`    抽出明細行数: ${parsed.lines.length} 行`);
-
-    // 各商品行の原文と内訳を表示
-    parsed.lines.forEach((l, idx) => {
-      const typeLabel = l.transaction_type === "purchase" ? "商品" :
-                        l.transaction_type === "shipping_cost" ? "配送費" :
-                        l.transaction_type === "other_expense" ? "諸費用" :
-                        l.transaction_type === "sale_settlement" ? "売却相殺" : l.transaction_type;
-      console.log(`      [行 ${idx + 1}] (${typeLabel}) 受付/識別:${l.reception_number_raw || 'なし'} 品名:${l.item_name_raw} 本体:${l.item_amount?.toLocaleString()} 手数料:${l.fee_amount_tax_included?.toLocaleString() || 0} 行総額:${l.total_line_amount?.toLocaleString()} 円`);
-    });
-
-    console.log(`    全明細合計: ${parsed.calculated_total?.toLocaleString()} 円`);
-    console.log(`    検算差額: ${parsed.discrepancy} 円`);
-    console.log(`    検算判定: ${parsed.is_balanced ? "✓ 完全一致 (0円)" : "✗ 差額あり/要確認"}`);
-
-    if (parsed.needs_review_reasons.length > 0) {
-      console.log(`    要確認フラグ: ${parsed.needs_review_reasons.join(", ")}`);
-    }
-
-    // 6. 保存とDrive移動の分岐判定
-    if (parsed.is_balanced && parsed.lines.length > 0) {
-      console.log("\n  [Step 6A] 検算完全一致 => 明細DB保存 & 02_processed 移動");
-      if (!isDryRun) {
-        // サーバー側API (save_document_lines) で明細保存
-        const saveRes = await invokeRelay({
-          action: "save_document_lines",
-          document_id: docRecord.id,
-          lines: parsed.lines,
-          document_number: parsed.document_number,
-          issue_date: parsed.accounting_date || parsed.issue_date,
-          total_amount: parsed.declared_net_amount
-        });
-
-        if (!saveRes.ok || !saveRes.data?.success) {
-          console.error(`    ✗ save_document_lines 失敗: HTTP ${saveRes.status}`, saveRes.data);
-          errorCount++;
-          continue;
-        }
-        console.log(`    ✓ 明細保存完了: lines_count=${saveRes.data.lines_count}, document_status=${saveRes.data.document_status}`);
-
-        // GAS v97 で原本移動 (01_inbox -> 02_processed)
-        console.log(`    GAS v97経由で原本移動: ${file.id} -> 02_processed...`);
-        const moveRes = await callGas({
-          action: "move_drive_file",
-          mode: "admin",
-          file_id: file.id,
-          target_folder_id: CONFIG.processedFolderId
-        });
-
-        if (!moveRes || !moveRes.success) {
-          console.error(`    ✗ GAS move_drive_file 失敗:`, moveRes);
-          errorCount++;
-          continue;
-        }
-        console.log("    ✓ 原本移動成功 (02_processed)");
-
-        // サーバー側API (update_document_folder) でDB上のフォルダ状態更新
-        const updateFolderRes = await invokeRelay({
-          action: "update_document_folder",
-          document_id: docRecord.id,
-          drive_folder_id: CONFIG.processedFolderId,
-          status: "processed",
-          mark_processed: true
-        });
-        console.log(`    update_document_folder 応答: HTTP ${updateFolderRes.status}`, JSON.stringify(updateFolderRes.data));
-
-        // update_document_folder が失敗した場合は処理完了に含めず errorCount に計上
-        if (!updateFolderRes.ok || !updateFolderRes.data?.success) {
-          console.error(`    ✗ update_document_folder 失敗: HTTP ${updateFolderRes.status}`, updateFolderRes.data);
-          console.warn("    ※Drive原本の物理移動は完了しましたが、DBフォルダ更新が未完了です。処理完了とは判定せず未完了として記録します。次回実行時に自動同期されます。");
-          errorCount++;
+          if (!regRes.ok || !regRes.data?.success) {
+            console.error(`    ✗ サーバー側API register_drive_document 呼出失敗:`, regRes.data?.error || regRes.data?.message);
+            console.error("    ※Fail-closed 原則に基づき、本原本をInboxに残し未完了として記録します。");
+            fileResult.status = "error";
+            fileResult.error = `register_drive_document failed: ${regRes.data?.error || regRes.data?.message || regRes.status}`;
+            errorCount++;
+            fileResults.push(fileResult);
+            continue;
+          }
+          docRecord = regRes.data.document;
+          fileResult.document_id = docRecord.id;
+          console.log(`    ✓ DB原本登録完了: ID=${docRecord.id}`);
         } else {
-          console.log("    ✓ DB状態更新完了: status=processed, folder=02_processed");
-          processedCount++;
+          docRecord = { id: "dry-run-doc-id", status: "pending_amount" };
+          fileResult.document_id = docRecord.id;
+          console.log("    [Dry-run] DB原本登録をシミュレート");
         }
-      } else {
-        console.log("    [Dry-run] 明細保存および 02_processed 移動をシミュレート");
-        processedCount++;
       }
-    } else {
-      console.warn("\n  [Step 6B] 要確認原本 => 03_flagged への退避");
-      const reasons = parsed.needs_review_reasons.length > 0 ? parsed.needs_review_reasons.join(", ") : "REASON_UNSPECIFIED";
-      console.log(`    対象ファイル: ${file.name} (Drive ID: ${file.id})`);
-      if (docRecord?.id) {
-        console.log(`    書類レコードID: ${docRecord.id}`);
-      }
-      console.log(`    要確認理由 (needs_review_reasons): ${reasons}`);
 
-      if (!isDryRun) {
-        // 1. GAS v97 で原本移動 (01_inbox -> 03_flagged)
-        console.log(`    [1/2] GAS v97経由でDrive原本移動: ${file.id} -> 03_flagged...`);
-        let driveMoveSuccess = false;
-        try {
+      // 4. PDF文字層抽出
+      console.log("  [Step 4] PDF文字層抽出...");
+      const { text, totalPages, error: extractErr } = await extractTextFromPdf(pdfBuf);
+      if (extractErr) {
+        console.warn(`    [Warn] 文字層抽出警告: ${extractErr}`);
+      }
+      const textLength = text.trim().length;
+      console.log(`    抽出文字数: ${textLength} 文字, ページ数: ${totalPages}`);
+
+      // 5. パーサー実行・仕入先判別・金額検算
+      console.log("  [Step 5] パーサー実行 & 明細抽出・金額検算...");
+      const parsed = parseInvoiceDocument(text);
+      fileResult.supplier_name = parsed.supplier_name;
+      fileResult.document_number = parsed.document_number;
+      fileResult.declared_net_amount = parsed.declared_net_amount;
+      fileResult.calculated_total = parsed.calculated_total;
+      fileResult.discrepancy = parsed.discrepancy;
+      fileResult.lines_count = parsed.lines.length;
+      fileResult.is_balanced = parsed.is_balanced;
+      fileResult.needs_review_reasons = parsed.needs_review_reasons;
+
+      console.log(`    判定仕入先: ${parsed.supplier_name}`);
+      console.log(`    書類番号: ${parsed.document_number || "なし"}`);
+      console.log(`    計上日: ${parsed.accounting_date || parsed.issue_date || "なし"}`);
+      console.log(`    公称請求額: ${parsed.declared_total_claim?.toLocaleString()} 円`);
+      console.log(`    公称支払額: ${parsed.declared_total_payment?.toLocaleString()} 円`);
+      console.log(`    公称純請求額: ${parsed.declared_net_amount?.toLocaleString()} 円`);
+      console.log(`    抽出明細行数: ${parsed.lines.length} 行`);
+
+      parsed.lines.forEach((l, idx) => {
+        const typeLabel = l.transaction_type === "purchase" ? "商品" :
+                          l.transaction_type === "shipping_cost" ? "配送費" :
+                          l.transaction_type === "other_expense" ? "諸費用" :
+                          l.transaction_type === "sale_settlement" ? "売却相殺" : l.transaction_type;
+        console.log(`      [行 ${idx + 1}] (${typeLabel}) 受付/識別:${l.reception_number_raw || 'なし'} 品名:${l.item_name_raw} 本体:${l.item_amount?.toLocaleString()} 手数料:${l.fee_amount_tax_included?.toLocaleString() || 0} 行総額:${l.total_line_amount?.toLocaleString()} 円`);
+      });
+
+      console.log(`    全明細合計: ${parsed.calculated_total?.toLocaleString()} 円`);
+      console.log(`    検算差額: ${parsed.discrepancy} 円`);
+      console.log(`    検算判定: ${parsed.is_balanced ? "✓ 完全一致 (0円)" : "✗ 差額あり/要確認"}`);
+
+      if (parsed.needs_review_reasons.length > 0) {
+        console.log(`    要確認フラグ: ${parsed.needs_review_reasons.join(", ")}`);
+      }
+
+      // 6. 保存とDrive移動の分岐判定
+      if (parsed.is_balanced && parsed.lines.length > 0) {
+        console.log("\n  [Step 6A] 検算完全一致 => 明細DB保存 & 02_processed 移動");
+        if (!isDryRun) {
+          const saveRes = await invokeRelay({
+            action: "save_document_lines",
+            document_id: docRecord.id,
+            lines: parsed.lines,
+            document_number: parsed.document_number,
+            issue_date: parsed.accounting_date || parsed.issue_date,
+            total_amount: parsed.declared_net_amount
+          });
+
+          if (!saveRes.ok || !saveRes.data?.success) {
+            console.error(`    ✗ save_document_lines 失敗: HTTP ${saveRes.status}`, saveRes.data);
+            fileResult.status = "error";
+            fileResult.error = `save_document_lines failed: ${saveRes.data?.error || saveRes.data?.message || saveRes.status}`;
+            errorCount++;
+            fileResults.push(fileResult);
+            continue;
+          }
+          console.log(`    ✓ 明細保存完了: lines_count=${saveRes.data.lines_count}, document_status=${saveRes.data.document_status}`);
+
+          console.log(`    GAS v97経由で原本移動: ${file.id} -> 02_processed...`);
           const moveRes = await callGas({
             action: "move_drive_file",
             mode: "admin",
             file_id: file.id,
-            target_folder_id: CONFIG.flaggedFolderId
+            target_folder_id: CONFIG.processedFolderId
           });
-          driveMoveSuccess = Boolean(moveRes?.success);
-          if (driveMoveSuccess) {
-            console.log(`    ✓ GAS Drive原本移動成功: Drive ID=${file.id}, target=03_flagged`);
-          } else {
-            console.error(`    ✗ GAS Drive原本移動失敗:`, moveRes);
+
+          if (!moveRes || !moveRes.success) {
+            console.error(`    ✗ GAS move_drive_file 失敗:`, moveRes);
+            fileResult.status = "error";
+            fileResult.error = `GAS move_drive_file (02_processed) failed: ${JSON.stringify(moveRes)}`;
+            errorCount++;
+            fileResults.push(fileResult);
+            continue;
           }
-        } catch (gasErr) {
-          console.error(`    ✗ GAS Drive原本移動通信例外: ${gasErr.message}`);
-        }
+          console.log("    ✓ 原本移動成功 (02_processed)");
 
-        if (!driveMoveSuccess) {
-          errorCount++;
-          continue;
-        }
+          const updateFolderRes = await invokeRelay({
+            action: "update_document_folder",
+            document_id: docRecord.id,
+            drive_folder_id: CONFIG.processedFolderId,
+            status: "processed",
+            mark_processed: true
+          });
 
-        // 2. documents-relay で DB の drive_folder_id を更新
-        // 注意: Readdy配信版 documents-relay は drive_folder_id / drive_file_url のみを更新対象とし、
-        // body.status は無視される契約です。DB status は pending_amount のまま保持されます。
-        console.log(`    [2/2] relay経由でDB drive_folder_id 更新 (書類ID: ${docRecord.id})...`);
-        const updateFolderRes = await invokeRelay({
-          action: "update_document_folder",
-          document_id: docRecord.id,
-          drive_folder_id: CONFIG.flaggedFolderId
-        });
-
-        const dbFolderUpdateSuccess = Boolean(updateFolderRes.ok && updateFolderRes.data?.success);
-        if (dbFolderUpdateSuccess) {
-          console.log(`    ✓ relay DB drive_folder_id 更新成功: 書類ID=${docRecord.id}, folder=03_flagged`);
-          console.log(`    ※現行契約により、DB status は登録初期値 (pending_amount) のまま保持され、needs_review_reasons はDBへ送信・保存されません。`);
-          flaggedCount++;
+          if (!updateFolderRes.ok || !updateFolderRes.data?.success) {
+            console.error(`    ✗ update_document_folder 失敗: HTTP ${updateFolderRes.status}`, updateFolderRes.data);
+            console.warn("    ※Drive原本の物理移動は完了しましたが、DBフォルダ更新が未完了です。未完了エラーとして記録します。次回実行時に自動同期されます。");
+            fileResult.status = "error";
+            fileResult.error = `update_document_folder failed: ${updateFolderRes.data?.error || updateFolderRes.status}`;
+            errorCount++;
+          } else {
+            console.log("    ✓ DB状態更新完了: status=processed, folder=02_processed");
+            fileResult.status = "processed";
+            processedCount++;
+          }
         } else {
-          console.error(`    ✗ relay DB drive_folder_id 更新失敗: HTTP ${updateFolderRes.status}`, updateFolderRes.data);
-          console.warn(`    ※Drive原本移動は完了しましたが、DBフォルダIDの同期に失敗しました。未完了エラーとして記録します。`);
-          errorCount++;
+          console.log("    [Dry-run] 明細保存および 02_processed 移動をシミュレート");
+          fileResult.status = "processed";
+          processedCount++;
         }
       } else {
-        console.log(`    [Dry-run] 要確認退避シミュレーション:`);
-        console.log(`      - Drive ID: ${file.id} -> 03_flagged`);
-        console.log(`      - 書類ID: ${docRecord?.id} -> drive_folder_id を 03_flagged に更新`);
-        console.log(`      - needs_review_reasons: ${reasons}`);
-        flaggedCount++;
+        console.warn("\n  [Step 6B] 要確認原本 => 03_flagged への退避");
+        const reasons = parsed.needs_review_reasons.length > 0 ? parsed.needs_review_reasons.join(", ") : "REASON_UNSPECIFIED";
+        console.log(`    対象ファイル: ${file.name} (Drive ID: ${file.id})`);
+        if (docRecord?.id) {
+          console.log(`    書類レコードID: ${docRecord.id}`);
+        }
+        console.log(`    要確認理由 (needs_review_reasons): ${reasons}`);
+
+        if (!isDryRun) {
+          console.log(`    [1/2] GAS v97経由でDrive原本移動: ${file.id} -> 03_flagged...`);
+          let driveMoveSuccess = false;
+          try {
+            const moveRes = await callGas({
+              action: "move_drive_file",
+              mode: "admin",
+              file_id: file.id,
+              target_folder_id: CONFIG.flaggedFolderId
+            });
+            driveMoveSuccess = Boolean(moveRes?.success);
+            if (driveMoveSuccess) {
+              console.log(`    ✓ GAS Drive原本移動成功: Drive ID=${file.id}, target=03_flagged`);
+            } else {
+              console.error(`    ✗ GAS Drive原本移動失敗:`, moveRes);
+            }
+          } catch (gasErr) {
+            console.error(`    ✗ GAS Drive原本移動通信例外: ${gasErr.message}`);
+          }
+
+          if (!driveMoveSuccess) {
+            fileResult.status = "error";
+            fileResult.error = "GAS Drive move to 03_flagged failed";
+            errorCount++;
+            fileResults.push(fileResult);
+            continue;
+          }
+
+          console.log(`    [2/2] relay経由でDB drive_folder_id 更新 (書類ID: ${docRecord.id})...`);
+          const updateFolderRes = await invokeRelay({
+            action: "update_document_folder",
+            document_id: docRecord.id,
+            drive_folder_id: CONFIG.flaggedFolderId
+          });
+
+          const dbFolderUpdateSuccess = Boolean(updateFolderRes.ok && updateFolderRes.data?.success);
+          if (dbFolderUpdateSuccess) {
+            console.log(`    ✓ relay DB drive_folder_id 更新成功: 書類ID=${docRecord.id}, folder=03_flagged`);
+            console.log(`    ※現行契約により、DB status は登録初期値 (pending_amount) のまま保持され、needs_review_reasons はDBへ送信・保存されません。`);
+            fileResult.status = "flagged";
+            flaggedCount++;
+          } else {
+            console.error(`    ✗ relay DB drive_folder_id 更新失敗: HTTP ${updateFolderRes.status}`, updateFolderRes.data);
+            console.warn(`    ※Drive原本移動は完了しましたが、DBフォルダIDの同期に失敗しました。未完了エラーとして記録します。`);
+            fileResult.status = "error";
+            fileResult.error = `relay update_document_folder (03_flagged) failed: ${updateFolderRes.data?.error || updateFolderRes.status}`;
+            errorCount++;
+          }
+        } else {
+          console.log(`    [Dry-run] 要確認退避シミュレーション:`);
+          console.log(`      - Drive ID: ${file.id} -> 03_flagged`);
+          console.log(`      - 書類ID: ${docRecord?.id} -> drive_folder_id を 03_flagged に更新`);
+          console.log(`      - needs_review_reasons: ${reasons}`);
+          fileResult.status = "flagged";
+          flaggedCount++;
+        }
       }
+
+      fileResults.push(fileResult);
+    } catch (fileErr) {
+      console.error(`\n  ✗ [個別ファイル処理例外] ${file.name} (Drive ID: ${file.id}):`, fileErr.message);
+      console.warn("  ※Fail-closed原則に基づき、本原本をInboxに残したまま後続ファイルの処理を継続します (再試行可能)。");
+      fileResult.status = "error";
+      fileResult.error = fileErr.message;
+      errorCount++;
+      fileResults.push(fileResult);
     }
   }
 
   console.log("\n================================================================================");
   console.log("=== 自動取込パイプライン実行サマリー ===");
+  console.log(`  - 検出総件数: ${files.length} 件`);
   console.log(`  - 処理完了 (02_processed 移動 & 明細保存): ${processedCount} 件`);
   console.log(`  - 要確認退避 (03_flagged 移動 & DBフォルダ更新): ${flaggedCount} 件`);
   console.log(`  - スキップ (処理済): ${skippedCount} 件`);
-  console.log(`  - エラー (未完了): ${errorCount} 件`);
+  console.log(`  - エラー (未完了・Inbox残): ${errorCount} 件`);
   console.log("================================================================================\n");
 
-  return { processedCount, flaggedCount, skippedCount, errorCount };
+  return {
+    total_detected: files.length,
+    processed_count: processedCount,
+    flagged_count: flaggedCount,
+    skipped_count: skippedCount,
+    error_count: errorCount,
+    file_results: fileResults
+  };
 }
 
 // CLI直接実行時

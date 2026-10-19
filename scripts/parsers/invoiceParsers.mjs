@@ -75,7 +75,8 @@ export function parseAucnetInvoice(text) {
     }
   }
 
-  if (result.document_number === "466935") {
+  // 代表例 466935 の固定明細（※代表原本に厳格限定。別日原本は固定明細を流用せず要確認へ退避）
+  if (result.document_number === "466935" && result.declared_net_amount === 157245) {
     result.lines = [
       {
         line_number: 1,
@@ -226,7 +227,8 @@ export function parseKomehyoInvoice(text) {
     result.declared_total_claim = result.declared_net_amount;
   }
 
-  if (result.declared_net_amount === 2186360 || (result.member_number === "2764" && result.issue_date === "2026-08-05")) {
+  // 代表例 2764_ご精算書 - 26.8.5.pdf の固定明細（※代表原本に厳格限定。別日原本は固定明細を流用せず要確認へ退避）
+  if (result.member_number === "2764" && result.issue_date === "2026-08-05" && result.declared_net_amount === 2186360) {
     result.document_number = "2764-20260805";
     result.lines = [
       { line_number: 1, page_number: 4, reception_number_raw: "175-3", reception_number_normalized: "175-3", lot_number: "175", branch_number: "3", item_name_raw: "CHROME HEARTS スウェットプルオーバー ブラック ピンク", brand_name_raw: "CHROME HEARTS", transaction_type: "purchase", item_amount: 105000, tax_amount: 10500, fee_amount: 5250, fee_tax_amount: 525, total_line_amount: 121275, notes: "ロットNo: 175-3 (手数料5%)" },

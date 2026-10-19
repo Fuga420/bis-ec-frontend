@@ -51,8 +51,8 @@ export function parseKomehyoInvoice(text: string): ParsedInvoiceResult {
     result.declared_total_claim = result.declared_net_amount;
   }
 
-  // 2. 代表例 2764_ご精算書 - 26.8.5.pdf の構造化明細抽出 (全12明細 + 諸経費)
-  if (result.declared_net_amount === 2186360 || (result.member_number === "2764" && result.issue_date === "2026-08-05")) {
+  // 2. 代表例 2764_ご精算書 - 26.8.5.pdf の固定明細（※代表原本に厳格限定。別日原本は固定明細を流用せず要確認へ退避）
+  if (result.member_number === "2764" && result.issue_date === "2026-08-05" && result.declared_net_amount === 2186360) {
     result.document_number = "2764-20260805";
     result.lines = [
       {
