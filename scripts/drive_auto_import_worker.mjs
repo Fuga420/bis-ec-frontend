@@ -253,13 +253,9 @@ export async function downloadDriveFile(fileId, token) {
 }
 
 // -----------------------------------------------------------------------------
-// Drive 共有ストレージ: ジョブ状態 (import_job_latest.json) の保存・取得
+// Drive 共有ストレージ: ジョブ状態の保存・取得 (個別 job_id ファイル + latest ファイル)
 // -----------------------------------------------------------------------------
-export async function saveJobStateToDrive(jobState, token) {
-  if (!token) return null;
-  const fileName = "import_job_latest.json";
-  const content = JSON.stringify(jobState, null, 2);
-
+async function writeContentToDrive(fileName, content, token) {
   try {
     const q = encodeURIComponent(`name = '${fileName}' and trashed = false`);
     const listUrl = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`;
@@ -270,7 +266,7 @@ export async function saveJobStateToDrive(jobState, token) {
 
     if (existingFile) {
       const updateUrl = `https://www.googleapis.com/upload/drive/v3/files/${existingFile.id}?uploadType=media`;
-      const upRes = await fetch(updateUrl, {
+      await fetch(updateUrl, {
         method: "PATCH",
         headers: {
           "Authorization": `Bearer ${token}`,
@@ -311,14 +307,27 @@ export async function saveJobStateToDrive(jobState, token) {
       return createData.id;
     }
   } catch (err) {
-    console.warn("  [Warn] Drive共有ストレージへのジョブ状態保存失敗:", err.message);
+    console.warn(`  [Warn] Drive共有ファイル (${fileName}) 保存失敗:`, err.message);
     return null;
   }
 }
 
-export async function getJobStateFromDrive(token) {
+export async function saveJobStateToDrive(jobState, token) {
   if (!token) return null;
-  const fileName = "import_job_latest.json";
+  const content = JSON.stringify(jobState, null, 2);
+
+  // 1. 最新ジョブへのショートカット (import_job_latest.json)
+  await writeContentToDrive("import_job_latest.json", content, token);
+
+  // 2. 特定ジョブIDの永続ファイル (import_job_<job_id>.json)
+  if (jobState.job_id) {
+    await writeContentToDrive(`import_job_${jobState.job_id}.json`, content, token);
+  }
+}
+
+export async function getJobStateFromDrive(token, jobId = null) {
+  if (!token) return null;
+  const fileName = jobId ? `import_job_${jobId}.json` : "import_job_latest.json";
   try {
     const q = encodeURIComponent(`name = '${fileName}' and trashed = false`);
     const listUrl = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`;
@@ -333,7 +342,7 @@ export async function getJobStateFromDrive(token) {
     if (!dlRes.ok) return null;
     return await dlRes.json();
   } catch (err) {
-    console.warn("  [Warn] Drive共有ストレージからのジョブ状態取得失敗:", err.message);
+    console.warn(`  [Warn] Drive共有ストレージ (${fileName}) からのジョブ状態取得失敗:`, err.message);
     return null;
   }
 }
@@ -349,7 +358,7 @@ export async function saveJobStateToDatabase(jobState) {
       file_name: `import_job_${jobState.job_id}.json`,
       document_type: "batch_import_job",
       document_number: jobState.job_id,
-      supplier_name: "SYSTEM_BATCH_JOB",
+      supplier_name: `SYSTEM_BATCH_JOB:${jobState.job_id}`,
       notes: JSON.stringify(jobState),
       confirmed_by: "cloud-run-job",
       status: jobState.status === "completed" ? "processed" : "pending"
@@ -362,9 +371,11 @@ export async function saveJobStateToDatabase(jobState) {
   }
 }
 
-export async function getJobStateFromDatabase() {
+export async function getJobStateFromDatabase(jobId = null) {
   try {
-    const res = await invokeRelay({ action: "list_documents" });
+    // 書類台帳が100件を超えてもジョブ結果が埋没しないよう、supplier_name (SYSTEM_BATCH_JOB) で明示的にフィルタ
+    const supplierFilter = jobId ? `SYSTEM_BATCH_JOB:${jobId}` : "SYSTEM_BATCH_JOB";
+    const res = await invokeRelay({ action: "list_documents", supplier_name: supplierFilter, page_size: 100 });
     if (!res.ok || !res.data?.success) return null;
     const docs = res.data.documents || [];
     const jobDocs = docs.filter((d) => d.document_type === "batch_import_job");

@@ -111,6 +111,8 @@ serve(async (req: Request) => {
     // 1. get_inbox_import_status: 最新ジョブ状態および書類台帳サマリー取得
     // -------------------------------------------------------------------------
     if (action === ACTIONS.get_inbox_import_status) {
+      const requestedJobId = String(body.job_id || "").trim();
+
       // 1-1. 書類台帳のサマリー
       let ledgerSummary = {
         total_documents: 0,
@@ -118,6 +120,8 @@ serve(async (req: Request) => {
         flagged_count: 0,
         pending_count: 0
       };
+      let currentJob: any = null;
+
       try {
         const listRes = await invokeRelay(supabaseUrl, supabaseAnonKey, workerSecret, { action: "list_documents" });
         const docs = listRes.data?.documents || [];
@@ -127,19 +131,28 @@ serve(async (req: Request) => {
           flagged_count: docs.filter((d: any) => d.drive_folder_id === flaggedFolderId).length,
           pending_count: docs.filter((d: any) => d.status === "pending_amount" && d.drive_folder_id !== flaggedFolderId).length,
         };
-        // 1-2. Readdy内蔵DBの documents から最新 batch_import_job を復元
-        const jobDocs = docs.filter((d: any) => d.document_type === "batch_import_job");
+
+        // 1-2. 書類が100件を超えてもジョブ結果が埋没しないよう、supplier_name (SYSTEM_BATCH_JOB) でフィルタ照会
+        const supplierFilter = requestedJobId ? `SYSTEM_BATCH_JOB:${requestedJobId}` : "SYSTEM_BATCH_JOB";
+        const jobListRes = await invokeRelay(supabaseUrl, supabaseAnonKey, workerSecret, {
+          action: "list_documents",
+          supplier_name: supplierFilter,
+          page_size: 100
+        });
+        const jobDocs = (jobListRes.data?.documents || []).filter((d: any) => d.document_type === "batch_import_job");
         if (jobDocs.length > 0) {
           jobDocs.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-          const latestDoc = jobDocs[0];
-          if (latestDoc.notes) {
+          const targetDoc = requestedJobId
+            ? jobDocs.find((d: any) => d.document_number === requestedJobId) || jobDocs[0]
+            : jobDocs[0];
+          if (targetDoc && targetDoc.notes) {
             try {
-              currentJob = JSON.parse(latestDoc.notes);
+              currentJob = JSON.parse(targetDoc.notes);
             } catch {
               currentJob = {
-                job_id: latestDoc.document_number,
-                status: latestDoc.status === "processed" ? "completed" : latestDoc.status,
-                raw_notes: latestDoc.notes
+                job_id: targetDoc.document_number,
+                status: targetDoc.status === "processed" ? "completed" : targetDoc.status,
+                raw_notes: targetDoc.notes
               };
             }
           }
@@ -150,7 +163,10 @@ serve(async (req: Request) => {
 
       // 1-3. ワーカーサーバーが生きていればよりリアルタイムなジョブ状態を取得・マージ
       try {
-        const statusRes = await fetch(`${workerServerUrl}/status`, { method: "GET" });
+        const statusUrl = requestedJobId
+          ? `${workerServerUrl}/status?job_id=${encodeURIComponent(requestedJobId)}`
+          : `${workerServerUrl}/status`;
+        const statusRes = await fetch(statusUrl, { method: "GET" });
         if (statusRes.ok) {
           const statusJson = await statusRes.json();
           if (statusJson.current_job?.job_id) {
@@ -178,12 +194,18 @@ serve(async (req: Request) => {
     // 2. start_inbox_import: ワーカーサーバーへのジョブ開始依頼
     // -------------------------------------------------------------------------
     if (action === ACTIONS.start_inbox_import) {
-      // 管理者境界の制限: 実行権限の確認
-      const tokenHeader = req.headers.get("x-bis-worker-token") || "";
-      const confirmedBy = String(body.confirmed_by || "").trim();
-      const hasAdminAuth = (workerSecret && tokenHeader === workerSecret) || confirmedBy.length > 0;
-      if (!hasAdminAuth) {
-        return errorResponse("UNAUTHORIZED_ADMIN_ACTION", "一括取込の実行には管理者権限 (x-bis-worker-token または confirmed_by) が必要です。", 403, cors);
+      // 管理者境界の厳格な検証 (フェイルクローズ設計・confirmed_by単独の許可撤廃)
+      if (!workerSecret) {
+        return errorResponse("WORKER_AUTH_NOT_CONFIGURED", "ワーカー認証シークレットが環境変数 (DOCUMENTS_WORKER_SECRET) に設定されていません。", 503, cors);
+      }
+
+      const tokenHeader = (req.headers.get("x-bis-worker-token") || "").trim();
+      if (!tokenHeader) {
+        return errorResponse("WORKER_AUTH_REQUIRED", "一括取込の実行には管理者トークン (x-bis-worker-token) が必要です。", 401, cors);
+      }
+
+      if (tokenHeader !== workerSecret) {
+        return errorResponse("UNAUTHORIZED_ADMIN_ACTION", "無効な管理者トークンです。", 403, cors);
       }
 
       try {

@@ -61,6 +61,12 @@ if (fs.existsSync(STATUS_FILE_PATH)) {
     const saved = JSON.parse(fs.readFileSync(STATUS_FILE_PATH, "utf8"));
     if (saved && saved.job_id) {
       currentJob = saved;
+      // サーバー再起動時に running だった過去ジョブは中断扱いとしてリカバリ (永久409ロック回避)
+      if (currentJob.status === "running") {
+        currentJob.status = "failed";
+        currentJob.error = "SERVER_RESTARTED_JOB_INTERRUPTED";
+        currentJob.finished_at = new Date().toISOString();
+      }
     }
   } catch (err) {
     console.warn("[Server] 既存ローカルジョブ状態ファイルのロード失敗:", err.message);
@@ -142,27 +148,30 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 2. GET /status : 最新ジョブの進捗・結果取得 (メモリ + Drive共有ストレージ照合)
+  // 2. GET /status : 最新または指定ジョブの進捗・結果取得 (メモリ + DB + Drive共有ストレージ照合)
   if (req.method === "GET" && (pathname === "/status" || pathname === "/api/import-status")) {
-    // もしメモリ上のジョブが空、または最新情報を確認したい場合、Readdy内蔵DBおよびDrive共有ストレージを照会
-    if (!currentJob.job_id || url.searchParams.get("sync_db") === "true") {
+    const targetJobId = url.searchParams.get("job_id");
+    let resultJob = currentJob;
+
+    // 特定の job_id が要求された場合、またはメモリ上のジョブが空、あるいは sync_db=true の場合
+    if (targetJobId || !currentJob.job_id || url.searchParams.get("sync_db") === "true") {
       try {
-        const dbJob = await getJobStateFromDatabase();
+        const dbJob = await getJobStateFromDatabase(targetJobId || null);
         if (dbJob && dbJob.job_id) {
-          currentJob = dbJob;
+          resultJob = dbJob;
         }
       } catch (err) {
         console.warn("[Server] Readdy内蔵DBジョブ状態照会例外:", err.message);
       }
     }
 
-    if (!currentJob.job_id || url.searchParams.get("sync_drive") === "true") {
+    if ((targetJobId && (!resultJob || resultJob.job_id !== targetJobId)) || !currentJob.job_id || url.searchParams.get("sync_drive") === "true") {
       try {
         const token = await getDriveAccessToken();
         if (token) {
-          const driveJob = await getJobStateFromDrive(token);
+          const driveJob = await getJobStateFromDrive(token, targetJobId || null);
           if (driveJob && driveJob.job_id) {
-            currentJob = driveJob;
+            resultJob = driveJob;
           }
         }
       } catch (err) {
@@ -172,21 +181,43 @@ const server = http.createServer(async (req, res) => {
 
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
-      success: true,
-      current_job: currentJob
+      success: Boolean(resultJob && resultJob.job_id),
+      current_job: resultJob
     }));
     return;
   }
 
   // 3. POST /start : 一括取込ジョブの開始依頼
   if (req.method === "POST" && (pathname === "/start" || pathname === "/api/start-import")) {
-    const tokenHeader = req.headers["x-bis-worker-token"] || "";
-    if (CONFIG.workerSecret && tokenHeader !== CONFIG.workerSecret) {
+    // 管理者境界の厳格な検証 (フェイルクローズ設計)
+    const expectedSecret = CONFIG.workerSecret || process.env.DOCUMENTS_WORKER_SECRET || "";
+    if (!expectedSecret) {
+      res.writeHead(503, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: false,
+        error_code: "WORKER_AUTH_NOT_CONFIGURED",
+        message: "ワーカー認証シークレットが環境変数 (DOCUMENTS_WORKER_SECRET) に設定されていません。"
+      }));
+      return;
+    }
+
+    const tokenHeader = (req.headers["x-bis-worker-token"] || "").trim();
+    if (!tokenHeader) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        success: false,
+        error_code: "WORKER_AUTH_REQUIRED",
+        message: "一括取込の実行には管理者トークン (x-bis-worker-token) が必要です。"
+      }));
+      return;
+    }
+
+    if (tokenHeader !== expectedSecret) {
       res.writeHead(403, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
         success: false,
         error_code: "UNAUTHORIZED_WORKER_ACCESS",
-        message: "ワーカーへの実行依頼には有効な管理者トークン (x-bis-worker-token) が必要です。"
+        message: "無効な管理者トークンです。"
       }));
       return;
     }
