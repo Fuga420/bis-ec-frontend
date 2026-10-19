@@ -15,6 +15,7 @@
 //    最新ジョブID、進捗、ファイル別理由が確実に再取得できる。
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const ACTIONS = {
   start_inbox_import: "start_inbox_import",
@@ -38,7 +39,7 @@ function corsHeaders(req: Request): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": resolveCorsOrigin(req),
     "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-    "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info",
+    "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-bis-worker-token",
     "Access-Control-Max-Age": "86400",
   };
 }
@@ -52,6 +53,87 @@ function jsonResponse(body: unknown, status = 200, cors: Record<string, string> 
 
 function errorResponse(code: string, message: string, status = 400, cors: Record<string, string> = {}): Response {
   return jsonResponse({ success: false, error_code: code, error: message, message }, status, cors);
+}
+
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+// 呼び出し元の認証・セッション検証
+// confirmed_by は監査表示用の記録値であり、本人認証とは扱わない。
+async function verifyCallerAuth(
+  req: Request,
+  supabaseUrl: string,
+  anonKey: string,
+  workerSecret: string
+): Promise<
+  | { ok: true; callerType: "worker" | "authenticated_user"; userId?: string; userEmail?: string }
+  | { ok: false; status: number; code: string; message: string }
+> {
+  // 1. マシン間通信 / 自動化スクリプト等によるワーカー専用トークン検証
+  const workerToken = (req.headers.get("x-bis-worker-token") || "").trim();
+  if (workerToken) {
+    if (workerSecret && safeEqual(workerToken, workerSecret)) {
+      return { ok: true, callerType: "worker" };
+    }
+    return {
+      ok: false,
+      status: 403,
+      code: "UNAUTHORIZED_ADMIN_ACTION",
+      message: "無効な管理者・ワーカートークンです。"
+    };
+  }
+
+  // 2. ブラウザ / 画面からのセッション検証 (Supabase Auth JWT)
+  const authHeader = (req.headers.get("authorization") || "").trim();
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  const bearerToken = match ? match[1].trim() : "";
+
+  // トークンが無い、または anon キーそのものの場合は未ログイン (セッションなし)
+  if (!bearerToken || bearerToken === anonKey) {
+    return {
+      ok: false,
+      status: 401,
+      code: "AUTH_SESSION_REQUIRED",
+      message: "一括取込の起動には有効なスタッフログイン（認証セッション）が必要です。未認証のリクエストは許可されません。"
+    };
+  }
+
+  // 3. Supabase Auth でトークンを検証
+  try {
+    const supabase = createClient(supabaseUrl, anonKey, {
+      auth: { persistSession: false, autoRefreshToken: false }
+    });
+    const { data: userData, error: userError } = await supabase.auth.getUser(bearerToken);
+
+    if (userError || !userData?.user) {
+      return {
+        ok: false,
+        status: 401,
+        code: "INVALID_AUTH_SESSION",
+        message: `認証セッションの検証に失敗しました: ${userError?.message || "ユーザーが存在しません"}`
+      };
+    }
+
+    return {
+      ok: true,
+      callerType: "authenticated_user",
+      userId: userData.user.id,
+      userEmail: userData.user.email
+    };
+  } catch (err: any) {
+    return {
+      ok: false,
+      status: 401,
+      code: "AUTH_VERIFICATION_ERROR",
+      message: `セッション検証処理中にエラーが発生しました: ${err.message}`
+    };
+  }
 }
 
 // documents-relay 呼び出しヘルパー
@@ -91,6 +173,12 @@ serve(async (req: Request) => {
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY") || "";
     const workerSecret = Deno.env.get("DOCUMENTS_WORKER_SECRET") || "";
     const workerServerUrl = Deno.env.get("WORKER_SERVER_URL") || "http://localhost:8080";
+
+    // Google Cloud Run Jobs 起動用設定 (GCP連携時)
+    const gcpProjectId = Deno.env.get("GCP_PROJECT_ID") || "";
+    const gcpRegion = Deno.env.get("GCP_REGION") || "asia-northeast1";
+    const gcpJobName = Deno.env.get("GCP_CLOUD_RUN_JOB_NAME") || "bis-drive-auto-import-job";
+    const gcpAccessToken = Deno.env.get("GCP_ACCESS_TOKEN") || "";
 
     const inboxFolderId = Deno.env.get("DRIVE_INBOX_FOLDER_ID") || "1ctLRUQbwINARCDuGdYnpkrCkkK287HV5";
     const processedFolderId = Deno.env.get("DRIVE_PROCESSED_FOLDER_ID") || "1MUpsttOl2MY1Q8QAptSX_1vBGjl_aXY3";
@@ -191,7 +279,7 @@ serve(async (req: Request) => {
     }
 
     // -------------------------------------------------------------------------
-    // 2. start_inbox_import: ワーカーサーバーへのジョブ開始依頼
+    // 2. start_inbox_import: ワーカー環境へのジョブ開始依頼
     // -------------------------------------------------------------------------
     if (action === ACTIONS.start_inbox_import) {
       // サーバー環境変数 (DOCUMENTS_WORKER_SECRET) の設定確認 (フェイルクローズ)
@@ -204,39 +292,92 @@ serve(async (req: Request) => {
         );
       }
 
-      // 操作スタッフ識別子 (confirmed_by) の検証 (監査証跡)
-      const confirmedBy = String(body.confirmed_by || "").trim();
-      const tokenHeader = (req.headers.get("x-bis-worker-token") || "").trim();
-
-      // セキュリティ境界設計:
-      // ブラウザからは秘密鍵 (DOCUMENTS_WORKER_SECRET) を要求せず、confirmed_by のみを検証する。
-      // 1) 外部スクリプト等から明示的に x-bis-worker-token が渡された場合: トークン一致を検証
-      if (tokenHeader && tokenHeader !== workerSecret) {
-        return errorResponse("UNAUTHORIZED_ADMIN_ACTION", "無効な管理者トークンです。", 403, cors);
+      // 呼び出し元の認証・セッション検証 (confirmed_by は認証として使わない)
+      const authResult = await verifyCallerAuth(req, supabaseUrl, supabaseAnonKey, workerSecret);
+      if (!authResult.ok) {
+        return errorResponse(authResult.code, authResult.message, authResult.status, cors);
       }
 
-      // 2) ブラウザからの通常呼出の場合: confirmed_by による操作スタッフ指定を必須化
-      if (!tokenHeader && !confirmedBy) {
-        return errorResponse(
-          "OPERATOR_IDENTIFIER_REQUIRED",
-          "一括取込の起動には操作スタッフ識別子 (confirmed_by) が必要です。ブラウザから秘密鍵を送信する必要はありません。",
-          400,
-          cors
-        );
+      // confirmed_by は監査表示用の記録値 (未指定時はログインユーザー情報で補完)
+      const inputConfirmedBy = String(body.confirmed_by || "").trim();
+      const confirmedBy = inputConfirmedBy || (authResult.callerType === "authenticated_user" ? (authResult.userEmail || authResult.userId) : "worker_direct");
+
+      const executionPayload = {
+        ...body,
+        confirmed_by: confirmedBy,
+        operator_user_id: authResult.callerType === "authenticated_user" ? authResult.userId : null,
+        operator_email: authResult.callerType === "authenticated_user" ? authResult.userEmail : null,
+      };
+
+      // 方式 A: Cloud Run Jobs API (v2) によるジョブ実行 (GCP設定がある場合)
+      if (gcpProjectId && gcpAccessToken) {
+        try {
+          const runJobUrl = `https://run.googleapis.com/v2/projects/${gcpProjectId}/locations/${gcpRegion}/jobs/${gcpJobName}:run`;
+          const runRes = await fetch(runJobUrl, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${gcpAccessToken}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              overrides: {
+                containerOverrides: [
+                  {
+                    env: [
+                      { name: "DOCUMENTS_WORKER_SECRET", value: workerSecret },
+                      { name: "CONFIRMED_BY", value: confirmedBy },
+                      { name: "OPERATOR_USER_ID", value: executionPayload.operator_user_id || "" },
+                      { name: "OPERATOR_EMAIL", value: executionPayload.operator_email || "" },
+                      { name: "MAX_FILES", value: String(body.max_files || 50) },
+                      { name: "DRY_RUN", value: body.dry_run ? "true" : "false" },
+                    ]
+                  }
+                ]
+              }
+            })
+          });
+
+          const runJson = await runRes.json();
+          if (!runRes.ok) {
+            return errorResponse(
+              "CLOUD_RUN_JOB_START_FAILED",
+              `Cloud Run Jobs の起動に失敗しました: ${runJson.error?.message || runRes.statusText}`,
+              runRes.status,
+              cors
+            );
+          }
+
+          const executionName = runJson.name || "";
+          const jobId = executionName.split("/").pop() || `job_cr_${Date.now()}`;
+          return jsonResponse({
+            success: true,
+            action: "start_inbox_import",
+            job_id: jobId,
+            execution_name: executionName,
+            status: "running",
+            runner: "cloud_run_job",
+            operator: confirmedBy,
+            message: "Cloud Run Job の実行を開始しました。"
+          }, 200, cors);
+        } catch (cloudRunErr: any) {
+          return errorResponse(
+            "CLOUD_RUN_API_ERROR",
+            `Cloud Run Jobs API 通信エラー: ${cloudRunErr.message}`,
+            502,
+            cors
+          );
+        }
       }
 
+      // 方式 B: HTTP ワーカーサーバー経由のジョブ起動 (ローカル / 開発サーバー)
       try {
-        // サーバー間通信: Edge Function が内部保持する workerSecret をヘッダーに付与してワーカーへ安全に中継
         const startRes = await fetch(`${workerServerUrl}/start`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "x-bis-worker-token": workerSecret
           },
-          body: JSON.stringify({
-            ...body,
-            confirmed_by: confirmedBy || "admin_direct"
-          })
+          body: JSON.stringify(executionPayload)
         });
 
         const startJson = await startRes.json();

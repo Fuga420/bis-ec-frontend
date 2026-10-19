@@ -74,11 +74,32 @@ export const CONFIG = {
   flaggedFolderId: process.env.DRIVE_FLAGGED_FOLDER_ID || "1kgnzKvslB0J2Mq8ZM8-PqsTjret1CQ3E",
 };
 
-// Google Drive トークン取得 (環境変数優先、自動リフレッシュ対応ローカルclasprcフォールバック)
+// Google Drive トークン取得 (環境変数優先、GCPメタデータサーバー、自動リフレッシュ対応ローカルclasprcフォールバック)
 export async function getDriveAccessToken() {
   if (process.env.GOOGLE_ACCESS_TOKEN) {
     return process.env.GOOGLE_ACCESS_TOKEN;
   }
+
+  // 1. GCP メタデータサーバー (Cloud Run Jobs / Compute Engine 等のコンテナ実行環境)
+  try {
+    const metadataRes = await fetch(
+      "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+      {
+        headers: { "Metadata-Flavor": "Google" },
+        signal: AbortSignal.timeout(1500)
+      }
+    );
+    if (metadataRes.ok) {
+      const metaData = await metadataRes.json();
+      if (metaData.access_token) {
+        return metaData.access_token;
+      }
+    }
+  } catch {
+    // ローカルPC環境等でメタデータサーバーに接続できない場合は無視して次へフォールバック
+  }
+
+  // 2. ローカル開発環境の ~/.clasprc.json (自動リフレッシュ対応)
   const clasprcPath = path.resolve(process.env.HOME || process.env.USERPROFILE || "", ".clasprc.json");
   if (fs.existsSync(clasprcPath)) {
     try {
@@ -837,10 +858,76 @@ export async function runDriveAutoImport(options = {}) {
   };
 }
 
-// CLI直接実行時
+// CLI直接実行時 (Cloud Run Jobs / ローカル実行)
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  runDriveAutoImport().catch(err => {
-    console.error("FATAL PIPELINE ERROR:", err);
-    process.exit(1);
-  });
+  const jobId = process.env.IMPORT_JOB_ID || `job_cli_${Date.now()}`;
+  const confirmedBy = process.env.CONFIRMED_BY || "cli_runner";
+  const startedAt = new Date().toISOString();
+
+  const initialJobState = {
+    job_id: jobId,
+    status: "running",
+    started_at: startedAt,
+    finished_at: null,
+    confirmed_by: confirmedBy,
+    operator_user_id: process.env.OPERATOR_USER_ID || null,
+    operator_email: process.env.OPERATOR_EMAIL || null,
+    total_detected: 0,
+    processed_count: 0,
+    flagged_count: 0,
+    skipped_count: 0,
+    error_count: 0,
+    file_results: [],
+    error: null
+  };
+
+  (async () => {
+    try {
+      console.log(`[Worker CLI] ジョブ開始登録: ID=${jobId}, confirmed_by=${confirmedBy}`);
+      await saveJobStateToDatabase(initialJobState).catch(err => {
+        console.warn("[Worker CLI] ジョブ開始状態のDB保存警告:", err.message);
+      });
+
+      const result = await runDriveAutoImport();
+
+      const finalJobState = {
+        ...initialJobState,
+        status: result.error_count > 0 && result.processed_count === 0 ? "failed" : "completed",
+        finished_at: new Date().toISOString(),
+        total_detected: result.total_detected,
+        processed_count: result.processed_count,
+        flagged_count: result.flagged_count,
+        skipped_count: result.skipped_count,
+        error_count: result.error_count,
+        file_results: result.file_results,
+        error: result.error_count > 0 ? `${result.error_count} 件の処理でエラーが発生しました。` : null
+      };
+
+      await saveJobStateToDatabase(finalJobState).catch(err => {
+        console.warn("[Worker CLI] 完了状態のDB保存警告:", err.message);
+      });
+
+      const token = await getDriveAccessToken();
+      if (token) {
+        await saveJobStateToDrive(finalJobState, token).catch(err => {
+          console.warn("[Worker CLI] 完了状態のDrive保存警告:", err.message);
+        });
+      }
+
+      console.log(`[Worker CLI] ジョブ完了記録成功: ID=${jobId}, status=${finalJobState.status}`);
+      if (finalJobState.status === "failed") {
+        process.exit(1);
+      }
+    } catch (err) {
+      console.error("FATAL PIPELINE ERROR:", err);
+      const failedJobState = {
+        ...initialJobState,
+        status: "failed",
+        finished_at: new Date().toISOString(),
+        error: err.message
+      };
+      await saveJobStateToDatabase(failedJobState).catch(() => {});
+      process.exit(1);
+    }
+  })();
 }

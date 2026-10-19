@@ -29,6 +29,7 @@ import SquareIntegrationSection from "./components/SquareIntegrationSection";
 import ProductDocumentSection, {
   hasAttachedDocument,
 } from "./components/ProductDocumentSection";
+import ProductLedgerCostSection from "./components/ProductLedgerCostSection";
 
 type LoadState = "loading" | "success" | "error";
 type SaveState = "idle" | "saving";
@@ -1220,6 +1221,11 @@ export default function ProductDetailPage() {
                       <ProductDocumentSection doc={product.document} />
                     </div>
                   )}
+
+                  {/* 仕入書類・原価内訳（書類台帳連携）: 商品代金・落札手数料・仕入原価の内訳を表示 */}
+                  <div className="border-t border-background-100 px-4 py-3 md:px-5">
+                    <ProductLedgerCostSection productId={product.product_id} />
+                  </div>
 
                   {/* 商品情報を編集 */}
                   <div className="flex flex-col gap-3 border-t border-background-100 px-4 py-3 md:px-5">
