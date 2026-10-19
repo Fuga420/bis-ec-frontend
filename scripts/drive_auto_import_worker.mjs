@@ -496,35 +496,64 @@ export async function runDriveAutoImport(options = {}) {
       }
     } else {
       console.warn("\n  [Step 6B] 要確認原本 => 03_flagged への退避");
-      const reasons = parsed.needs_review_reasons.join(", ");
+      const reasons = parsed.needs_review_reasons.length > 0 ? parsed.needs_review_reasons.join(", ") : "REASON_UNSPECIFIED";
+      console.log(`    対象ファイル: ${file.name} (Drive ID: ${file.id})`);
+      if (docRecord?.id) {
+        console.log(`    書類レコードID: ${docRecord.id}`);
+      }
+      console.log(`    要確認理由 (needs_review_reasons): ${reasons}`);
+
       if (!isDryRun) {
-        // GAS v97 で原本移動 (01_inbox -> 03_flagged)
-        console.log(`    GAS v97経由で原本移動: ${file.id} -> 03_flagged...`);
-        const moveRes = await callGas({
-          action: "move_drive_file",
-          mode: "admin",
-          file_id: file.id,
-          target_folder_id: CONFIG.flaggedFolderId
-        });
-        if (moveRes?.success) {
-          console.log("    ✓ 原本退避成功 (03_flagged)");
-          const updateFlaggedRes = await invokeRelay({
-            action: "update_document_folder",
-            document_id: docRecord.id,
-            drive_folder_id: CONFIG.flaggedFolderId,
-            status: "flagged_for_review"
+        // 1. GAS v97 で原本移動 (01_inbox -> 03_flagged)
+        console.log(`    [1/2] GAS v97経由でDrive原本移動: ${file.id} -> 03_flagged...`);
+        let driveMoveSuccess = false;
+        try {
+          const moveRes = await callGas({
+            action: "move_drive_file",
+            mode: "admin",
+            file_id: file.id,
+            target_folder_id: CONFIG.flaggedFolderId
           });
-          if (!updateFlaggedRes.ok || !updateFlaggedRes.data?.success) {
-            console.warn(`    [Notice] 03_flagged DBフォルダ更新API未配信または失敗:`, updateFlaggedRes.data);
-            errorCount++;
+          driveMoveSuccess = Boolean(moveRes?.success);
+          if (driveMoveSuccess) {
+            console.log(`    ✓ GAS Drive原本移動成功: Drive ID=${file.id}, target=03_flagged`);
           } else {
-            flaggedCount++;
+            console.error(`    ✗ GAS Drive原本移動失敗:`, moveRes);
           }
+        } catch (gasErr) {
+          console.error(`    ✗ GAS Drive原本移動通信例外: ${gasErr.message}`);
+        }
+
+        if (!driveMoveSuccess) {
+          errorCount++;
+          continue;
+        }
+
+        // 2. documents-relay で DB の drive_folder_id を更新
+        // 注意: Readdy配信版 documents-relay は drive_folder_id / drive_file_url のみを更新対象とし、
+        // body.status は無視される契約です。DB status は pending_amount のまま保持されます。
+        console.log(`    [2/2] relay経由でDB drive_folder_id 更新 (書類ID: ${docRecord.id})...`);
+        const updateFolderRes = await invokeRelay({
+          action: "update_document_folder",
+          document_id: docRecord.id,
+          drive_folder_id: CONFIG.flaggedFolderId
+        });
+
+        const dbFolderUpdateSuccess = Boolean(updateFolderRes.ok && updateFolderRes.data?.success);
+        if (dbFolderUpdateSuccess) {
+          console.log(`    ✓ relay DB drive_folder_id 更新成功: 書類ID=${docRecord.id}, folder=03_flagged`);
+          console.log(`    ※現行契約により、DB status は登録初期値 (pending_amount) のまま保持され、needs_review_reasons はDBへ送信・保存されません。`);
+          flaggedCount++;
         } else {
+          console.error(`    ✗ relay DB drive_folder_id 更新失敗: HTTP ${updateFolderRes.status}`, updateFolderRes.data);
+          console.warn(`    ※Drive原本移動は完了しましたが、DBフォルダIDの同期に失敗しました。未完了エラーとして記録します。`);
           errorCount++;
         }
       } else {
-        console.log(`    [Dry-run] 03_flagged 移動 (${reasons}) をシミュレート`);
+        console.log(`    [Dry-run] 要確認退避シミュレーション:`);
+        console.log(`      - Drive ID: ${file.id} -> 03_flagged`);
+        console.log(`      - 書類ID: ${docRecord?.id} -> drive_folder_id を 03_flagged に更新`);
+        console.log(`      - needs_review_reasons: ${reasons}`);
         flaggedCount++;
       }
     }
@@ -532,8 +561,8 @@ export async function runDriveAutoImport(options = {}) {
 
   console.log("\n================================================================================");
   console.log("=== 自動取込パイプライン実行サマリー ===");
-  console.log(`  - 処理完了 (02_processed): ${processedCount} 件`);
-  console.log(`  - 要確認退避 (03_flagged): ${flaggedCount} 件`);
+  console.log(`  - 処理完了 (02_processed 移動 & 明細保存): ${processedCount} 件`);
+  console.log(`  - 要確認退避 (03_flagged 移動 & DBフォルダ更新): ${flaggedCount} 件`);
   console.log(`  - スキップ (処理済): ${skippedCount} 件`);
   console.log(`  - エラー (未完了): ${errorCount} 件`);
   console.log("================================================================================\n");
