@@ -74,16 +74,41 @@ const CONFIG = {
   flaggedFolderId: process.env.DRIVE_FLAGGED_FOLDER_ID || "1kgnzKvslB0J2Mq8ZM8-PqsTjret1CQ3E",
 };
 
-// Google Drive トークン取得 (環境変数優先、ローカルclasprcフォールバック)
-function getDriveAccessToken() {
+// Google Drive トークン取得 (環境変数優先、自動リフレッシュ対応ローカルclasprcフォールバック)
+export async function getDriveAccessToken() {
   if (process.env.GOOGLE_ACCESS_TOKEN) {
     return process.env.GOOGLE_ACCESS_TOKEN;
   }
-  const clasprcPath = path.resolve(process.env.HOME || "", ".clasprc.json");
+  const clasprcPath = path.resolve(process.env.HOME || process.env.USERPROFILE || "", ".clasprc.json");
   if (fs.existsSync(clasprcPath)) {
     try {
       const rc = JSON.parse(fs.readFileSync(clasprcPath, "utf8"));
-      return rc?.tokens?.default?.access_token || null;
+      const tokenObj = rc?.tokens?.default || rc?.tokens;
+      if (!tokenObj) return null;
+
+      const isExpired = tokenObj.expiry_date && Date.now() >= (tokenObj.expiry_date - 60000);
+      if (isExpired && tokenObj.refresh_token && tokenObj.client_id && tokenObj.client_secret) {
+        // リフレッシュトークンで新しいアクセストークンを取得
+        const refreshParams = new URLSearchParams({
+          client_id: tokenObj.client_id,
+          client_secret: tokenObj.client_secret,
+          refresh_token: tokenObj.refresh_token,
+          grant_type: "refresh_token"
+        });
+        const refRes = await fetch("https://oauth2.googleapis.com/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: refreshParams.toString()
+        });
+        if (refRes.ok) {
+          const newTokens = await refRes.json();
+          tokenObj.access_token = newTokens.access_token;
+          tokenObj.expiry_date = Date.now() + (newTokens.expires_in * 1000);
+          fs.writeFileSync(clasprcPath, JSON.stringify(rc, null, 2), "utf8");
+          return tokenObj.access_token;
+        }
+      }
+      return tokenObj.access_token || null;
     } catch {
       return null;
     }
@@ -227,6 +252,92 @@ async function downloadDriveFile(fileId, token) {
   throw new Error(`Drive download failed via both Drive API and GAS v97: ${JSON.stringify(gasRes)}`);
 }
 
+// -----------------------------------------------------------------------------
+// Drive 共有ストレージ: ジョブ状態 (import_job_latest.json) の保存・取得
+// -----------------------------------------------------------------------------
+export async function saveJobStateToDrive(jobState, token) {
+  if (!token) return null;
+  const fileName = "import_job_latest.json";
+  const content = JSON.stringify(jobState, null, 2);
+
+  try {
+    const q = encodeURIComponent(`name = '${fileName}' and trashed = false`);
+    const listUrl = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`;
+    const listRes = await fetch(listUrl, { headers: { "Authorization": `Bearer ${token}` } });
+    if (!listRes.ok) return null;
+    const listData = await listRes.json();
+    const existingFile = listData.files && listData.files[0];
+
+    if (existingFile) {
+      const updateUrl = `https://www.googleapis.com/upload/drive/v3/files/${existingFile.id}?uploadType=media`;
+      const upRes = await fetch(updateUrl, {
+        method: "PATCH",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: content
+      });
+      return existingFile.id;
+    } else {
+      const metadata = {
+        name: fileName,
+        mimeType: "application/json",
+        parents: [CONFIG.inboxFolderId]
+      };
+      const boundary = "-------314159265358979323846";
+      const delimiter = "\r\n--" + boundary + "\r\n";
+      const closeDelim = "\r\n--" + boundary + "--";
+
+      const multipartRequestBody =
+        delimiter +
+        "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
+        JSON.stringify(metadata) +
+        delimiter +
+        "Content-Type: application/json\r\n\r\n" +
+        content +
+        closeDelim;
+
+      const createUrl = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart";
+      const createRes = await fetch(createUrl, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": `multipart/related; boundary=${boundary}`
+        },
+        body: multipartRequestBody
+      });
+      const createData = await createRes.json();
+      return createData.id;
+    }
+  } catch (err) {
+    console.warn("  [Warn] Drive共有ストレージへのジョブ状態保存失敗:", err.message);
+    return null;
+  }
+}
+
+export async function getJobStateFromDrive(token) {
+  if (!token) return null;
+  const fileName = "import_job_latest.json";
+  try {
+    const q = encodeURIComponent(`name = '${fileName}' and trashed = false`);
+    const listUrl = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`;
+    const listRes = await fetch(listUrl, { headers: { "Authorization": `Bearer ${token}` } });
+    if (!listRes.ok) return null;
+    const listData = await listRes.json();
+    const file = listData.files && listData.files[0];
+    if (!file) return null;
+
+    const downloadUrl = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`;
+    const dlRes = await fetch(downloadUrl, { headers: { "Authorization": `Bearer ${token}` } });
+    if (!dlRes.ok) return null;
+    return await dlRes.json();
+  } catch (err) {
+    console.warn("  [Warn] Drive共有ストレージからのジョブ状態取得失敗:", err.message);
+    return null;
+  }
+}
+
 // PDFテキスト抽出 (package.json に登録された pdf-parse を使用)
 async function extractTextFromPdf(buffer) {
   try {
@@ -304,19 +415,22 @@ async function reconcileIncompleteDocuments(existingDocs, driveToken, isDryRun) 
 // メインパイプライン処理
 // -----------------------------------------------------------------------------
 export async function runDriveAutoImport(options = {}) {
-  const isDryRun = options.dryRun || process.argv.includes("--dry-run");
-  const targetFileId = options.fileId || process.argv.find(a => a.startsWith("--file-id="))?.split("=")[1];
+  const isDryRun = Boolean(options.dryRun ?? options.dry_run ?? process.argv.includes("--dry-run"));
+  const targetFileId = options.fileId || options.file_id || process.argv.find(a => a.startsWith("--file-id="))?.split("=")[1];
 
   console.log("================================================================================");
   console.log("=== B.I.S EC 仕入書類 Google Drive 自動取込パイプライン実行 ===");
   console.log("================================================================================");
   console.log(`実行日時: ${new Date().toISOString()}`);
   console.log(`ドライランモード: ${isDryRun ? "有効 (変更なし)" : "無効 (実処理)"}`);
+  if (targetFileId) {
+    console.log(`対象ファイル指定 (--file-id): ${targetFileId}`);
+  }
   console.log(`監視 Inbox: ${CONFIG.inboxFolderId}`);
   console.log(`移動先 Processed: ${CONFIG.processedFolderId}`);
   console.log(`要確認 Flagged: ${CONFIG.flaggedFolderId}`);
 
-  const driveToken = getDriveAccessToken();
+  const driveToken = await getDriveAccessToken();
   if (!driveToken) {
     throw new Error("Google Drive Access Token is missing. Provide GOOGLE_ACCESS_TOKEN or configure .clasprc.json.");
   }
@@ -338,6 +452,13 @@ export async function runDriveAutoImport(options = {}) {
   let files = await listInboxFiles(driveToken);
   if (targetFileId) {
     files = files.filter(f => f.id === targetFileId);
+    if (files.length === 0) {
+      console.log(`  [Info] 指定されたファイルID (${targetFileId}) はInbox内に見つかりません。Drive直接取得を試みます...`);
+      const meta = await getDriveFileMetadata(targetFileId, driveToken);
+      if (meta) {
+        files = [meta];
+      }
+    }
   }
   console.log(`検出対象PDF: ${files.length} 件`);
 
