@@ -77,6 +77,7 @@ console.log(`  明細合計: ${njRes.calculated_total} 円, 差額: ${njRes.disc
 assert("3-1. NJ: 原本総合計金額が1,673,518円", njRes.declared_net_amount === 1673518);
 assert("3-2. NJ: 明細8件 (商品7件 + 雑費1件) が抽出される", njRes.lines.length === 8);
 assert("3-3. NJ: 金額検算差額が0円 (is_balanced === true)", njRes.is_balanced === true && njRes.discrepancy === 0);
+assert("3-4. NJ: 各明細の total_line_amount 合計が原本公称総合計と完全一致する", njRes.lines.reduce((s, l) => s + l.total_line_amount, 0) === njRes.declared_net_amount);
 
 // 4. NJスキャン画像PDF (11.30.pdf) の文字層なし検出
 const njScanPath = path.join(fixturesDir, "nj_scan_sample.txt");
