@@ -559,10 +559,22 @@ export async function invokeBatchRelay(body: RelayRecord): Promise<RelayRecord> 
  * Drive 01_inbox の一括取込を開始する。
  * ブラウザに秘密鍵を持たせず、操作者名 (confirmedBy) のみを送信する。
  */
-export async function startInboxImport(confirmedBy = "staff"): Promise<RelayRecord> {
+export async function startInboxImport(
+  optionsOrConfirmedBy:
+    | string
+    | { confirmedBy?: string; dryRun?: boolean; maxFiles?: number; fileId?: string } = "staff"
+): Promise<RelayRecord> {
+  const options =
+    typeof optionsOrConfirmedBy === "string"
+      ? { confirmedBy: optionsOrConfirmedBy }
+      : optionsOrConfirmedBy;
+
   return invokeBatchRelay({
     action: "start_inbox_import",
-    confirmed_by: confirmedBy,
+    confirmed_by: options.confirmedBy || "staff",
+    dry_run: options.dryRun ?? false,
+    max_files: options.maxFiles ?? 0,
+    file_id: options.fileId ?? undefined,
   });
 }
 

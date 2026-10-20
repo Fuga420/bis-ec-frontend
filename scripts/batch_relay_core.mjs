@@ -489,6 +489,7 @@ export async function handleRequest(req) {
           status: "running",
           runner: "cloud_run_job",
           operator: confirmedBy,
+          confirmed_by: confirmedBy,
           max_files: maxFiles,
           dry_run: isDryRun,
           message: "Cloud Run Job の実行を開始しました。"

@@ -43,6 +43,7 @@ export interface StartBatchImportResponse {
   status: "running" | "completed" | "failed";
   runner?: string;
   operator?: string;
+  confirmed_by?: string;
   max_files?: number;
   dry_run: boolean;
   message?: string;
@@ -57,6 +58,8 @@ export interface CurrentBatchJobState {
   status: "running" | "completed" | "partially_failed" | "failed";
   result_status?: "in_progress" | "retrieved" | "not_retrieved";
   runner?: string;
+  operator?: string;
+  confirmed_by?: string;
   started_at?: string | null;
   finished_at?: string | null;
   message?: string;
@@ -86,6 +89,7 @@ export interface BatchImportStatusResponse {
  * 01_inbox の仕入原本を一括取込開始する
  */
 export async function startInboxBatchImport(options: {
+  confirmedBy?: string;
   maxFiles?: number;
   dryRun?: boolean;
   fileId?: string;
@@ -98,6 +102,7 @@ export async function startInboxBatchImport(options: {
   const { data, error } = await client.functions.invoke(BATCH_RELAY_FUNCTION, {
     body: {
       action: "start_inbox_import",
+      confirmed_by: options.confirmedBy || "staff",
       // 画面契約: Inbox全体を対象とし、50件で残件を放置しない (未指定時は 0=全件処理)
       max_files: options.maxFiles ?? 0,
       dry_run: options.dryRun ?? false,
