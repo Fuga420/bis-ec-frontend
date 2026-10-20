@@ -423,18 +423,13 @@ export async function handleRequest(req) {
         return errorResponse(authResult.code, authResult.message, authResult.status, cors);
       }
 
-      if (authResult.callerType === "frontend_staff") {
-        return errorResponse(
-          "UI_LAUNCH_ON_HOLD",
-          "現在、Readdy画面からの直接起動はアクセス制御の厳格化に伴い保留されています。取込ジョブは権限のある担当者が Cloud Run Jobs（手動起動または管理者トークン）から実行してください。本画面からは処理結果および台帳の照会が可能です。",
-          403,
-          cors
-        );
-      }
+      // Readdy画面 (frontend_staff: anon_key + confirmed_by) からの起動を許可
+      // 監査証跡として confirmed_by を記録し、サーバー側 SA 鍵で Cloud Run Job を起動 (ブラウザへ秘密鍵不露出)
 
       const confirmedBy = inputConfirmedBy || "worker_direct";
       const jobId = String(body.job_id || "").trim() || `job_${new Date().toISOString().replace(/[-:T.Z]/g, "").slice(0, 14)}_${Math.random().toString(36).slice(2, 6)}`;
-      const maxFiles = Number.isFinite(body.max_files) ? Number(body.max_files) : 50;
+      // 画面契約: Inbox全体を対象とし、50件で残件を放置しない (0=上限なし・全件処理)
+      const maxFiles = Number.isFinite(body.max_files) && Number(body.max_files) > 0 ? Number(body.max_files) : 0;
       const isDryRun = Boolean(body.dry_run);
 
       const accessToken = await getGoogleCloudAccessToken(gcpServiceAccountKey, gcpDirectToken);
@@ -463,7 +458,7 @@ export async function handleRequest(req) {
                     { name: "IMPORT_JOB_ID", value: jobId },
                     { name: "DOCUMENTS_WORKER_SECRET", value: workerSecret },
                     { name: "CONFIRMED_BY", value: confirmedBy },
-                    { name: "MAX_FILES", value: String(maxFiles) },
+                    { name: "MAX_FILES", value: maxFiles > 0 ? String(maxFiles) : "" },
                     { name: "DRY_RUN", value: isDryRun ? "true" : "false" },
                     { name: "TARGET_FILE_ID", value: String(body.file_id || "") }
                   ]

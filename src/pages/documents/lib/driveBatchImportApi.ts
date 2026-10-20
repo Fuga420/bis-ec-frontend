@@ -98,7 +98,8 @@ export async function startInboxBatchImport(options: {
   const { data, error } = await client.functions.invoke(BATCH_RELAY_FUNCTION, {
     body: {
       action: "start_inbox_import",
-      max_files: options.maxFiles ?? 50,
+      // 画面契約: Inbox全体を対象とし、50件で残件を放置しない (未指定時は 0=全件処理)
+      max_files: options.maxFiles ?? 0,
       dry_run: options.dryRun ?? false,
       file_id: options.fileId ?? undefined,
     }

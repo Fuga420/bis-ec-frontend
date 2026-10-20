@@ -727,6 +727,7 @@ export async function runDriveAutoImport(options = {}) {
         if (docRecord.status === "processed" || (docRecord.extracted_line_count && docRecord.extracted_line_count > 0)) {
           console.log("    => 同一コンテンツの原本が既に処理・登録済みです。二重計上防止のためスキップします。");
           fileResult.status = "skipped";
+          fileResult.needs_review_reasons = ["DUPLICATE_BINARY_ALREADY_PROCESSED"];
           skippedCount++;
           fileResults.push(fileResult);
           continue;
