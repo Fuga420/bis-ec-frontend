@@ -847,6 +847,7 @@ export async function runDriveAutoImport(options = {}) {
             lines: parsed.lines,
             document_number: parsed.document_number,
             issue_date: parsed.accounting_date || parsed.issue_date,
+            supplier_name: parsed.supplier_name,
             total_amount: parsed.declared_net_amount
           });
 

@@ -1107,6 +1107,34 @@ serve(async (req: Request): Promise<Response> => {
         }
       }
 
+      // 書類ヘッダー情報（書類番号・計上日/発行日・仕入先・原本記載額）の更新
+      // 明示的に渡された項目のみ更新し、未指定の項目は上書きしない安全設計
+      const docHeaderUpdate: Record<string, unknown> = {};
+      if (body.document_number !== undefined) {
+        docHeaderUpdate.document_number = asString(body.document_number) || null;
+      }
+      if (body.issue_date !== undefined) {
+        docHeaderUpdate.issue_date = asString(body.issue_date) || null;
+      }
+      if (body.supplier_name !== undefined) {
+        docHeaderUpdate.supplier_name = asString(body.supplier_name) || null;
+      }
+      if (body.total_amount !== undefined) {
+        // 原本記載額（total_amount）として保存（抽出明細合計 extracted_total_amount と明確に分離）
+        docHeaderUpdate.total_amount = toNumOrNull(body.total_amount);
+      }
+
+      if (Object.keys(docHeaderUpdate).length > 0) {
+        docHeaderUpdate.updated_at = new Date().toISOString();
+        const { error: docUpdErr } = await supabase
+          .from("documents")
+          .update(docHeaderUpdate)
+          .eq("id", documentId);
+        if (docUpdErr) {
+          return errorResponse("DOC_HEADER_UPDATE_ERROR", docUpdErr.message, 500, cors);
+        }
+      }
+
       await refreshDocumentStatus(supabase, documentId);
 
       const updatedAudit = await computeAuditSummary(supabase, documentId);
