@@ -230,7 +230,7 @@ export default function AiCandidateForm({
           type="button"
           onClick={onConfirm}
           disabled={confirming || confirmDisabled}
-          className="inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-accent-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex min-w-[168px] cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-accent-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {confirming ? (
             <>

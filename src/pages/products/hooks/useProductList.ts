@@ -28,6 +28,13 @@ interface UseProductListParams {
   isArchived: boolean;
   // 一括操作後に一覧を再取得するためのキー。
   reloadKey: number;
+  // 詳細画面から戻ってきたときだけ渡される初期状態（検索・フィルター・並び替え・ページ）。
+  // 未指定（新規アクセス）の場合は既定値から始める。
+  initialState?: {
+    filter: ProductFilterValue;
+    sortKey: ProductSortKey;
+    page: number;
+  } | null;
 }
 
 /**
@@ -49,18 +56,26 @@ interface UseProductListParams {
 export function useProductList({
   isArchived,
   reloadKey,
+  initialState,
 }: UseProductListParams) {
   const [loadState, setLoadState] = useState<ProductListLoadState>("loading");
   const [products, setProducts] = useState<AdminProduct[]>([]);
   const [count, setCount] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
 
-  const [filter, setFilter] = useState<ProductFilterValue>(EMPTY_PRODUCT_FILTER);
-  const [sortKey, setSortKey] = useState<ProductSortKey>("default");
-  const [page, setPage] = useState(1);
+  const [filter, setFilter] = useState<ProductFilterValue>(
+    initialState?.filter ?? EMPTY_PRODUCT_FILTER
+  );
+  const [sortKey, setSortKey] = useState<ProductSortKey>(
+    initialState?.sortKey ?? "default"
+  );
+  const [page, setPage] = useState(initialState?.page ?? 1);
 
   // 検索入力のデバウンス値。入力中の連続通信を防ぐ。
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  // 復元時は入力済みの検索文字列から始め、余分な取得を発生させない。
+  const [debouncedSearch, setDebouncedSearch] = useState(
+    (initialState?.filter?.search ?? "").trim()
+  );
   useEffect(() => {
     const trimmed = filter.search.trim();
     const timer = window.setTimeout(

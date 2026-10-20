@@ -1,3 +1,4 @@
+import IndeterminateProgressBar from "@/components/base/IndeterminateProgressBar";
 import {
   AI_ANALYSIS_IMAGE_COUNT,
   MAX_PRODUCT_IMAGES,
@@ -24,9 +25,14 @@ export default function AiGenerateSection({
   onGenerate,
 }: AiGenerateSectionProps) {
   const busy = isAiBusy(phase);
+  const saving = phase === "saving";
   const noImage = imageCount === 0;
   const isDisabled = busy || noImage || disabled;
   const usedCount = Math.min(imageCount, AI_ANALYSIS_IMAGE_COUNT);
+
+  // 処理中の案内文（進捗率は取得できないため数値は出さない）。
+  const busyTitle = saving ? "商品画像を保存しています…": "AIが商品情報を生成しています…";
+  const busyHint = saving ? "画像を保存し、生成用の仮データを準備しています。": "画像を解析しています。完了すると候補が下に表示されます。";
 
   return (
     <div className="rounded-lg border border-background-200 bg-white p-3 md:p-4">
@@ -52,7 +58,7 @@ export default function AiGenerateSection({
           {busy ? (
             <>
               <i className="ri-loader-4-line animate-spin w-4 h-4 flex items-center justify-center"></i>
-              {phase === "saving" ? "画像を保存中..." : "生成中..."}
+              {saving ? "保存中…" : "生成中…"}
             </>
           ) : (
             <>
@@ -64,13 +70,28 @@ export default function AiGenerateSection({
       </div>
 
       {busy && (
-        <div className="mt-3 flex items-center gap-2 rounded-lg bg-background-100 px-3 py-2">
-          <i className="ri-loader-4-line animate-spin w-4 h-4 flex items-center justify-center text-primary-600"></i>
-          <span className="text-xs font-medium text-foreground-700">
-            {phase === "saving"
-              ? "画像を保存し、商品ID付きの仮draftを作成しています..."
-              : "画像を解析して商品情報を生成しています..."}
-          </span>
+        <div
+          className="mt-3 rounded-lg border border-background-200 bg-background-50 px-3 py-2.5"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <div className="flex items-center gap-2">
+            <i className="ri-loader-4-line animate-spin w-4 h-4 flex items-center justify-center text-primary-600"></i>
+            <span className="text-xs font-semibold text-foreground-800">
+              {busyTitle}
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] leading-relaxed text-foreground-500">
+            {busyHint}
+          </p>
+          <IndeterminateProgressBar
+            label={busyTitle}
+            className="mt-2"
+          />
+          <p className="mt-1.5 text-[11px] text-foreground-400">
+            画面を閉じると処理は中断されます（自動で再送は行いません）。
+          </p>
         </div>
       )}
 
@@ -89,12 +110,12 @@ export default function AiGenerateSection({
             </span>
           </p>
           <p className="text-[11px] text-foreground-500">
-            入力中の内容と画像は保持されています。
+            入力中の内容と画像は保持されています。もう一度「再実行する」からお試しください（自動で再送は行いません）。
           </p>
           <button
             type="button"
             onClick={onGenerate}
-            disabled={disabled}
+            disabled={isDisabled}
             className="inline-flex w-fit cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <i className="ri-refresh-line w-4 h-4 flex items-center justify-center"></i>

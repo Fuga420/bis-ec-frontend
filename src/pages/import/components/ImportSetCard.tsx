@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import IndeterminateProgressBar from "@/components/base/IndeterminateProgressBar";
 import SetImageEditor from "@/pages/import/components/SetImageEditor";
 import {
   IMPORT_PAYLOAD_MISMATCH_CODE,
@@ -31,7 +32,7 @@ const STATUS_LABELS: Record<ImportSetStatus, string> = {
 
 const STATUS_STYLES: Record<ImportSetStatus, string> = {
   idle: "bg-background-100 text-foreground-600",
-  processing: "bg-secondary-100 text-secondary-900",
+  processing: "bg-primary-100 text-primary-700",
   success: "bg-primary-100 text-primary-700",
   error: "bg-red-100 text-red-700",
   unknown: "bg-amber-100 text-amber-800",
@@ -50,6 +51,7 @@ export default function ImportSetCard({
   const isSuccess = set.status === "success";
   const isUnknown = set.status === "unknown";
   const isError = set.status === "error";
+  const isIdle = set.status === "idle";
 
   // 取り込み中・成功・受付不明は編集不可（再送前に内容を変えないため）。
   const editorDisabled = disabled || isProcessing || isSuccess || isUnknown;
@@ -72,7 +74,14 @@ export default function ImportSetCard({
   const isLocalError = isError && !hadAttempt;
 
   return (
-    <div className="rounded-[10px] border border-background-200 bg-white p-4">
+    <div
+      className={`rounded-[10px] border bg-white p-4 ${
+        isProcessing
+          ? "border-primary-300 ring-1 ring-primary-200/70"
+          : "border-background-200"
+      }`}
+      aria-busy={isProcessing}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="flex h-6 w-6 items-center justify-center rounded-full bg-background-100 text-xs font-bold text-foreground-700">
@@ -130,9 +139,31 @@ export default function ImportSetCard({
 
       {/* 状態ごとの表示 */}
       {isProcessing && (
-        <p className="mt-3 flex items-center gap-1.5 rounded-md bg-secondary-100/70 px-3 py-2 text-xs font-medium text-secondary-900">
-          <i className="ri-loader-4-line w-4 h-4 animate-spin flex items-center justify-center"></i>
-          このセットを下書きとして取り込んでいます...
+        <div
+          className="mt-3 rounded-md border border-primary-200 bg-primary-50 px-3 py-2.5"
+          role="status"
+          aria-live="polite"
+        >
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-primary-700">
+            <i className="ri-loader-4-line w-4 h-4 animate-spin flex items-center justify-center"></i>
+            このセットを下書きとして取り込んでいます…
+          </p>
+          <p className="mt-1 text-[11px] leading-relaxed text-foreground-500">
+            画像の送信と下書き登録をしています。完了するまでこの画面を開いたままにしてください。
+          </p>
+          <IndeterminateProgressBar
+            label={`商品セット${index + 1}を取り込み中`}
+            className="mt-2"
+          />
+        </div>
+      )}
+
+      {isIdle && set.images.length > 0 && (
+        <p className="mt-3 flex items-start gap-1.5 rounded-md bg-background-50 px-3 py-2 text-[11px] leading-relaxed text-foreground-500">
+          <i className="ri-time-line mt-0.5 w-4 h-4 flex items-center justify-center"></i>
+          <span>
+            まだ取り込んでいません。「まとめて取り込む」を押すと、このセットが1商品の下書きとして登録されます。
+          </span>
         </p>
       )}
 

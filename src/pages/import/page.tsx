@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import IndeterminateProgressBar from "@/components/base/IndeterminateProgressBar";
 import ImportSetCard from "@/pages/import/components/ImportSetCard";
 import ImportBatchSection from "@/pages/import/components/ImportBatchSection";
 import { sameFiles } from "@/pages/import/lib/multiImport";
@@ -26,6 +27,11 @@ export default function ImportPage() {
       !sameFiles(s.attemptFiles, s.images) &&
       !sameFiles(s.newIdAckFiles, s.images)
   ).length;
+
+  // 実際の状態（各セットの status）からだけ集計する。数値の捏造はしない。
+  const processingIndex = sets.findIndex((s) => s.status === "processing");
+  const doneCount = summary.success;
+  const showProgress = summary.total > 0 && (isImporting || anyDone);
 
   return (
     <div className="admin-font products-theme min-h-screen bg-background-50">
@@ -136,6 +142,17 @@ export default function ImportPage() {
               <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-background-100 px-3 py-1 text-xs font-medium text-foreground-700">
                 セット {summary.total}
               </span>
+              {showProgress && (
+                <span
+                  className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-primary-50 px-3 py-1 text-xs font-bold text-primary-700 tabular-nums"
+                  aria-live="polite"
+                >
+                  {isImporting && (
+                    <i className="ri-loader-4-line w-3.5 h-3.5 animate-spin flex items-center justify-center"></i>
+                  )}
+                  {doneCount} / {summary.total}セット完了
+                </span>
+              )}
               {summary.success > 0 && (
                 <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-primary-100 px-3 py-1 text-xs font-bold text-primary-700">
                   <i className="ri-checkbox-circle-line w-3.5 h-3.5 flex items-center justify-center"></i>
@@ -190,8 +207,15 @@ export default function ImportPage() {
               </button>
             )}
             {isImporting && (
-              <span className="text-xs text-foreground-500">
-                1セットずつ順番に送信しています。完了までこの画面を開いたままにしてください。
+              <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <span className="text-xs text-foreground-600">
+                  {processingIndex >= 0
+                    ? `商品セット${processingIndex + 1}を送信中です（1セットずつ順番に送信しています）。`
+                    : "1セットずつ順番に送信しています。"}
+                  {"完了までこの画面を開いたままにしてください。"}
+                </span>
+                {/* 進捗率は取得できないため、数値は出さず不確定バーで表示する */}
+                <IndeterminateProgressBar label="セットを取り込み中" />
               </span>
             )}
           </div>

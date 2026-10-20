@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import DocumentUploadField from "./components/DocumentUploadField";
 import DocumentListRow from "./components/DocumentListRow";
+import DriveInboxImportSection from "./components/DriveInboxImportSection";
 import { useDocumentList } from "./hooks/useDocumentList";
 import {
   DOCUMENT_MATCH_STATUS_LABELS,
@@ -52,6 +53,9 @@ export default function DocumentsPage() {
       </header>
 
       <main className="mx-auto w-full max-w-7xl px-4 py-4 md:px-6">
+        {/* Drive 01_inbox の一括取込（起動APIの実測確認までは無効） */}
+        <DriveInboxImportSection />
+
         {/* 接続状況の案内（MVP準備中） */}
         <div className="mb-4 flex items-start gap-2 rounded-lg border border-secondary-200 bg-secondary-50 px-3.5 py-2.5">
           <i className="ri-information-line mt-0.5 w-4 h-4 flex items-center justify-center shrink-0 text-secondary-700"></i>

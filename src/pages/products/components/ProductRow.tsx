@@ -1,3 +1,4 @@
+import { type MouseEvent } from "react";
 import { Link } from "react-router-dom";
 import ProductThumbnail from "./ProductThumbnail";
 import ProductInlineEditor from "./ProductInlineEditor";
@@ -21,23 +22,61 @@ interface ProductRowProps {
   onCancelEdit: () => void;
   onDraftChange: (patch: Partial<InlineEditDraft>) => void;
   onSave: (product: AdminProduct) => void;
+  // 商品詳細へ遷移する直前に、一覧の表示状態（検索・ページ・スクロール位置）を残すための通知。
+  onNavigateToDetail?: () => void;
 }
 
-// 全ステータスバッジ共通の見た目（角丸6px・高さ22px・11px/500・余白を圧縮して統一）
+// ステータスチップ共通の見た目（角丸6px・高さ20px・11px/500・1pxの薄い枠線で統一）。
+// 塗りつぶしの強さを抑え、色に頼らなくてもラベル文字で状態が分かるようにする。
 const badgeBase =
-  "inline-flex h-[22px] max-w-full items-center gap-1 whitespace-nowrap rounded-md px-2 text-[11px] font-medium leading-none";
+  "inline-flex h-5 max-w-full items-center gap-1 whitespace-nowrap rounded-md border px-1.5 text-[11px] font-medium leading-none";
 
+// 補助情報（サイズ・Square連携・アーカイブ）は「チップ」ではなく小さなテキストで表示する。
+const metaTextBase =
+  "inline-flex items-center gap-1 whitespace-nowrap text-[11px] leading-none";
+
+// 行右端の操作アイコン共通スタイル（36px のクリック領域・薄いグレー枠線・角丸8px・16pxアイコン）。
+// 商品詳細への遷移と編集はどちらもこの見た目で並べ、アイコンとアクセシブル名で区別する。
+const actionIconBase =
+  "flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-md border border-background-300 bg-white text-base text-foreground-500 transition-colors hover:border-background-400 hover:bg-background-100 hover:text-foreground-800 focus:outline-none focus-visible:border-primary-400 focus-visible:ring-2 focus-visible:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-background-300 disabled:hover:bg-white";
+
+// 右端の操作列幅（詳細36 + 間隔6 + 別タブ36 + 間隔6 + 編集36 + 右余白16 = 136px）。
+// ヘッダー側と合わせて桁を固定する。
+export const ACTION_COLUMN_WIDTH = "w-[136px]";
+
+// 公開状態：公開中だけをごく淡いグリーンにし、下書き・非公開はニュートラルに寄せる。
 const statusStyles: Record<string, string> = {
-  draft: "bg-background-100 text-foreground-600",
-  published: "bg-primary-100 text-primary-500",
-  hidden: "bg-background-100 text-foreground-600",
+  draft: "border-background-300 bg-white text-foreground-600",
+  published: "border-primary-200 bg-primary-50 text-primary-700",
+  hidden: "border-background-200 bg-background-100 text-foreground-500",
 };
 
+// 在庫状態：在庫ありはニュートラル（文字で判別）、対応が必要な取り置き・売却済みだけ色を残す。
 const inventoryStyles: Record<string, string> = {
-  in_stock: "bg-primary-100 text-primary-500",
-  reserved: "bg-amber-100 text-amber-800",
-  sold: "bg-red-100 text-red-800",
+  in_stock: "border-background-300 bg-white text-foreground-600",
+  reserved: "border-amber-200 bg-amber-50 text-amber-800",
+  sold: "border-red-200 bg-red-50 text-red-700",
 };
+
+// スニーカーのサイズが入力済みか判定する（null・空文字・0 は未入力扱い）
+function hasSneakerSize(value: number | null | undefined): boolean {
+  if (value == null) return false;
+  const text = String(value).trim();
+  return text !== "" && text !== "0";
+}
+
+// 一覧表示用のサイズ表記（例: 27.5cm）。未入力なら空文字を返す。
+// GAS側のデータは「27.5cm」のように単位込みで入っていることがあるため、
+// 末尾の単位を落としてから付け直す（cmcm の二重表記を防ぐ）。
+function formatSneakerSize(value: number | null | undefined): string {
+  if (!hasSneakerSize(value)) return "";
+  const raw = String(value)
+    .trim()
+    .replace(/(cm|センチ|㎝)+$/i, "")
+    .trim();
+  if (raw === "" || raw === "0") return "";
+  return `${raw}cm`;
+}
 
 function formatDate(value: string): string {
   if (!value) return "—";
@@ -63,6 +102,7 @@ export default function ProductRow({
   onCancelEdit,
   onDraftChange,
   onSave,
+  onNavigateToDetail,
 }: ProductRowProps) {
   const categoryLabel =
     CATEGORY_LABELS[product.category] ?? (product.category || "—");
@@ -70,13 +110,14 @@ export default function ProductRow({
     PUBLISH_STATUS_LABELS[product.publish_status] ??
     (product.publish_status || "—");
   const statusClass =
-    statusStyles[product.publish_status] ?? "bg-foreground-100 text-foreground-600";
+    statusStyles[product.publish_status] ??
+    "border-background-200 bg-white text-foreground-600";
   const inventoryLabel =
     INVENTORY_STATUS_LABELS[product.inventory_status] ??
     (product.inventory_status || "—");
   const inventoryClass =
     inventoryStyles[product.inventory_status] ??
-    "bg-foreground-100 text-foreground-600";
+    "border-background-200 bg-white text-foreground-600";
   const priceText =
     product.planned_sale_price && product.planned_sale_price > 0
       ? `¥${product.planned_sale_price.toLocaleString("ja-JP")}`
@@ -85,6 +126,22 @@ export default function ProductRow({
   // （スニーカー: translated_title → product_name、それ以外: product_name → 「商品名なし」）。
   // デスクトップ・モバイルの両表示でこの値を使う。
   const name = getProductDisplayTitle(product);
+
+  // 同じタブで商品詳細へ移動する時だけ、一覧の表示状態を残すよう依頼する。
+  // 新しいタブで開く操作や修飾キー付きクリックでは、現在の一覧を離れないため何もしない。
+  const handleNavigateToDetail = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (event.defaultPrevented) return;
+    if (
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey ||
+      event.button !== 0
+    ) {
+      return;
+    }
+    onNavigateToDetail?.();
+  };
 
   // 編集中は行全体をインライン編集UIに差し替える（チェック・詳細リンクは表示しない）。
   if (isEditing) {
@@ -112,9 +169,11 @@ export default function ProductRow({
   const recordStatusLabel =
     RECORD_STATUS_LABELS[product.record_status] ??
     (product.record_status || "—");
-  const recordStatusBadge =
+  // アーカイブ済みは「状態チップ」ではなく控えめな補助テキストで示す。
+  const recordStatusNode =
     product.record_status === "archived" ? (
-      <span className={`${badgeBase} bg-background-100 text-foreground-600`}>
+      <span className={`${metaTextBase} text-foreground-500`}>
+        <i className="ri-archive-line w-3 h-3 flex items-center justify-center"></i>
         {recordStatusLabel}
       </span>
     ) : null;
@@ -125,18 +184,40 @@ export default function ProductRow({
       .toString()
       .trim()
   );
+  // スニーカーだけサイズを表示する（未入力は公開できないため、そのことも一目で分かるようにする）
+  const isSneaker = product.category === "sneaker";
+  const sneakerSizeText = formatSneakerSize(product.sneaker_size);
+  const hasSize = sneakerSizeText !== "";
+  // サイズはステータスではないためチップ化しない。
+  // 入力済みは通常の補助テキスト（例: 27.0cm）、未設定だけは公開できない事実を示す注意表示を残す。
+  const sneakerSizeNode = isSneaker ? (
+    hasSize ? (
+      <span className="whitespace-nowrap text-[11px] tabular-nums leading-none text-foreground-500">
+        {sneakerSizeText}
+      </span>
+    ) : (
+      <span className={`${badgeBase} border-amber-200 bg-amber-50 text-amber-800`}>
+        <i className="ri-error-warning-line w-3 h-3 flex items-center justify-center"></i>
+        サイズ未設定
+      </span>
+    )
+  ) : null;
+
+  // Square連携：連携済みはグレーのアイコン＋テキスト、未連携は控えめなアンバーのテキスト。
+  // 一覧APIには連携エラーを示す項目が無いため、エラーと未連携を推測で作り分けることはしない
+  // （存在しない項目を追加せず、現在の状態値だけで判定する）。
   const squareBadge = (
     <span
-      className={`${badgeBase} ${
+      className={`${metaTextBase} ${
         isSquareLinked
-          ? "bg-primary-100 text-primary-500"
-          : "bg-amber-100 text-amber-800"
+          ? "text-foreground-500"
+          : "font-medium text-amber-700"
       }`}
     >
       <i
         className={`${
           isSquareLinked ? "ri-link" : "ri-link-unlink"
-        } w-3 h-3 flex items-center justify-center text-xs`}
+        } w-3 h-3 flex items-center justify-center`}
       ></i>
       {isSquareLinked
         ? SQUARE_LINK_LABELS.linked
@@ -144,15 +225,59 @@ export default function ProductRow({
     </span>
   );
 
+  // ブランドは 12px のグレー文字。未設定なら要素自体を出さず、空行を作らない。
+  const brandText = (product.brand ?? "").toString().trim();
+  const brandNode = brandText ? (
+    <span className="block min-w-0 max-w-full truncate text-xs leading-none text-foreground-500">
+      {brandText}
+    </span>
+  ) : null;
+
+  // 商品名の下に置く補助情報（サイズ・Square連携・アーカイブ状態・ブランド）。
+  // すべて無い場合は行そのものを描画しない。
+  const hasMetaRow = Boolean(
+    sneakerSizeNode || squareBadge || recordStatusNode || brandNode
+  );
+
+  // 一覧行の編集（インライン編集）を開くボタン。
+  // 権限は従来どおり canEdit（下書き かつ 一括処理中でない）に従う。
+  const editButton = canEdit ? (
+    <button
+      type="button"
+      onClick={() => onStartEdit(product)}
+      disabled={selectDisabled}
+      aria-label={`${name} を編集`}
+      title="商品を編集"
+      className={actionIconBase}
+    >
+      <i className="ri-edit-line"></i>
+    </button>
+  ) : null;
+
+  // 商品詳細を新しいタブで開くボタン（同じ詳細画面を別タブ表示）。
+  // 現在のタブは一覧のまま維持したいときに使う。
+  const openInNewTabButton = (
+    <Link
+      to={`/products/${product.product_id}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`${name} の商品詳細を新しいタブで開く`}
+      title="商品詳細を新しいタブで開く"
+      className={actionIconBase}
+    >
+      <i className="ri-external-link-line"></i>
+    </Link>
+  );
+
   return (
-    <div className="border-b border-background-200 last:border-b-0">
+    <div className="border-b border-background-200/80 last:border-b-0">
       {/* 選択中はごく薄いグリーン系の背景を保持し、ホバー時はその選択色を一段濃くして
           「選択中の背景」と「ホバー」が競合しないようにする（未選択はホバーで薄いニュートラルグレー）。 */}
       <div
         className={`group/row flex items-stretch transition-colors duration-150 ${
           isSelected
-            ? "bg-primary-100/60 hover:bg-primary-100"
-            : "hover:bg-background-100"
+            ? "bg-primary-50 hover:bg-primary-100/70"
+            : "hover:bg-background-100/70"
         }`}
       >
         {/* チェックボックスは Link の外に配置し、操作時に詳細へ遷移しないようにする */}
@@ -169,6 +294,7 @@ export default function ProductRow({
 
         <Link
           to={`/products/${product.product_id}`}
+          onClick={handleNavigateToDetail}
           className="block min-w-0 flex-1 cursor-pointer rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-400"
         >
           {/* デスクトップ（一覧表） */}
@@ -180,19 +306,21 @@ export default function ProductRow({
             <span className="w-[96px] shrink-0 truncate text-xs font-normal tabular-nums text-foreground-500">
               {product.product_id}
             </span>
+            {/* 商品情報セル: 商品名 → 補助情報バッジ → ブランド の3段階で整理する。
+                幅が足りない場合はセル内で折り返し、隣の列にはみ出さない。 */}
             <div className="min-w-0 flex-1">
-              {/* 商品名は最大2行まで表示し、長い場合は末尾を省略する */}
-              <p className="line-clamp-2 text-sm font-semibold leading-normal text-foreground-950 group-hover/row:text-primary-600">
+              {/* 商品名は最大2行まで表示し、超過分は末尾を省略する */}
+              <p className="line-clamp-2 text-sm font-semibold leading-snug text-foreground-950 group-hover/row:text-primary-600">
                 {name}
               </p>
-              {/* 商品名の下（余白2px）にSquare連携ラベルを縦配置。セル幅を超えないようにする */}
-              <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-2">
-                {squareBadge}
-                {recordStatusBadge}
-                <p className="min-w-0 truncate text-xs text-foreground-500">
-                  {product.brand || "—"}
-                </p>
-              </div>
+              {hasMetaRow && (
+                <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+                  {sneakerSizeNode}
+                  {squareBadge}
+                  {recordStatusNode}
+                  {brandNode}
+                </div>
+              )}
             </div>
             <span className="w-[88px] shrink-0 truncate text-xs text-foreground-500">
               {categoryLabel}
@@ -212,7 +340,6 @@ export default function ProductRow({
             <span className="w-[110px] shrink-0 whitespace-nowrap text-xs text-foreground-500">
               {formatDate(product.created_at)}
             </span>
-            <i className="ri-arrow-right-s-line w-5 shrink-0 text-lg text-foreground-300 transition-colors duration-150 group-hover/row:text-foreground-600"></i>
           </div>
 
           {/* モバイル */}
@@ -221,21 +348,25 @@ export default function ProductRow({
               src={product.main_image_display_url}
               alt={name}
             />
+            {/* モバイルも同じ階層（商品名 → ブランド → バッジ）で並べる */}
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold leading-normal text-foreground-950">
+              <p className="line-clamp-2 text-sm font-semibold leading-snug text-foreground-950">
                 {name}
               </p>
-              <p className="mt-0.5 truncate text-xs text-foreground-500">
-                {product.brand || "—"}
-              </p>
-              <div className="mt-1 flex flex-wrap items-center gap-2">
-                <span className="text-xs font-normal tabular-nums text-foreground-500">
+              {brandText && (
+                <p className="mt-1 truncate text-xs leading-none text-foreground-500">
+                  {brandText}
+                </p>
+              )}
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="whitespace-nowrap text-[11px] font-normal tabular-nums leading-none text-foreground-500">
                   {product.product_id}
                 </span>
+                {sneakerSizeNode}
                 {statusBadge}
                 {inventoryBadge}
                 {squareBadge}
-                {recordStatusBadge}
+                {recordStatusNode}
               </div>
             </div>
             <div className="shrink-0 text-right">
@@ -247,21 +378,28 @@ export default function ProductRow({
           </div>
         </Link>
 
-        {/* 編集ボタン列（Link の外に置き、押しても詳細へ遷移しない）。
-            列幅は常に確保して、編集可能な行と不可の行で桁がずれないようにする。 */}
-        <div className="flex w-10 shrink-0 items-center justify-center">
-          {canEdit && (
-            <button
-              type="button"
-              onClick={() => onStartEdit(product)}
-              disabled={selectDisabled}
-              aria-label={`${name} を一覧で編集`}
-              title="この行を編集"
-              className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-background-300 bg-white text-foreground-500 transition-colors hover:border-primary-300 hover:bg-primary-50 hover:text-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <i className="ri-edit-line"></i>
-            </button>
-          )}
+        {/* 右端の操作列（Link の外に置き、行クリック＝詳細／編集ボタン＝編集で競合させない）。
+            デスクトップは「詳細」「別タブ」「編集」の3スロット固定幅。編集不可の行も空スロットを確保し、
+            アイコンの左右位置が行ごとにずれないようにする。 */}
+        <div
+          className={`hidden ${ACTION_COLUMN_WIDTH} shrink-0 items-center justify-end gap-1.5 pr-4 lg:flex`}
+        >
+          <Link
+            to={`/products/${product.product_id}`}
+            onClick={handleNavigateToDetail}
+            aria-label={`${name} の商品詳細を表示`}
+            title="商品詳細を表示"
+            className={actionIconBase}
+          >
+            <i className="ri-arrow-right-line"></i>
+          </Link>
+          {openInNewTabButton}
+          {editButton ?? <span className="h-9 w-9 shrink-0" aria-hidden="true"></span>}
+        </div>
+
+        {/* モバイルの操作列（行タップ＝詳細のため、編集のみ表示する）。 */}
+        <div className="flex w-12 shrink-0 items-center justify-center lg:hidden">
+          {editButton}
         </div>
       </div>
 

@@ -17,11 +17,13 @@ import type {
   SquareProductionDetailsSyncResponse,
 } from "../types";
 import { CATEGORY_LABELS, PUBLISH_STATUS_LABELS, RECORD_STATUS_LABELS } from "../types";
+import { peekProductListReturnPending } from "../lib/listViewState";
 import {
   extractAiDraftPrice,
   getAiProductDraft,
 } from "@/pages/register/lib/aiProduct";
 import EditForm from "./components/EditForm";
+import ProductDetailSkeleton from "./components/ProductDetailSkeleton";
 import ImageEditor, { type ImageSavePayload } from "./components/ImageEditor";
 import ImageLightbox from "./components/ImageLightbox";
 import ProductTranslationSection from "./components/ProductTranslationSection";
@@ -29,6 +31,7 @@ import SquareIntegrationSection from "./components/SquareIntegrationSection";
 import ProductDocumentSection, {
   hasAttachedDocument,
 } from "./components/ProductDocumentSection";
+import SaveStatusMessage from "@/components/base/SaveStatusMessage";
 
 type LoadState = "loading" | "success" | "error";
 type SaveState = "idle" | "saving";
@@ -174,7 +177,7 @@ function DescriptionBlock({ label, value }: { label: string; value: string }) {
 }
 
 // 管理パネル（公開状態・在庫状態・英語翻訳）で共通利用する保存結果メッセージ。
-// success / error / warning の3種を、全パネルで同一の見た目に揃える。
+// success / error / warning の3種を、全画面共通の通知部品に委ねて見た目を統一する。
 function PanelMessage({
   type,
   text,
@@ -182,29 +185,7 @@ function PanelMessage({
   type: "success" | "error" | "warning";
   text: string;
 }) {
-  if (type === "warning") {
-    return (
-      <div className="mt-3 flex items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
-        <i className="ri-error-warning-line w-4 h-4 flex items-center justify-center shrink-0"></i>
-        <span className="min-w-0 flex-1">{text}</span>
-      </div>
-    );
-  }
-  const success = type === "success";
-  return (
-    <p
-      className={`mt-3 flex items-center gap-1.5 text-sm font-medium ${
-        success ? "text-primary-700" : "text-red-600"
-      }`}
-    >
-      <i
-        className={`${
-          success ? "ri-checkbox-circle-line" : "ri-error-warning-line"
-        } w-4 h-4 flex items-center justify-center shrink-0`}
-      ></i>
-      <span className="min-w-0 flex-1">{text}</span>
-    </p>
-  );
+  return <SaveStatusMessage tone={type} text={text} className="mt-3" />;
 }
 
 // 公開ステータスバッジのスタイル（現在保存されている状態の可視化用）
@@ -217,6 +198,14 @@ const PUBLISH_BADGE_STYLES: Record<string, string> = {
 export default function ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+
+  // 一覧から遷移してきた場合は、戻り先を遷移元と同じタブ（通常／アーカイブ済み）に揃える。
+  // 直接アクセス（一覧を経由していない）の場合は既存どおり通常一覧に戻る。
+  const [listPath] = useState(() =>
+    peekProductListReturnPending(true)
+      ? "/products?record_status=archived"
+      : "/products"
+  );
 
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [product, setProduct] = useState<AdminProductDetail | null>(null);
@@ -915,7 +904,7 @@ export default function ProductDetailPage() {
       <header className="border-b border-background-200 bg-white">
         <div className="mx-auto flex w-full max-w-4xl items-center justify-between px-4 py-3 md:px-6">
           <Link
-            to="/products"
+            to={listPath}
             className="flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-foreground-600 transition-colors hover:text-primary-600"
           >
             <i className="ri-arrow-left-line w-4 h-4 flex items-center justify-center"></i>
@@ -926,12 +915,7 @@ export default function ProductDetailPage() {
       </header>
 
       <main className="mx-auto w-full max-w-4xl px-4 py-6 md:px-6">
-        {loadState === "loading" && (
-          <div className="flex flex-col items-center justify-center gap-3 py-24">
-            <i className="ri-loader-4-line animate-spin text-2xl text-foreground-400"></i>
-            <p className="text-sm text-foreground-500">読み込み中...</p>
-          </div>
-        )}
+        {loadState === "loading" && <ProductDetailSkeleton />}
 
         {loadState === "error" && (
           <div className="flex flex-col items-center justify-center gap-3 py-24">
@@ -940,7 +924,7 @@ export default function ProductDetailPage() {
               商品情報を取得できませんでした
             </p>
             <Link
-              to="/products"
+              to={listPath}
               className="mt-1 inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-background-300 px-4 py-2 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100"
             >
               商品一覧に戻る
@@ -1000,10 +984,11 @@ export default function ProductDetailPage() {
                     画像を編集
                   </button>
                   {imageMessage && imageMessage.type === "success" && (
-                    <p className="mt-2 flex items-center gap-1 text-sm font-medium text-primary-700">
-                      <i className="ri-checkbox-circle-line w-4 h-4 flex items-center justify-center"></i>
-                      {imageMessage.text}
-                    </p>
+                    <SaveStatusMessage
+                      tone="success"
+                      text={imageMessage.text}
+                      className="mt-2"
+                    />
                   )}
                 </>
               )}
@@ -1245,18 +1230,12 @@ export default function ProductDetailPage() {
                     </button>
                     {editMessage &&
                       (editMessage.type === "success" ||
-                        editMessage.type === "warning") &&
-                      (editMessage.type === "warning" ? (
-                        <div className="flex items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
-                          <i className="ri-error-warning-line w-4 h-4 flex items-center justify-center shrink-0"></i>
-                          <span className="min-w-0 flex-1">{editMessage.text}</span>
-                        </div>
-                      ) : (
-                        <p className="flex items-center gap-1 text-sm font-medium text-primary-700">
-                          <i className="ri-checkbox-circle-line w-4 h-4 flex items-center justify-center"></i>
-                          {editMessage.text}
-                        </p>
-                      ))}
+                        editMessage.type === "warning") && (
+                        <SaveStatusMessage
+                          tone={editMessage.type}
+                          text={editMessage.text}
+                        />
+                      )}
                   </div>
                 </div>
               )}
@@ -1311,7 +1290,7 @@ export default function ProductDetailPage() {
                     type="button"
                     onClick={handleSaveStatus}
                     disabled={saveState === "saving" || selectedStatus === product.publish_status}
-                    className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex min-w-[136px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {saveState === "saving" ? (
                       <>
@@ -1385,7 +1364,7 @@ export default function ProductDetailPage() {
                       inventorySaveState === "saving" ||
                       selectedInventoryStatus === product.inventory_status
                     }
-                    className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex min-w-[136px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {inventorySaveState === "saving" ? (
                       <>
@@ -1476,7 +1455,7 @@ export default function ProductDetailPage() {
                   </div>
                   {recordSaveState === "saving" && (
                     <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-foreground-500">
-                      <i className="ri-loader-4-line animate-spin w-3.5 h-3.5 flex items-center justify-center"></i>
+                      <i className="ri-loader-4-line animate-spin h-4 w-4 flex items-center justify-center"></i>
                       処理中...
                     </span>
                   )}
@@ -1501,23 +1480,13 @@ export default function ProductDetailPage() {
                   </div>
                 )}
 
-                {recordMessage &&
-                  (recordMessage.type === "warning" ? (
-                    <div className="mt-3 flex items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
-                      <i className="ri-error-warning-line w-4 h-4 flex items-center justify-center shrink-0"></i>
-                      <span className="min-w-0 flex-1">{recordMessage.text}</span>
-                    </div>
-                  ) : (
-                    <p
-                      className={`mt-3 text-sm font-medium ${
-                        recordMessage.type === "success"
-                          ? "text-primary-700"
-                          : "text-red-600"
-                      }`}
-                    >
-                      {recordMessage.text}
-                    </p>
-                  ))}
+                {recordMessage && (
+                  <SaveStatusMessage
+                    tone={recordMessage.type}
+                    text={recordMessage.text}
+                    className="mt-3"
+                  />
+                )}
               </div>
 
               {/* Square連携 */}
@@ -1562,7 +1531,7 @@ export default function ProductDetailPage() {
                         type="button"
                         onClick={() => handleSaveRecordStatus(false)}
                         disabled={recordSaveState === "saving"}
-                        className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="inline-flex min-w-[124px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {recordSaveState === "saving" ? (
                           <>
@@ -1621,9 +1590,11 @@ export default function ProductDetailPage() {
                     )}
 
                     {recordMessage && recordMessage.type === "error" && (
-                      <p className="mt-3 text-sm font-medium text-red-600">
-                        {recordMessage.text}
-                      </p>
+                      <SaveStatusMessage
+                        tone="error"
+                        text={recordMessage.text}
+                        className="mt-3"
+                      />
                     )}
 
                     <div className="mt-5 flex justify-end gap-2">
@@ -1643,7 +1614,7 @@ export default function ProductDetailPage() {
                           )
                         }
                         disabled={recordSaveState === "saving"}
-                        className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-bold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="inline-flex min-w-[116px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-bold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {recordSaveState === "saving" ? (
                           <>
@@ -1701,9 +1672,11 @@ export default function ProductDetailPage() {
                     </div>
 
                     {deleteMessage && deleteMessage.type === "error" && (
-                      <p className="mt-3 text-sm font-medium text-red-600">
-                        {deleteMessage.text}
-                      </p>
+                      <SaveStatusMessage
+                        tone="error"
+                        text={deleteMessage.text}
+                        className="mt-3"
+                      />
                     )}
 
                     <div className="mt-5 flex justify-end gap-2">
@@ -1725,7 +1698,7 @@ export default function ProductDetailPage() {
                           deleteSaveState === "saving" ||
                           deleteConfirmInput !== product.product_id
                         }
-                        className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="inline-flex min-w-[124px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {deleteSaveState === "saving" ? (
                           <>

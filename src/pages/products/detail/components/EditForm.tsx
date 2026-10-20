@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import FormField, { inputClass } from "@/pages/register/components/FormField";
+import FormSection from "@/pages/register/components/FormSection";
 import SneakerFields, {
   type SneakerValues,
 } from "@/pages/register/components/SneakerFields";
@@ -20,6 +21,7 @@ import {
   type CategoryId,
 } from "@/mocks/productForm";
 import type { AdminProductDetail } from "@/pages/products/types";
+import SaveStatusMessage from "@/components/base/SaveStatusMessage";
 
 interface EditFormProps {
   product: AdminProductDetail;
@@ -233,7 +235,8 @@ export default function EditForm({
     <div className="rounded-lg border border-background-200 bg-white p-4 md:p-5">
       <h2 className="text-[15px] font-semibold text-foreground-950">商品情報の編集</h2>
 
-      <div className="mt-4 flex flex-col gap-3">
+      <FormSection className="mt-4">
+        <div className="flex flex-col gap-3">
         <FormField
           label="カテゴリー"
           required
@@ -298,54 +301,53 @@ export default function EditForm({
             </select>
           </FormField>
         )}
-      </div>
+        </div>
+      </FormSection>
 
       {category === "sneaker" && (
         <>
           <div className="my-3 border-t border-background-200"></div>
-          <h3 className="mb-2 text-[15px] font-semibold text-foreground-900">
-            スニーカー詳細
-          </h3>
-          <SneakerFields
-            values={sneaker}
-            accessories={sneakerAccessories}
-            onChange={(patch) => setSneaker((prev) => ({ ...prev, ...patch }))}
-            onAccessoriesChange={setSneakerAccessories}
-          />
+          <FormSection title="スニーカー詳細" headingLevel="h3">
+            <SneakerFields
+              values={sneaker}
+              accessories={sneakerAccessories}
+              onChange={(patch) => setSneaker((prev) => ({ ...prev, ...patch }))}
+              onAccessoriesChange={setSneakerAccessories}
+            />
+          </FormSection>
         </>
       )}
 
       {category === "jewelry" && (
         <>
           <div className="my-3 border-t border-background-200"></div>
-          <h3 className="mb-2 text-[15px] font-semibold text-foreground-900">
-            ジュエリー詳細
-          </h3>
-          <JewelryFields
-            values={jewelry}
-            onChange={(patch) => setJewelry((prev) => ({ ...prev, ...patch }))}
-          />
+          <FormSection title="ジュエリー詳細" headingLevel="h3">
+            <JewelryFields
+              values={jewelry}
+              onChange={(patch) => setJewelry((prev) => ({ ...prev, ...patch }))}
+            />
+          </FormSection>
         </>
       )}
 
       {category === "pokemon_card" && (
         <>
           <div className="my-3 border-t border-background-200"></div>
-          <h3 className="mb-2 text-[15px] font-semibold text-foreground-900">
-            ポケモンカード詳細
-          </h3>
-          <PokemonCardFields
-            values={pokemonCard}
-            onChange={(patch) =>
-              setPokemonCard((prev) => ({ ...prev, ...patch }))
-            }
-          />
+          <FormSection title="ポケモンカード詳細" headingLevel="h3">
+            <PokemonCardFields
+              values={pokemonCard}
+              onChange={(patch) =>
+                setPokemonCard((prev) => ({ ...prev, ...patch }))
+              }
+            />
+          </FormSection>
         </>
       )}
 
       <div className="my-3 border-t border-background-200"></div>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+      <FormSection>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <FormField label="仕入価格 (円)">
           <div className="relative">
             <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-foreground-400">
@@ -418,10 +420,12 @@ export default function EditForm({
           />
         </FormField>
       </div>
+      </FormSection>
 
       <div className="my-3 border-t border-background-200"></div>
 
-      <div className="flex flex-col gap-3">
+      <FormSection>
+        <div className="flex flex-col gap-3">
         <FormField
           label="商品説明"
           badge="販売用"
@@ -449,13 +453,11 @@ export default function EditForm({
             onChange={(e) => setNotes(e.target.value)}
           />
         </FormField>
-      </div>
+        </div>
+      </FormSection>
 
       {error && (
-        <p className="mt-4 flex items-center gap-1 text-sm text-accent-600">
-          <i className="ri-error-warning-line w-4 h-4 flex items-center justify-center"></i>
-          {error}
-        </p>
+        <SaveStatusMessage tone="error" text={error} className="mt-4" />
       )}
 
       <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
@@ -471,7 +473,7 @@ export default function EditForm({
           type="button"
           onClick={handleSubmit}
           disabled={saving}
-          className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-bold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex min-w-[132px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-bold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {saving ? (
             <>

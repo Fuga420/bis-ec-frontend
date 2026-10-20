@@ -5,6 +5,7 @@ import type {
   ProductTranslationGenerateResponse,
   ProductTranslationApproveResponse,
 } from "../../types";
+import SaveStatusMessage from "@/components/base/SaveStatusMessage";
 
 type SyncState = "idle" | "generating" | "success" | "error";
 type ApproveState = "idle" | "approving";
@@ -262,7 +263,7 @@ export default function ProductTranslationSection({
           type="button"
           onClick={handleApprove}
           disabled={approveState === "approving"}
-          className="mt-4 inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-accent-500 px-4 py-2 text-sm font-semibold text-background-50 transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-4 inline-flex min-w-[148px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-accent-500 px-4 py-2 text-sm font-semibold text-background-50 transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {approveState === "approving" ? (
             <>
@@ -282,7 +283,7 @@ export default function ProductTranslationSection({
         type="button"
         onClick={handleGenerate}
         disabled={syncState === "generating"}
-        className="mt-4 inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
+        className="mt-4 inline-flex min-w-[168px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {syncState === "generating" ? (
           <>
@@ -306,20 +307,11 @@ export default function ProductTranslationSection({
       )}
 
       {message && (
-        <p
-          className={`mt-3 flex items-center gap-1.5 text-sm font-medium ${
-            message.type === "success" ? "text-primary-700" : "text-red-600"
-          }`}
-        >
-          <i
-            className={`${
-              message.type === "success"
-                ? "ri-checkbox-circle-line"
-                : "ri-error-warning-line"
-            } w-4 h-4 flex items-center justify-center shrink-0`}
-          ></i>
-          <span className="min-w-0 flex-1">{message.text}</span>
-        </p>
+        <SaveStatusMessage
+          tone={message.type === "success" ? "success" : "error"}
+          text={message.text}
+          className="mt-3"
+        />
       )}
     </div>
   );

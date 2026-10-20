@@ -153,3 +153,50 @@ body {
 .main-image-fade {
   animation: mainImageFade 150ms ease-in-out;
 }
+
+/* 商品一覧の読み込み中スケルトン。背景は #F3F4F6（ごく薄いグレー）、
+   アニメーションは opacity をわずかに揺らすだけの控えめな表現にする。 */
+@keyframes productSkeletonFade {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.product-skeleton-block {
+  background-color: #f3f4f6;
+  animation: productSkeletonFade 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .product-skeleton-block {
+    animation: none;
+  }
+}
+
+/* 進捗率が取得できない処理（AI生成・一括取込）用の不確定プログレスバー。
+   数値は出さず、帯をゆっくり流すだけの控えめな表現。 */
+@keyframes indeterminateProgress {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+.indeterminate-progress-bar {
+  animation: indeterminateProgress 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .indeterminate-progress-bar {
+    animation: none;
+    transform: none;
+    width: 100%;
+    opacity: 0.6;
+  }
+}

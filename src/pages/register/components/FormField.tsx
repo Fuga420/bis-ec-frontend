@@ -55,10 +55,14 @@ export default function FormField({
     <div
       className={`flex flex-col gap-1.5 ${error ? "register-field-error" : ""}`}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
         <span className="text-sm font-medium text-foreground-700">{label}</span>
         {required && (
-          <span className="text-sm font-bold text-red-500" aria-hidden="true">
+          <span
+            className="text-[13px] font-semibold leading-none text-red-500"
+            aria-label="必須"
+            title="必須"
+          >
             *
           </span>
         )}

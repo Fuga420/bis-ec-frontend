@@ -59,10 +59,10 @@ export default function ProductFilterBar({
 
   // 各セレクト共通の見た目（高さ・角丸・スタイルを統一）
   const selectClass =
-    "h-9 w-full rounded-lg border border-background-300 bg-white px-3 text-sm text-foreground-900 transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-44";
+    "h-9 w-full rounded-md border border-background-300 bg-white px-3 text-sm text-foreground-900 transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-44";
 
   return (
-    <div className="mb-6 flex flex-col gap-3 rounded-lg border border-background-200 bg-white p-3 lg:flex-row lg:flex-wrap lg:items-center">
+    <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center">
       {/* 検索欄：横幅を広く確保するメイン要素 */}
       <div className="relative min-w-0 w-full lg:min-w-[220px] lg:flex-1">
         <i className="ri-search-line pointer-events-none absolute left-3 top-1/2 w-4 h-4 -translate-y-1/2 flex items-center justify-center text-sm text-foreground-400"></i>
@@ -73,7 +73,7 @@ export default function ProductFilterBar({
           onChange={(e) => onChange({ ...value, search: e.target.value })}
           placeholder="商品名・商品ID・ブランドで検索"
           aria-label="商品を検索"
-          className="h-9 w-full rounded-lg border border-background-300 bg-white py-2 pl-9 pr-9 text-sm text-foreground-900 placeholder:text-foreground-400 transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-9 w-full rounded-md border border-background-300 bg-white py-2 pl-9 pr-9 text-sm text-foreground-900 placeholder:text-foreground-400 transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-50"
         />
         {hasSearch && (
           <button
@@ -151,7 +151,7 @@ export default function ProductFilterBar({
             }
             disabled={disabled}
             aria-label="検索・フィルターの条件をすべてクリア"
-            className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium text-foreground-600 transition-colors hover:bg-background-100 hover:text-foreground-900 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap rounded-md px-3 py-2 text-xs font-medium text-foreground-600 transition-colors hover:bg-background-100 hover:text-foreground-900 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <i className="ri-refresh-line w-3.5 h-3.5 flex items-center justify-center text-sm"></i>
             条件をクリア

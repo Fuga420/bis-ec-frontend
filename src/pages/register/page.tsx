@@ -8,6 +8,7 @@ import AiGenerateSection from "./components/AiGenerateSection";
 import AiCandidateForm from "./components/AiCandidateForm";
 import { useAiProductGeneration } from "./hooks/useAiProductGeneration";
 import FormField, { inputClass } from "./components/FormField";
+import FormSection from "./components/FormSection";
 import SneakerFields, { type SneakerValues } from "./components/SneakerFields";
 import JewelryFields, { type JewelryValues } from "./components/JewelryFields";
 import PokemonCardFields, {
@@ -16,6 +17,7 @@ import PokemonCardFields, {
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
 import PublishSquareOptions from "./components/PublishSquareOptions";
 import RegisterProgress from "./components/RegisterProgress";
+import SaveStatusMessage from "@/components/base/SaveStatusMessage";
 import {
   runSquareProductionSync,
   type SquareProductionStep,
@@ -418,6 +420,25 @@ export default function RegisterPage() {
     return Object.keys(next).length === 0;
   };
 
+  // セクション単位のエラー件数（既存の検証結果 errors を数えるだけ。検証条件は変更しない）
+  const sectionErrors = useMemo(() => {
+    const count = (keys: string[]) =>
+      keys.reduce((total, key) => (errors[key] ? total + 1 : total), 0);
+    return {
+      images: count(["images"]),
+      basic: count(["category", "brand", "name", "condition"]),
+      sneaker: count(["sneakerSize"]),
+      jewelry: count(["jewelryType", "jewelryMaterial"]),
+      pokemon: count([
+        "pokemonCardName",
+        "pokemonCardLanguage",
+        "pokemonCardGrader",
+        "pokemonCardGrade",
+        "pokemonCardCondition",
+      ]),
+    };
+  }, [errors]);
+
   const buildPayload = () => {
     const conditionLabel =
       conditions.find((c) => c.id === condition)?.label ?? condition;
@@ -523,6 +544,9 @@ export default function RegisterPage() {
   };
 
   const handleSubmit = async () => {
+    // 既存の送信中状態をそのまま二重送信の防止に使う（押下連打・再発火の抑止）。
+    if (isSubmitting) return;
+
     // AI候補がある場合は確定保存（confirm_ai_product_draft）へ回す。
     // 候補が無い場合は下の通常保存へ進むが、仮draftの product_id があれば
     // 新規登録POSTではなく update_product で既存商品を更新する（二重作成防止）。
@@ -707,8 +731,11 @@ export default function RegisterPage() {
       </header>
       <main className="mx-auto w-full max-w-3xl px-4 py-4 md:px-6">
         {/* 商品画像 */}
-        <section className="py-4">
-          <h2 className="mb-4 text-[15px] font-semibold text-foreground-950">商品画像</h2>
+        <FormSection
+          title="商品画像"
+          errorCount={sectionErrors.images}
+          className="py-4"
+        >
           <ImageUpload
             files={images}
             onChange={setImages}
@@ -754,13 +781,16 @@ export default function RegisterPage() {
               へ。
             </p>
           </div>
-        </section>
+        </FormSection>
 
         <div className="border-t border-background-200"></div>
 
         {/* 商品の詳細 */}
-        <section className="py-4">
-          <h2 className="mb-4 text-[15px] font-semibold text-foreground-950">商品の詳細</h2>
+        <FormSection
+          title="商品の詳細"
+          errorCount={sectionErrors.basic}
+          className="py-4"
+        >
           <div className="flex flex-col gap-4">
             <FormField label="カテゴリー" required error={errors.category}>
               <select
@@ -829,15 +859,18 @@ export default function RegisterPage() {
               </select>
             </FormField>
           </div>
-        </section>
+        </FormSection>
 
         <div className="border-t border-background-200"></div>
 
         {/* カテゴリ固有情報 */}
         {category === "sneaker" && (
           <>
-            <section className="py-4">
-              <h2 className="mb-4 text-[15px] font-semibold text-foreground-950">スニーカー詳細</h2>
+            <FormSection
+              title="スニーカー詳細"
+              errorCount={sectionErrors.sneaker}
+              className="py-4"
+            >
               <SneakerFields
                 values={sneaker}
                 accessories={sneakerAccessories}
@@ -845,32 +878,36 @@ export default function RegisterPage() {
                 onChange={updateSneaker}
                 onAccessoriesChange={setSneakerAccessories}
               />
-            </section>
+            </FormSection>
             <div className="border-t border-background-200"></div>
           </>
         )}
 
         {category === "jewelry" && (
           <>
-            <section className="py-4">
-              <h2 className="mb-4 text-[15px] font-semibold text-foreground-950">ジュエリー詳細</h2>
+            <FormSection
+              title="ジュエリー詳細"
+              errorCount={sectionErrors.jewelry}
+              className="py-4"
+            >
               <JewelryFields
                 values={jewelry}
                 typeError={errors.jewelryType}
                 materialError={errors.jewelryMaterial}
                 onChange={updateJewelry}
               />
-            </section>
+            </FormSection>
             <div className="border-t border-background-200"></div>
           </>
         )}
 
         {category === "pokemon_card" && (
           <>
-            <section className="py-4">
-              <h2 className="mb-4 text-[15px] font-semibold text-foreground-950">
-                ポケモンカード詳細
-              </h2>
+            <FormSection
+              title="ポケモンカード詳細"
+              errorCount={sectionErrors.pokemon}
+              className="py-4"
+            >
               <PokemonCardFields
                 values={pokemonCard}
                 nameError={errors.pokemonCardName}
@@ -891,26 +928,24 @@ export default function RegisterPage() {
                   });
                 }}
               />
-            </section>
+            </FormSection>
             <div className="border-t border-background-200"></div>
           </>
         )}
 
         {category === "other" && (
           <>
-            <section className="py-4">
-              <h2 className="mb-4 text-[15px] font-semibold text-foreground-950">その他詳細</h2>
+            <FormSection title="その他詳細" className="py-4">
               <p className="text-sm text-foreground-500">
                 このカテゴリは共通の商品情報のみで登録できます。
               </p>
-            </section>
+            </FormSection>
             <div className="border-t border-background-200"></div>
           </>
         )}
 
         {/* 価格・在庫情報 */}
-        <section className="py-4">
-          <h2 className="mb-4 text-[15px] font-semibold text-foreground-950">価格・在庫情報</h2>
+        <FormSection title="価格・在庫情報" className="py-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <FormField label="仕入価格 (円)">
               <div className="relative">
@@ -957,13 +992,12 @@ export default function RegisterPage() {
               />
             </FormField>
           </div>
-        </section>
+        </FormSection>
 
         <div className="border-t border-background-200"></div>
 
         {/* 商品説明・備考 */}
-        <section className="py-4">
-          <h2 className="mb-4 text-[15px] font-semibold text-foreground-950">商品説明・備考</h2>
+        <FormSection title="商品説明・備考" className="py-4">
           <div className="flex flex-col gap-4">
             <FormField
               label="商品説明"
@@ -997,15 +1031,12 @@ export default function RegisterPage() {
               />
             </FormField>
           </div>
-        </section>
+        </FormSection>
 
         <div className="border-t border-background-200"></div>
 
         {/* 公開・Square連携 */}
-        <section className="py-4">
-          <h2 className="mb-4 text-[15px] font-semibold text-foreground-950">
-            公開・Square連携
-          </h2>
+        <FormSection title="公開・Square連携" className="py-4">
           <PublishSquareOptions
             publishChecked={publishOn}
             squareChecked={squareOn}
@@ -1013,7 +1044,7 @@ export default function RegisterPage() {
             onPublishChange={handlePublishChange}
             onSquareChange={handleSquareChange}
           />
-        </section>
+        </FormSection>
 
         {/* 登録ボタン */}
         <div className="pt-6 pb-4">
@@ -1025,12 +1056,12 @@ export default function RegisterPage() {
           >
             {isSubmitting ? (
               <>
-                <i className="ri-loader-4-line animate-spin text-lg"></i>
+                <i className="ri-loader-4-line animate-spin h-4 w-4 flex items-center justify-center"></i>
                 登録中...
               </>
             ) : (
               <>
-                <i className="ri-check-double-line text-lg"></i>
+                <i className="ri-check-double-line h-4 w-4 flex items-center justify-center"></i>
                 商品を登録
               </>
             )}
@@ -1044,10 +1075,7 @@ export default function RegisterPage() {
             </div>
           )}
           {submitError && (
-            <p className="mt-3 flex items-center justify-center gap-1 text-sm text-red-600">
-              <i className="ri-error-warning-line w-4 h-4 flex items-center justify-center"></i>
-              {submitError}
-            </p>
+            <SaveStatusMessage tone="error" text={submitError} className="mt-3" />
           )}
           <p className="mt-2 text-center text-xs text-foreground-400">
             入力内容を確認してから登録してください

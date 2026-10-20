@@ -7,6 +7,7 @@ import type {
   SquareProductInventorySyncResponse,
   SquareProductionProductResponse,
 } from "@/pages/products/types";
+import SaveStatusMessage from "@/components/base/SaveStatusMessage";
 
 type SquareSyncState = "idle" | "saving" | "success" | "error";
 type SquareSyncStep = "idle" | "product" | "image" | "inventory" | "paymentLink";
@@ -453,7 +454,7 @@ export default function SquareIntegrationSection({
                 type="button"
                 onClick={handleGenerateSquarePaymentLink}
                 disabled={paymentLinkState === "saving" || isPaymentLinkDisabled}
-                className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-bold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex min-w-[140px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-bold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {paymentLinkState === "saving" ? (
                   <>
@@ -496,25 +497,19 @@ export default function SquareIntegrationSection({
         )}
 
         {prodMessage && (
-          <p
-            className={`mt-3 text-sm font-medium ${
-              prodMessage.type === "success" ? "text-primary-700" : "text-red-600"
-            }`}
-          >
-            {prodMessage.text}
-          </p>
+          <SaveStatusMessage
+            tone={prodMessage.type === "success" ? "success" : "error"}
+            text={prodMessage.text}
+            className="mt-3"
+          />
         )}
 
         {paymentLinkMessage && (
-          <p
-            className={`mt-3 text-sm font-medium ${
-              paymentLinkMessage.type === "success"
-                ? "text-primary-700"
-                : "text-red-600"
-            }`}
-          >
-            {paymentLinkMessage.text}
-          </p>
+          <SaveStatusMessage
+            tone={paymentLinkMessage.type === "success" ? "success" : "error"}
+            text={paymentLinkMessage.text}
+            className="mt-3"
+          />
         )}
       </div>
 
@@ -564,9 +559,7 @@ export default function SquareIntegrationSection({
             )}
 
             {prodMessage && prodMessage.type === "error" && (
-              <p className="mt-3 text-sm font-medium text-red-600">
-                {prodMessage.text}
-              </p>
+              <SaveStatusMessage tone="error" text={prodMessage.text} className="mt-3" />
             )}
 
             <div className="mt-5 flex justify-end gap-2">
@@ -582,7 +575,7 @@ export default function SquareIntegrationSection({
                 type="button"
                 onClick={handleSyncSquareProduction}
                 disabled={prodSyncState === "saving"}
-                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-bold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex min-w-[124px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-bold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {prodSyncState === "saving" ? (
                   <>

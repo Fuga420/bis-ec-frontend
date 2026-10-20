@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
-import ProductRow from "./components/ProductRow";
+import ProductRow, {
+  ACTION_COLUMN_WIDTH,
+} from "./components/ProductRow";
 import ProductFilterBar, {
   type ProductFilterValue,
 } from "./components/ProductFilterBar";
@@ -17,15 +19,18 @@ import { useAiBatch } from "./context/AiBatchProvider";
 import { useBulkArchive } from "./hooks/useBulkArchive";
 import { useProductList } from "./hooks/useProductList";
 import { useProductInlineEdit } from "./hooks/useProductInlineEdit";
-import {
-  AI_BATCH_STATUS_LABELS,
-  deriveAiBatchDisplayStatus,
-  isTerminalBatchStatus,
-} from "./lib/aiBatch";
+import { isTerminalBatchStatus } from "./lib/aiBatch";
 import {
   PRODUCT_SORT_OPTIONS,
   type ProductSortKey,
 } from "./lib/sort";
+import {
+  clearProductListReturnPending,
+  markProductListReturnPending,
+  peekProductListReturnPending,
+  readProductListViewState,
+  saveProductListViewState,
+} from "./lib/listViewState";
 import type {
   AdminProduct,
   BulkPublishResultItem,
@@ -347,6 +352,14 @@ export default function ProductsPage() {
 
   const [reloadKey, setReloadKey] = useState(0);
 
+  // 商品詳細・編集から戻ってきたときだけ、詳細へ移動する直前の表示状態を引き継ぐ。
+  // 一覧を新規に開いた場合（フラグなし）は復元しない＝既定の条件から始める。
+  const [initialViewState] = useState(() =>
+    peekProductListReturnPending(isArchived)
+      ? readProductListViewState(isArchived)
+      : null
+  );
+
   // 一覧はサーバー側（GAS 商品一覧API v3）で検索・絞り込み・並び替え・ページ分割する。
   // ブラウザ側では取得済みの商品だけを再検索・再ソートしない。
   const {
@@ -360,7 +373,34 @@ export default function ProductsPage() {
     setSortKey,
     page,
     setPage,
-  } = useProductList({ isArchived, reloadKey });
+  } = useProductList({
+    isArchived,
+    reloadKey,
+    initialState: initialViewState,
+  });
+
+  // 初回読み込み（表示できる商品がまだ無い状態）と、一覧表示後の再取得を区別する。
+  // 初回はテーブル形式のスケルトン、再取得中は表示中の一覧を保持したまま控えめな更新表示にする
+  // （毎回スケルトンに置き換えると画面が大きく跳ねるため）。
+  const showSkeleton = loadState === "loading" && products.length === 0;
+  const isRefreshing = loadState === "loading" && products.length > 0;
+
+  // 復元判定が終わったらフラグを消す（再読み込みや新規アクセスで復元しないようにする）。
+  useEffect(() => {
+    clearProductListReturnPending();
+  }, []);
+
+  // 詳細へ遷移する直前に、その時点の検索条件・ページ・スクロール位置を残す。
+  const rememberListViewState = useCallback(() => {
+    saveProductListViewState({
+      filter,
+      sortKey,
+      page,
+      scrollY: window.scrollY,
+      archived: isArchived,
+    });
+    markProductListReturnPending(isArchived);
+  }, [filter, sortKey, page, isArchived]);
 
   // 一括選択・一括公開の状態
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -435,6 +475,41 @@ export default function ProductsPage() {
   useEffect(() => {
     setSelectedIds(new Set());
   }, [isArchived]);
+
+  // 復元したページが、商品件数の減少などで存在しなくなっていた場合は
+  // 既存のページング仕様に沿って最終ページ（1ページ以上）に収める。
+  useEffect(() => {
+    if (loadState !== "success") return;
+    const maxPage = Math.max(1, totalPages);
+    if (page > maxPage) setPage(maxPage);
+  }, [loadState, totalPages, page, setPage]);
+
+  // 一覧の表示（商品行の描画）が終わった後にだけスクロール位置を戻す。
+  // 未読み込みの間にスクロールすると無意味なジャンプになるため、成功時のみ実行する。
+  const restoreScrollRef = useRef<number | null>(
+    initialViewState ? initialViewState.scrollY : null
+  );
+  useEffect(() => {
+    if (loadState !== "success") return;
+    const target = restoreScrollRef.current;
+    if (target == null) return;
+    // 復元したページが存在しない（別ページへ補正される）場合はスクロールを戻さない。
+    // 先にスクロールしてしまうと、その直後に一覧が再取得されて不要なジャンプになる。
+    if (page > Math.max(1, totalPages)) {
+      restoreScrollRef.current = null;
+      return;
+    }
+    restoreScrollRef.current = null;
+    const frame = window.requestAnimationFrame(() => {
+      // 件数が減った等で元の位置が存在しない場合は、安全に到達できる範囲へ収める
+      const maxScroll = Math.max(
+        0,
+        document.documentElement.scrollHeight - window.innerHeight
+      );
+      window.scrollTo({ top: Math.min(target, maxScroll), behavior: "auto" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [loadState, page, totalPages]);
 
   // バッチが終了状態（完了/一部失敗/失敗）になったら、下書きへ自動反映された
   // 最新の商品名・説明・価格等を表示するため、一覧を再取得する。
@@ -601,24 +676,24 @@ export default function ProductsPage() {
       </header>
 
       <main className="mx-auto w-full max-w-7xl px-4 py-4 md:px-6">
-        {/* 一覧切り替えタブ */}
-        <div className="mb-6 inline-flex items-center gap-1 rounded-lg bg-background-100 p-1">
+        {/* 一覧切り替えタブ（下線タイプ。カード状の背景は使わない） */}
+        <div className="mb-5 flex items-center gap-6 border-b border-background-200">
           <Link
             to="/products"
-            className={`whitespace-nowrap rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+            className={`-mb-px whitespace-nowrap border-b-2 px-0.5 pb-2.5 pt-1 text-sm font-medium transition-colors ${
               !isArchived
-                ? "bg-white text-foreground-950"
-                : "text-foreground-600 hover:text-foreground-900"
+                ? "border-primary-500 text-foreground-950"
+                : "border-transparent text-foreground-500 hover:text-foreground-900"
             }`}
           >
             商品一覧
           </Link>
           <Link
             to="/products?record_status=archived"
-            className={`whitespace-nowrap rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+            className={`-mb-px whitespace-nowrap border-b-2 px-0.5 pb-2.5 pt-1 text-sm font-medium transition-colors ${
               isArchived
-                ? "bg-white text-foreground-950"
-                : "text-foreground-600 hover:text-foreground-900"
+                ? "border-primary-500 text-foreground-950"
+                : "border-transparent text-foreground-500 hover:text-foreground-900"
             }`}
           >
             アーカイブ済み
@@ -632,11 +707,12 @@ export default function ProductsPage() {
           </p>
         )}
 
-        {loadState === "loading" && <ProductListSkeleton />}
+        {/* 読み込み中：商品が未表示のときだけスケルトン（取得完了・エラー・0件で切り替わる） */}
+        {showSkeleton && <ProductListSkeleton />}
 
         {loadState === "error" && <ProductLoadErrorState onRetry={retry} />}
 
-        {loadState === "success" && (
+        {(loadState === "success" || isRefreshing) && (
           <>
             {(count > 0 || hasFilter) && (
               <>
@@ -648,30 +724,38 @@ export default function ProductsPage() {
 
                 {/* 件数表示と並び替えを1行にまとめる（検索・フィルター・並び替えに追従） */}
                 <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-sm text-foreground-500">
-                    {hasFilter ? (
-                      <>
-                        該当{" "}
-                        <span className="font-bold text-foreground-950">
-                          {count}
-                        </span>{" "}
-                        件
-                      </>
-                    ) : (
-                      <>
-                        全{" "}
-                        <span className="font-bold text-foreground-950">
-                          {count}
-                        </span>{" "}
-                        件
-                      </>
-                    )}
-                    {totalPages > 1 && (
-                      <span className="ml-1 text-foreground-400">
-                        （{page} / {totalPages} ページ）
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm text-foreground-500">
+                      {hasFilter ? (
+                        <>
+                          該当{" "}
+                          <span className="font-bold text-foreground-950">
+                            {count}
+                          </span>{" "}
+                          件
+                        </>
+                      ) : (
+                        <>
+                          全{" "}
+                          <span className="font-bold text-foreground-950">
+                            {count}
+                          </span>{" "}
+                          件
+                        </>
+                      )}
+                      {totalPages > 1 && (
+                        <span className="ml-1 text-foreground-400">
+                          （{page} / {totalPages} ページ）
+                        </span>
+                      )}
+                    </p>
+                    {isRefreshing && (
+                      <span className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-foreground-400">
+                        <i className="ri-loader-4-line animate-spin w-3.5 h-3.5 flex items-center justify-center"></i>
+                        更新中
                       </span>
                     )}
-                  </p>
+                  </div>
                   <div className="flex items-center gap-2">
                     <label
                       htmlFor="product-sort"
@@ -688,7 +772,7 @@ export default function ProductsPage() {
                         handleSortChange(e.target.value as ProductSortKey)
                       }
                       aria-label="商品の並び替え"
-                      className="h-9 w-full rounded-lg border border-background-300 bg-white px-3 text-xs text-foreground-900 transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                      className="h-9 w-full rounded-md border border-background-300 bg-white px-3 text-xs text-foreground-900 transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
                     >
                       {PRODUCT_SORT_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>
@@ -701,50 +785,33 @@ export default function ProductsPage() {
               </>
             )}
 
-            {/* 一括操作バー */}
+            {/* 一括操作バー（ニュートラルなツールバー。色による強調はしない） */}
             {hasSelection && products.length > 0 && (
-              <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-primary-200 bg-primary-50 px-4 py-2.5">
-                <span className="inline-flex items-baseline gap-1 whitespace-nowrap text-sm font-medium text-foreground-700">
-                  <span className="text-base font-bold text-primary-700">
-                    {selectedIds.size}
+              <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-3 rounded-lg border border-background-200 bg-white px-4 py-3">
+                <span className="inline-flex flex-wrap items-center gap-1.5 whitespace-nowrap text-[13px] font-semibold text-foreground-700">
+                  <span className="inline-flex h-6 items-center rounded-md bg-background-100 px-2 text-[13px] font-semibold text-foreground-700">
+                    {selectedIds.size}件
                   </span>
-                  件選択中
+                  選択中
                 </span>
                 {isBulkProcessing && (
-                  <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-primary-700">
+                  <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[13px] font-medium text-foreground-600">
                     <i className="ri-loader-4-line animate-spin w-4 h-4 flex items-center justify-center"></i>
                     処理中 {bulkProgress.done} / {bulkProgress.total}件
                   </span>
                 )}
-                {aiBatch.items && (
-                  <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-accent-900">
-                    <i className="ri-sparkling-line w-4 h-4 flex items-center justify-center"></i>
-                    AI生成 {aiBatch.items.filter((item) => deriveAiBatchDisplayStatus(item) === "success").length} / {aiBatch.items.length}件
-                    {aiBatch.batchStatus ? `（${AI_BATCH_STATUS_LABELS[aiBatch.batchStatus]}）` : ""}
-                  </span>
-                )}
                 {archive.isRunning && (
-                  <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-red-700">
+                  <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[13px] font-medium text-foreground-600">
                     <i className="ri-loader-4-line animate-spin w-4 h-4 flex items-center justify-center"></i>
                     アーカイブ中 {archive.progress.done} / {archive.progress.total}件
                   </span>
-                )}
-                {aiBatch.items && (
-                  <button
-                    type="button"
-                    onClick={aiBatch.openResult}
-                    className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border border-accent-300 bg-accent-50 px-3.5 py-2 text-sm font-medium text-accent-900 transition-colors hover:bg-accent-100"
-                  >
-                    <i className="ri-list-check-2 w-4 h-4 flex items-center justify-center"></i>
-                    進捗を見る
-                  </button>
                 )}
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setIsBulkConfirmOpen(true)}
                     disabled={isAnyBulkBusy}
-                    className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-bold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border border-background-400 bg-white px-3 text-[13px] font-medium text-foreground-700 transition-colors hover:bg-background-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 disabled:cursor-not-allowed disabled:border-background-300 disabled:bg-background-50 disabled:text-foreground-400"
                   >
                     <i className="ri-upload-2-line w-4 h-4 flex items-center justify-center"></i>
                     一括公開
@@ -753,7 +820,7 @@ export default function ProductsPage() {
                     type="button"
                     onClick={() => setIsAiConfirmOpen(true)}
                     disabled={isAnyBulkBusy}
-                    className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg bg-accent-500 px-4 py-2 text-sm font-bold text-background-50 transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border border-background-400 bg-white px-3 text-[13px] font-medium text-foreground-700 transition-colors hover:bg-background-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 disabled:cursor-not-allowed disabled:border-background-300 disabled:bg-background-50 disabled:text-foreground-400"
                   >
                     <i className="ri-sparkling-line w-4 h-4 flex items-center justify-center"></i>
                     一括AI生成
@@ -763,22 +830,22 @@ export default function ProductsPage() {
                       type="button"
                       onClick={() => setIsArchiveConfirmOpen(true)}
                       disabled={isAnyBulkBusy}
-                      className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border border-red-300 bg-red-50 px-4 py-2 text-sm font-bold text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border border-background-400 bg-white px-3 text-[13px] font-medium text-foreground-700 transition-colors hover:bg-background-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 disabled:cursor-not-allowed disabled:border-background-300 disabled:bg-background-50 disabled:text-foreground-400"
                     >
                       <i className="ri-archive-line w-4 h-4 flex items-center justify-center"></i>
                       一括アーカイブ
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={clearSelection}
-                    disabled={isAnyBulkBusy}
-                    className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-foreground-600 transition-colors hover:bg-background-100 hover:text-foreground-900 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <i className="ri-close-circle-line w-4 h-4 flex items-center justify-center"></i>
-                    選択解除
-                  </button>
                 </div>
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  disabled={isAnyBulkBusy}
+                  className="inline-flex h-9 cursor-pointer items-center gap-1 whitespace-nowrap rounded-lg border border-transparent px-3 text-[13px] font-medium text-foreground-500 transition-colors hover:bg-background-100 hover:text-foreground-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 sm:ml-auto disabled:cursor-not-allowed disabled:bg-transparent disabled:text-foreground-400"
+                >
+                  <i className="ri-close-line w-4 h-4 flex items-center justify-center"></i>
+                  選択解除
+                </button>
               </div>
             )}
 
@@ -789,12 +856,17 @@ export default function ProductsPage() {
                 <ProductFilterEmptyState onClear={handleClearFilter} />
               )
             ) : (
-              <div className="overflow-hidden rounded-lg border border-background-200 bg-white">
+              <div
+                aria-busy={isRefreshing}
+                className={`overflow-hidden rounded-lg border border-background-200/70 bg-white transition-opacity duration-150 ${
+                  isRefreshing ? "opacity-60" : "opacity-100"
+                }`}
+              >
                 {/* 横幅が不足する場合は重ねずに横スクロールで対応する */}
                 <div className="overflow-x-auto">
-                  <div className="min-w-full lg:min-w-[1200px]">
+                  <div className="min-w-full lg:min-w-[1240px]">
                     {/* ヘッダー行（デスクトップ） */}
-                    <div className="hidden items-center border-b border-background-200 bg-background-50 py-2.5 lg:flex">
+                    <div className="hidden items-center border-b border-background-200 bg-white py-2.5 lg:flex">
                       <div className="flex w-10 shrink-0 items-center justify-center">
                         <input
                           ref={selectAllRef}
@@ -837,9 +909,9 @@ export default function ProductsPage() {
                         <span className="w-[110px] shrink-0 text-xs font-medium text-foreground-500">
                           登録日時
                         </span>
-                        <span className="w-5 shrink-0"></span>
-                        <span className="w-10 shrink-0"></span>
                       </div>
+                      {/* 行の右端操作列（詳細・別タブ・編集）と同じ幅を確保して桁を揃える */}
+                      <div className={`${ACTION_COLUMN_WIDTH} shrink-0`}></div>
                     </div>
 
                     {products.map((product) => (
@@ -862,6 +934,7 @@ export default function ProductsPage() {
                         onCancelEdit={inlineEdit.cancelEdit}
                         onDraftChange={inlineEdit.updateDraft}
                         onSave={inlineEdit.save}
+                        onNavigateToDetail={rememberListViewState}
                       />
                     ))}
                   </div>
