@@ -403,6 +403,7 @@ serve(async (req: Request) => {
     // 1. get_inbox_import_status: 最新ジョブ状態および書類台帳サマリー取得
     // -------------------------------------------------------------------------
     if (action === ACTIONS.get_inbox_import_status) {
+      const requestedExecutionName = String(body.execution_name || "").trim();
       const requestedJobId = String(body.job_id || "").trim();
 
       // 1-1. 書類台帳のサマリー
@@ -433,10 +434,41 @@ serve(async (req: Request) => {
       // 1-3. Google Cloud Run Jobs の Execution 状態照会 & ログ結果取得
       if (gcpProjectId && accessToken) {
         try {
-          let targetExecutionName = requestedJobId;
+          let targetExecutionName = "";
+          let isSpecificLookup = false;
 
-          // ジョブID/Execution名が未指定、または接頭辞で一致しない場合は最新Executionを検索
-          if (!targetExecutionName || !targetExecutionName.startsWith(gcpJobName)) {
+          if (requestedExecutionName) {
+            // execution_name が直接指定された場合 -> 厳密にその Execution を照会（最新フォールバック禁止）
+            targetExecutionName = requestedExecutionName;
+            isSpecificLookup = true;
+          } else if (requestedJobId) {
+            if (requestedJobId.startsWith(gcpJobName)) {
+              // requestedJobId が Execution 名形式の場合
+              targetExecutionName = requestedJobId;
+              isSpecificLookup = true;
+            } else {
+              // requestedJobId が job_... 形式の場合: 直近 Executions から IMPORT_JOB_ID が一致するものを探索
+              // たまたま最新の別 Execution を返すフォールバックは絶対に行わない
+              isSpecificLookup = true;
+              const listExecUrl = `https://run.googleapis.com/v2/projects/${gcpProjectId}/locations/${gcpRegion}/jobs/${gcpJobName}/executions?pageSize=20`;
+              const listExecRes = await fetch(listExecUrl, {
+                headers: { Authorization: `Bearer ${accessToken}` }
+              });
+              if (listExecRes.ok) {
+                const execsJson = await listExecRes.json();
+                for (const ex of (execsJson.executions || [])) {
+                  const containers = ex.template?.containers || ex.template?.spec?.containers || [];
+                  const envs = containers[0]?.env || [];
+                  const envJobId = envs.find((e: any) => e.name === "IMPORT_JOB_ID")?.value;
+                  if (envJobId === requestedJobId) {
+                    targetExecutionName = ex.name.split("/").pop();
+                    break;
+                  }
+                }
+              }
+            }
+          } else {
+            // 何も指定されていない場合のみ、最新の Execution を1件取得
             const listExecUrl = `https://run.googleapis.com/v2/projects/${gcpProjectId}/locations/${gcpRegion}/jobs/${gcpJobName}/executions?pageSize=1`;
             const listExecRes = await fetch(listExecUrl, {
               headers: { Authorization: `Bearer ${accessToken}` }
@@ -469,6 +501,12 @@ serve(async (req: Request) => {
                 }
               }
 
+              // Execution 環境変数から dry_run を厳密に判定 (API v2 / v1 双方対応)
+              const containers = execData.template?.containers || execData.template?.spec?.containers || [];
+              const envList = containers[0]?.env || [];
+              const dryRunEnv = envList.find((e: any) => e.name === "DRY_RUN")?.value;
+              const isDryRun = dryRunEnv === "true";
+
               // 完了または失敗時、Cloud Logging から実際のジョブ自身の結果を取得
               let jobSummary: any = null;
               let fileResults: any[] | null = null;
@@ -478,15 +516,27 @@ serve(async (req: Request) => {
               if (execStatus !== "running") {
                 const logResult = await fetchJobResultFromCloudLogging(gcpProjectId, targetExecutionName, accessToken);
                 if (logResult.raw_log_found && logResult.summary) {
-                  jobSummary = logResult.summary;
+                  jobSummary = {
+                    ...logResult.summary,
+                    dry_run: isDryRun
+                  };
                   fileResults = logResult.file_results;
+                  if (isDryRun && Array.isArray(fileResults)) {
+                    fileResults = fileResults.map((fr: any) => ({
+                      ...fr,
+                      dry_run: true,
+                      dry_run_note: fr.status === "processed" ? "検証一致 (DB未登録・原本未移動)" : undefined
+                    }));
+                  }
                   resultStatus = "retrieved";
                   if (jobSummary.error_count > 0 && jobSummary.processed_count > 0) {
                     execStatus = "partially_failed";
                   } else if (jobSummary.error_count > 0 && jobSummary.processed_count === 0 && jobSummary.flagged_count === 0 && jobSummary.skipped_count === 0) {
                     execStatus = "failed";
                   }
-                  statusMessage = "ジョブ完了（実績取得済み）";
+                  statusMessage = isDryRun
+                    ? "ドライラン完了（検算検証済み・原本移動/DB保存なし）"
+                    : "通常取込完了（原本移動およびDB保存済み）";
                 } else {
                   // ログ未取得契約: 空の実績や0件の成功件数を捏造せず「結果未取得」と返す
                   resultStatus = "not_retrieved";
@@ -499,6 +549,7 @@ serve(async (req: Request) => {
               currentJob = {
                 job_id: requestedJobId || targetExecutionName,
                 execution_name: targetExecutionName,
+                dry_run: isDryRun,
                 status: execStatus,
                 result_status: resultStatus,
                 runner: "cloud_run_job",

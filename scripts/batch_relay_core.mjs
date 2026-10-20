@@ -1,6 +1,13 @@
 // scripts/batch_relay_core.mjs
 // documents-batch-relay コア処理ロジック (Edge Function とローカル待受サーバーで完全共有)
 
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 export const ACTIONS = {
   start_inbox_import: "start_inbox_import",
   get_inbox_import_status: "get_inbox_import_status",
@@ -247,7 +254,12 @@ export async function handleRequest(req) {
     const gcpProjectId = getEnv("GCP_PROJECT_ID", "bis-square-integration-507508");
     const gcpRegion = getEnv("GCP_REGION", "asia-northeast1");
     const gcpJobName = getEnv("GCP_CLOUD_RUN_JOB_NAME", "drive-auto-import-worker");
-    const gcpServiceAccountKey = getEnv("GCP_SERVICE_ACCOUNT_KEY");
+    let gcpServiceAccountKey = getEnv("GCP_SERVICE_ACCOUNT_KEY");
+    if (!gcpServiceAccountKey && fs.existsSync(path.resolve(__dirname, "../sa_key.json"))) {
+      try {
+        gcpServiceAccountKey = fs.readFileSync(path.resolve(__dirname, "../sa_key.json"), "utf8");
+      } catch {}
+    }
     const gcpDirectToken = getEnv("GCP_ACCESS_TOKEN");
 
     const inboxFolderId = getEnv("DRIVE_INBOX_FOLDER_ID", "1ctLRUQbwINARCDuGdYnpkrCkkK287HV5");
@@ -267,6 +279,7 @@ export async function handleRequest(req) {
 
     // 1. get_inbox_import_status
     if (action === ACTIONS.get_inbox_import_status) {
+      const requestedExecutionName = String(body.execution_name || "").trim();
       const requestedJobId = String(body.job_id || "").trim();
 
       let ledgerSummary = {
@@ -305,9 +318,41 @@ export async function handleRequest(req) {
 
       if (gcpProjectId && accessToken) {
         try {
-          let targetExecutionName = requestedJobId;
+          let targetExecutionName = "";
+          let isSpecificLookup = false;
 
-          if (!targetExecutionName || !targetExecutionName.startsWith(gcpJobName)) {
+          if (requestedExecutionName) {
+            // execution_name が直接指定された場合 -> 厳密にその Execution を照会（最新フォールバック禁止）
+            targetExecutionName = requestedExecutionName;
+            isSpecificLookup = true;
+          } else if (requestedJobId) {
+            if (requestedJobId.startsWith(gcpJobName)) {
+              // requestedJobId が Execution 名形式の場合
+              targetExecutionName = requestedJobId;
+              isSpecificLookup = true;
+            } else {
+              // requestedJobId が job_... 形式の場合: 直近 Executions から IMPORT_JOB_ID が一致するものを探索
+              // たまたま最新の別 Execution を返すフォールバックは絶対に行わない
+              isSpecificLookup = true;
+              const listExecUrl = `https://run.googleapis.com/v2/projects/${gcpProjectId}/locations/${gcpRegion}/jobs/${gcpJobName}/executions?pageSize=20`;
+              const listExecRes = await fetch(listExecUrl, {
+                headers: { Authorization: `Bearer ${accessToken}` }
+              });
+              if (listExecRes.ok) {
+                const execsJson = await listExecRes.json();
+                for (const ex of (execsJson.executions || [])) {
+                  const containers = ex.template?.containers || ex.template?.spec?.containers || [];
+                  const envs = containers[0]?.env || [];
+                  const envJobId = envs.find((e) => e.name === "IMPORT_JOB_ID")?.value;
+                  if (envJobId === requestedJobId) {
+                    targetExecutionName = ex.name.split("/").pop();
+                    break;
+                  }
+                }
+              }
+            }
+          } else {
+            // 何も指定されていない場合のみ、最新の Execution を1件取得
             const listExecUrl = `https://run.googleapis.com/v2/projects/${gcpProjectId}/locations/${gcpRegion}/jobs/${gcpJobName}/executions?pageSize=1`;
             const listExecRes = await fetch(listExecUrl, {
               headers: { Authorization: `Bearer ${accessToken}` }
@@ -340,6 +385,12 @@ export async function handleRequest(req) {
                 }
               }
 
+              // Execution 環境変数から dry_run を厳密に判定 (API v2 / v1 双方対応)
+              const containers = execData.template?.containers || execData.template?.spec?.containers || [];
+              const envList = containers[0]?.env || [];
+              const dryRunEnv = envList.find(e => e.name === "DRY_RUN")?.value;
+              const isDryRun = dryRunEnv === "true";
+
               let jobSummary = null;
               let fileResults = null;
               let resultStatus = "in_progress";
@@ -348,15 +399,27 @@ export async function handleRequest(req) {
               if (execStatus !== "running") {
                 const logResult = await fetchJobResultFromCloudLogging(gcpProjectId, targetExecutionName, accessToken);
                 if (logResult.raw_log_found && logResult.summary) {
-                  jobSummary = logResult.summary;
+                  jobSummary = {
+                    ...logResult.summary,
+                    dry_run: isDryRun
+                  };
                   fileResults = logResult.file_results;
+                  if (isDryRun && Array.isArray(fileResults)) {
+                    fileResults = fileResults.map(fr => ({
+                      ...fr,
+                      dry_run: true,
+                      dry_run_note: fr.status === "processed" ? "検証一致 (DB未登録・原本未移動)" : undefined
+                    }));
+                  }
                   resultStatus = "retrieved";
                   if (jobSummary.error_count > 0 && jobSummary.processed_count > 0) {
                     execStatus = "partially_failed";
                   } else if (jobSummary.error_count > 0 && jobSummary.processed_count === 0 && jobSummary.flagged_count === 0 && jobSummary.skipped_count === 0) {
                     execStatus = "failed";
                   }
-                  statusMessage = "ジョブ完了（実績取得済み）";
+                  statusMessage = isDryRun
+                    ? "ドライラン完了（検算検証済み・原本移動/DB保存なし）"
+                    : "通常取込完了（原本移動およびDB保存済み）";
                 } else {
                   resultStatus = "not_retrieved";
                   jobSummary = null;
@@ -368,6 +431,7 @@ export async function handleRequest(req) {
               currentJob = {
                 job_id: requestedJobId || targetExecutionName,
                 execution_name: targetExecutionName,
+                dry_run: isDryRun,
                 status: execStatus,
                 result_status: resultStatus,
                 runner: "cloud_run_job",

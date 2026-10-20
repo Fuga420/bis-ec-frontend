@@ -1,7 +1,7 @@
 import { invokeRelay, getDriveAccessToken, CONFIG } from "./drive_auto_import_worker.mjs";
 
-const DOC_ID = "f20aeb19-cd78-4cc2-bafb-f3c6a93edc58";
-const FILE_ID = "1bX_DnjzEUQ61GsuAJN2bKQ1rC3JauWnX";
+const DOC_ID = "c7dae6ee-ee45-40d3-b37d-78eb3f37e680";
+const FILE_ID = "1pO-KdUEzBjGE40Aj4fa2pCLTCTCddQZ4";
 
 async function main() {
   console.log("=== 実処理後の DB および Drive 状態実測 ===");

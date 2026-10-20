@@ -25,9 +25,12 @@ export interface BatchImportFileResult {
   is_balanced: boolean;
   needs_review_reasons: string[];
   error: string | null;
+  dry_run?: boolean;
+  dry_run_note?: string;
 }
 
 export interface BatchImportSummary {
+  dry_run?: boolean;
   total_detected: number;
   processed_count: number;
   flagged_count: number;
@@ -55,6 +58,7 @@ export interface StartBatchImportResponse {
 export interface CurrentBatchJobState {
   job_id: string;
   execution_name?: string;
+  dry_run: boolean;
   status: "running" | "completed" | "partially_failed" | "failed";
   result_status?: "in_progress" | "retrieved" | "not_retrieved";
   runner?: string;
@@ -120,14 +124,21 @@ export async function startInboxBatchImport(options: {
 /**
  * 現在の取込フォルダおよび台帳状態を取得する
  */
-export async function getInboxBatchImportStatus(): Promise<BatchImportStatusResponse> {
+export async function getInboxBatchImportStatus(options?: {
+  executionName?: string;
+  jobId?: string;
+}): Promise<BatchImportStatusResponse> {
   const client = getSupabaseClient();
   if (!client) {
     throw new Error("Supabase client is not connected.");
   }
 
   const { data, error } = await client.functions.invoke(BATCH_RELAY_FUNCTION, {
-    body: { action: "get_inbox_import_status" }
+    body: {
+      action: "get_inbox_import_status",
+      execution_name: options?.executionName,
+      job_id: options?.jobId,
+    }
   });
 
   if (error) {
