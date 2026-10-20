@@ -105,7 +105,7 @@ export async function startInboxBatchImport(options: {
       confirmed_by: options.confirmedBy || "staff",
       // 画面契約: Inbox全体を対象とし、50件で残件を放置しない (未指定時は 0=全件処理)
       max_files: options.maxFiles ?? 0,
-      dry_run: options.dryRun ?? false,
+      dry_run: options.dryRun ?? true,
       file_id: options.fileId ?? undefined,
     }
   });

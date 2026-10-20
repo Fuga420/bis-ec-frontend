@@ -77,13 +77,12 @@ function safeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-// 呼び出し元の認証・権限検証
+// 呼び出し元の認証・権限検証 (confirmed_by は監査表示値とし権限判定には用いない)
 async function verifyCallerAuth(
   req: Request,
   supabaseUrl: string,
   anonKey: string,
-  workerSecret: string,
-  confirmedBy: string
+  workerSecret: string
 ): Promise<
   | { ok: true; callerType: "worker" | "authenticated_user" | "frontend_staff"; userId?: string; userEmail?: string }
   | { ok: false; status: number; code: string; message: string }
@@ -115,16 +114,6 @@ async function verifyCallerAuth(
       status: 401,
       code: "AUTH_REQUIRED",
       message: "API呼び出しには認証ヘッダーまたは apikey が必要です。"
-    };
-  }
-
-  // 操作スタッフ識別子 (confirmed_by) の必須チェック (監査証跡)
-  if (!confirmedBy) {
-    return {
-      ok: false,
-      status: 400,
-      code: "OPERATOR_IDENTIFIER_REQUIRED",
-      message: "一括取込の起動には操作スタッフ識別子 (confirmed_by) が必要です。"
     };
   }
 
@@ -553,28 +542,42 @@ serve(async (req: Request) => {
         );
       }
 
-      // confirmed_by は操作スタッフの監査表示値
+      // confirmed_by は操作スタッフの監査表示値 (権限判定には使わない)
       const inputConfirmedBy = String(body.confirmed_by || "").trim();
 
       // 呼び出し元の認証・権限検証
-      const authResult = await verifyCallerAuth(req, supabaseUrl, supabaseAnonKey, workerSecret, inputConfirmedBy);
+      const authResult = await verifyCallerAuth(req, supabaseUrl, supabaseAnonKey, workerSecret);
       if (!authResult.ok) {
         return errorResponse(authResult.code, authResult.message, authResult.status, cors);
       }
 
-      // 画面起動の保留判定:
-      // 現行Readdy画面 (anon_key) からの直接起動はアクセス制御の厳格化に伴い保留 (403) とし、
-      // 権限のある管理者/ワーカー (x-bis-worker-token) または認証済みスタッフセッションのみ許可。
-      // Readdy画面 (frontend_staff: anon_key + confirmed_by) からの起動を許可
-      // 監査証跡として confirmed_by を記録し、サーバー側 SA 鍵で Cloud Run Job を起動 (ブラウザへ秘密鍵不露出)
+      // ドライラン既定値の統一 (body.dry_run が明示的に false でない限り常に true)
+      const isDryRun = body.dry_run === false ? false : true;
 
-      const confirmedBy = inputConfirmedBy || (authResult.callerType === "authenticated_user" ? (authResult.userEmail || authResult.userId) : "worker_direct");
+      // セキュリティ境界ガード:
+      // 現行の公開anonキーのみの呼び出し (frontend_staff) では、ドライラン (dry_run: true) のみ起動可能。
+      // 通常取込 (dry_run: false) はサーバー側で検証可能な管理者/ワーカー (x-bis-worker-token) または認証セッションのみに限定。
+      if (!isDryRun && authResult.callerType === "frontend_staff") {
+        return errorResponse(
+          "LIVE_IMPORT_RESTRICTED",
+          "公開APIキーのみでの通常取込（本番実行）は許可されていません。ドライラン（dry_run: true）を実行するか、管理者認証トークンが必要です。",
+          403,
+          cors
+        );
+      }
+
+      const confirmedBy =
+        inputConfirmedBy ||
+        (authResult.callerType === "authenticated_user"
+          ? (authResult.userEmail || authResult.userId)
+          : authResult.callerType === "worker"
+          ? "worker"
+          : "staff");
 
       // 一意なジョブIDの採番
       const jobId = String(body.job_id || "").trim() || `job_${new Date().toISOString().replace(/[-:T.Z]/g, "").slice(0, 14)}_${Math.random().toString(36).slice(2, 6)}`;
       // 画面契約: Inbox全体を対象とし、50件で残件を放置しない (0=上限なし・全件処理)
       const maxFiles = Number.isFinite(body.max_files) && Number(body.max_files) > 0 ? Number(body.max_files) : 0;
-      const isDryRun = Boolean(body.dry_run);
 
       // Google Cloud 認証トークン取得 (SA自動生成)
       const accessToken = await getGoogleCloudAccessToken(gcpServiceAccountKey, gcpDirectToken);

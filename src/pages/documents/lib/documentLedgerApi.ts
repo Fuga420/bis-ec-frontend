@@ -572,7 +572,7 @@ export async function startInboxImport(
   return invokeBatchRelay({
     action: "start_inbox_import",
     confirmed_by: options.confirmedBy || "staff",
-    dry_run: options.dryRun ?? false,
+    dry_run: options.dryRun ?? true,
     max_files: options.maxFiles ?? 0,
     file_id: options.fileId ?? undefined,
   });

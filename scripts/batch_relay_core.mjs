@@ -39,7 +39,7 @@ function safeEqual(a, b) {
   return diff === 0;
 }
 
-export async function verifyCallerAuth(req, supabaseUrl, anonKey, workerSecret, confirmedBy) {
+export async function verifyCallerAuth(req, supabaseUrl, anonKey, workerSecret) {
   const workerToken = (req.headers.get("x-bis-worker-token") || "").trim();
   if (workerToken) {
     if (workerSecret && safeEqual(workerToken, workerSecret)) {
@@ -64,15 +64,6 @@ export async function verifyCallerAuth(req, supabaseUrl, anonKey, workerSecret, 
       status: 401,
       code: "AUTH_REQUIRED",
       message: "API呼び出しには認証ヘッダーまたは apikey が必要です。"
-    };
-  }
-
-  if (!confirmedBy) {
-    return {
-      ok: false,
-      status: 400,
-      code: "OPERATOR_IDENTIFIER_REQUIRED",
-      message: "一括取込の起動には操作スタッフ識別子 (confirmed_by) が必要です。"
     };
   }
 
@@ -418,19 +409,36 @@ export async function handleRequest(req) {
       }
 
       const inputConfirmedBy = String(body.confirmed_by || "").trim();
-      const authResult = await verifyCallerAuth(req, supabaseUrl, supabaseAnonKey, workerSecret, inputConfirmedBy);
+      const authResult = await verifyCallerAuth(req, supabaseUrl, supabaseAnonKey, workerSecret);
       if (!authResult.ok) {
         return errorResponse(authResult.code, authResult.message, authResult.status, cors);
       }
 
-      // Readdy画面 (frontend_staff: anon_key + confirmed_by) からの起動を許可
-      // 監査証跡として confirmed_by を記録し、サーバー側 SA 鍵で Cloud Run Job を起動 (ブラウザへ秘密鍵不露出)
+      // ドライラン既定値の統一 (body.dry_run が明示的に false でない限り常に true)
+      const isDryRun = body.dry_run === false ? false : true;
 
-      const confirmedBy = inputConfirmedBy || "worker_direct";
+      // セキュリティ境界ガード:
+      // 現行の公開anonキーのみの呼び出し (frontend_staff) では、ドライラン (dry_run: true) のみ起動可能。
+      // 通常取込 (dry_run: false) はサーバー側で検証可能な管理者/ワーカー (x-bis-worker-token) または認証セッションのみに限定。
+      if (!isDryRun && authResult.callerType === "frontend_staff") {
+        return errorResponse(
+          "LIVE_IMPORT_RESTRICTED",
+          "公開APIキーのみでの通常取込（本番実行）は許可されていません。ドライラン（dry_run: true）を実行するか、管理者認証トークンが必要です。",
+          403,
+          cors
+        );
+      }
+
+      const confirmedBy =
+        inputConfirmedBy ||
+        (authResult.callerType === "authenticated_user"
+          ? (authResult.userEmail || authResult.userId)
+          : authResult.callerType === "worker"
+          ? "worker"
+          : "staff");
       const jobId = String(body.job_id || "").trim() || `job_${new Date().toISOString().replace(/[-:T.Z]/g, "").slice(0, 14)}_${Math.random().toString(36).slice(2, 6)}`;
       // 画面契約: Inbox全体を対象とし、50件で残件を放置しない (0=上限なし・全件処理)
       const maxFiles = Number.isFinite(body.max_files) && Number(body.max_files) > 0 ? Number(body.max_files) : 0;
-      const isDryRun = Boolean(body.dry_run);
 
       const accessToken = await getGoogleCloudAccessToken(gcpServiceAccountKey, gcpDirectToken);
       if (!accessToken) {
