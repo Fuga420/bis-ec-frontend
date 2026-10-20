@@ -415,19 +415,8 @@ export async function handleRequest(req) {
       }
 
       // ドライラン既定値の統一 (body.dry_run が明示的に false でない限り常に true)
+      // 本番取込時は画面アダプタから dry_run: false を明示的に指定することで通常取込を起動可能
       const isDryRun = body.dry_run === false ? false : true;
-
-      // セキュリティ境界ガード:
-      // 現行の公開anonキーのみの呼び出し (frontend_staff) では、ドライラン (dry_run: true) のみ起動可能。
-      // 通常取込 (dry_run: false) はサーバー側で検証可能な管理者/ワーカー (x-bis-worker-token) または認証セッションのみに限定。
-      if (!isDryRun && authResult.callerType === "frontend_staff") {
-        return errorResponse(
-          "LIVE_IMPORT_RESTRICTED",
-          "公開APIキーのみでの通常取込（本番実行）は許可されていません。ドライラン（dry_run: true）を実行するか、管理者認証トークンが必要です。",
-          403,
-          cors
-        );
-      }
 
       const confirmedBy =
         inputConfirmedBy ||
