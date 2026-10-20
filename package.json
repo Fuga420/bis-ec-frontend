@@ -21,7 +21,8 @@
     "@supabase/supabase-js": "2.57.4",
     "@stripe/react-stripe-js": "4.0.2",
     "recharts": "3.2.0",
-    "lucide-react": "^0.469.0"
+    "lucide-react": "^0.469.0",
+    "pdf-parse": "^2.4.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.30.1",
