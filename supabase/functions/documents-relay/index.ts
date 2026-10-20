@@ -450,7 +450,13 @@ async function refreshDocumentStatus(
       audit.discrepancy_amount !== null &&
       Number(audit.discrepancy_amount) !== 0;
 
-    if (activeCount === 0) {
+    const currentStatus = String(audit.document_status || "");
+
+    if (currentStatus === "processed") {
+      // 既に取込完了 (processed) の書類は、ヘッダー更新や明細再計算だけで lines_registered 等に戻さない
+      // 取込完了ステータスを維持し、商品への照合状況は既存の明細・リンク情報から個別に表示する
+      newStatus = "processed";
+    } else if (activeCount === 0) {
       newStatus = audit.declared_total_amount === null ? "pending_amount" : "pending";
     } else {
       if (unlinkedCount === 0 && confirmedCount > 0 && !hasDiscrepancy) {
