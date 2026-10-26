@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import DocumentStatusBadge from "@/pages/documents/components/DocumentStatusBadge";
 import DocumentTotals from "@/pages/documents/components/DocumentTotals";
 import DocumentLineEditor from "@/pages/documents/components/DocumentLineEditor";
@@ -12,7 +12,14 @@ import {
   saveDocumentLines,
   unlinkProductManual,
 } from "@/pages/documents/lib/documentLedgerApi";
-import { getDocumentMatchStatus, lineTotal } from "@/pages/documents/lib/derive";
+import {
+  getDocumentMatchStatus,
+  lineFeeAmountTotal,
+  lineFeeTaxAmountTotal,
+  lineItemAmountTotal,
+  lineTaxAmountTotal,
+  lineTotal,
+} from "@/pages/documents/lib/derive";
 import {
   DOCUMENT_FILE_KIND_LABELS,
   type DocumentLedgerDocument,
@@ -24,6 +31,30 @@ type LoadState = "loading" | "success" | "error";
 interface Message {
   type: "error" | "info" | "success";
   text: string;
+}
+
+// 明細の取引種別から、商品への紐付け種別を決める。
+// 商品代金（仕入）と落札手数料を別々に集計できるよう、種別を分けて紐付ける。
+function resolveLinkType(line: DocumentLedgerLine): string {
+  switch (line.transaction_type) {
+    case "commission":
+    case "fee_only":
+    case "unsold_fee":
+      return "commission";
+    case "shipping":
+      return "shipping_cost";
+    case "refund":
+    case "discount":
+    case "cancel":
+      return "refund";
+    case "sale_settlement":
+      return "sale_settlement";
+    case "other_expense":
+    case "participation_fee":
+      return "other_expense";
+    default:
+      return "primary_cost";
+  }
 }
 
 function formatDateTime(value: string): string {
@@ -38,6 +69,9 @@ function formatDateTime(value: string): string {
 
 export default function DocumentDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  // 仕入明細検索の結果から遷移した場合、該当明細を強調表示する。
+  const highlightLineId = searchParams.get("line");
 
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [doc, setDoc] = useState<DocumentLedgerDocument | null>(null);
@@ -90,6 +124,10 @@ export default function DocumentDetailPage() {
 
   const currentMatchStatus = doc ? getDocumentMatchStatus(doc) : "unmatched";
   const currentLineTotal = lineTotal(lines);
+  const currentItemTotal = lineItemAmountTotal(lines);
+  const currentFeeTotal = lineFeeAmountTotal(lines);
+  const currentItemTaxTotal = lineTaxAmountTotal(lines);
+  const currentFeeTaxTotal = lineFeeTaxAmountTotal(lines);
 
   // 明細と紐付けを保存（save_document_lines）。
   const handleSave = async () => {
@@ -156,14 +194,29 @@ export default function DocumentDetailPage() {
     setBusyLineId(line.line_id);
     setMessage(null);
     try {
+      // 割当金額: 入力があればその値。未入力なら明細金額、無ければ商品代金+落札手数料を使う。
+      const breakdownAllocation =
+        (line.item_amount ?? 0) + (line.fee_amount ?? 0);
+      const fallbackAllocation =
+        line.amount ?? (breakdownAllocation > 0 ? breakdownAllocation : null);
+      const allocatedAmount =
+        allocatedAmountText.trim() === ""
+          ? fallbackAllocation
+          : Number(allocatedAmountText);
+
       await linkLineToProduct({
         documentLineId: line.server_id,
         productId: product.product_id,
-        allocatedAmount:
-          allocatedAmountText.trim() === "" ? null : Number(allocatedAmountText),
+        linkType: resolveLinkType(line),
+        allocatedAmount,
       });
       await loadDetail();
-      setMessage({ type: "success", text: "商品を紐付けました。" });
+      setMessage({
+        type: "success",
+        text: `商品 ${product.product_id} を紐付けました（${resolveLinkType(
+          line
+        ) === "commission" ? "落札手数料" : "商品代金"}として集計）。`,
+      });
     } catch (e) {
       if (
         e instanceof DocumentLedgerApiError &&
@@ -185,13 +238,15 @@ export default function DocumentDetailPage() {
   };
 
   // 紐付け解除（unlink_product_manual）。
-  const handleUnlink = async (line: DocumentLedgerLine) => {
-    if (!line.link_id) return;
+  const handleUnlink = async (line: DocumentLedgerLine, linkId?: string) => {
+    const targetLinkId = linkId ?? line.link_id;
+    if (!targetLinkId) return;
     setBusyLineId(line.line_id);
     setMessage(null);
     try {
-      await unlinkProductManual(line.link_id);
+      await unlinkProductManual(targetLinkId);
       await loadDetail();
+      setMessage({ type: "success", text: "紐付けを解除しました。" });
     } catch (e) {
       setMessage({
         type: "error",
@@ -269,6 +324,18 @@ export default function DocumentDetailPage() {
                   </dd>
                 </div>
                 <div className="flex items-center gap-1.5">
+                  <dt className="text-foreground-500">書類番号</dt>
+                  <dd className="font-medium text-foreground-800">
+                    {doc.document_number || "—"}
+                  </dd>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <dt className="text-foreground-500">請求日</dt>
+                  <dd className="font-medium text-foreground-800">
+                    {doc.issue_date || "—"}
+                  </dd>
+                </div>
+                <div className="flex items-center gap-1.5">
                   <dt className="text-foreground-500">種別</dt>
                   <dd className="font-medium text-foreground-800">
                     {DOCUMENT_FILE_KIND_LABELS[doc.file_kind] ?? "—"}
@@ -313,10 +380,49 @@ export default function DocumentDetailPage() {
                 originalTotal={doc.original_total}
                 lineTotalValue={currentLineTotal}
               />
+              {/* 内訳（商品代金・落札手数料・税額は混ぜずに別々に確認する） */}
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-background-200 bg-white px-3.5 py-2.5">
+                  <span className="flex items-center gap-1.5 text-xs text-foreground-500">
+                    <i className="ri-shopping-bag-3-line w-3.5 h-3.5 flex items-center justify-center"></i>
+                    商品代金の合計（税抜）
+                  </span>
+                  <span className="whitespace-nowrap text-sm font-bold tabular-nums text-foreground-950">
+                    ¥{currentItemTotal.toLocaleString("ja-JP")}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-background-200 bg-white px-3.5 py-2.5">
+                  <span className="flex items-center gap-1.5 text-xs text-foreground-500">
+                    <i className="ri-percent-line w-3.5 h-3.5 flex items-center justify-center"></i>
+                    落札手数料の合計（税抜）
+                  </span>
+                  <span className="whitespace-nowrap text-sm font-bold tabular-nums text-foreground-950">
+                    ¥{currentFeeTotal.toLocaleString("ja-JP")}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-background-200 bg-background-50 px-3.5 py-2.5">
+                  <span className="flex items-center gap-1.5 text-xs text-foreground-500">
+                    <i className="ri-price-tag-3-line w-3.5 h-3.5 flex items-center justify-center"></i>
+                    税額（内訳）
+                  </span>
+                  <span className="whitespace-nowrap text-sm font-bold tabular-nums text-foreground-800">
+                    商品税 ¥{currentItemTaxTotal.toLocaleString("ja-JP")} / 手数料税 ¥
+                    {currentFeeTaxTotal.toLocaleString("ja-JP")}
+                  </span>
+                </div>
+              </div>
             </section>
 
             {/* 明細行（追加・修正・手動紐付け） */}
             <section className="rounded-lg border border-background-200 bg-white p-4 md:p-5">
+              {highlightLineId && (
+                <p className="mb-3 flex items-start gap-1.5 rounded-md border border-primary-200 bg-primary-50 px-3 py-2 text-[11px] leading-relaxed text-primary-800">
+                  <i className="ri-focus-3-line mt-0.5 w-4 h-4 flex items-center justify-center shrink-0"></i>
+                  <span className="min-w-0 flex-1">
+                    検索結果から開いた明細を強調表示しています。そのまま商品IDで検索して紐付け・解除ができます。
+                  </span>
+                </p>
+              )}
               <DocumentLineEditor
                 lines={lines}
                 onChange={setLines}
@@ -324,6 +430,7 @@ export default function DocumentDetailPage() {
                 onLink={handleLink}
                 onUnlink={handleUnlink}
                 busyLineId={busyLineId}
+                highlightLineId={highlightLineId}
               />
             </section>
 

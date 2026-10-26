@@ -16,7 +16,7 @@ import type {
   SquarePaymentLinkResponse,
   SquareProductionDetailsSyncResponse,
 } from "../types";
-import { CATEGORY_LABELS, PUBLISH_STATUS_LABELS, RECORD_STATUS_LABELS } from "../types";
+import { CATEGORY_LABELS, PUBLISH_STATUS_LABELS } from "../types";
 import { peekProductListReturnPending } from "../lib/listViewState";
 import {
   extractAiDraftPrice,
@@ -31,38 +31,30 @@ import SquareIntegrationSection from "./components/SquareIntegrationSection";
 import ProductDocumentSection, {
   hasAttachedDocument,
 } from "./components/ProductDocumentSection";
+import ProductLedgerSection from "./components/ProductLedgerSection";
+import ProductSummaryCard from "./components/ProductSummaryCard";
+import ProductSpecPanel from "./components/ProductSpecPanel";
+import ProductDetailTabs, {
+  type ProductDetailTabKey,
+} from "./components/ProductDetailTabs";
+import SalesManagementPanel from "./components/SalesManagementPanel";
+import ProductDangerDialogs from "./components/ProductDangerDialogs";
 import SaveStatusMessage from "@/components/base/SaveStatusMessage";
 
 type LoadState = "loading" | "success" | "error";
 type SaveState = "idle" | "saving";
 
-const PUBLISH_STATUS_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: "draft", label: "下書き" },
-  { value: "published", label: "公開中" },
-  { value: "hidden", label: "非公開" },
-];
-
-const INVENTORY_STATUS_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: "in_stock", label: "在庫あり" },
-  { value: "reserved", label: "取り置き / 商談中" },
-  { value: "sold", label: "売却済み" },
-];
-
-const RECORD_STATUS_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: "active", label: RECORD_STATUS_LABELS.active },
-  { value: "archived", label: RECORD_STATUS_LABELS.archived },
-];
+const INVENTORY_STATUS_LABELS: Record<string, string> = {
+  in_stock: "在庫あり",
+  reserved: "取り置き / 商談中",
+  sold: "売却済み",
+};
 
 const statusStyles: Record<string, string> = {
   draft: "bg-background-100 text-foreground-600",
   published: "bg-primary-100 text-primary-500",
   hidden: "bg-background-100 text-foreground-600",
 };
-
-function formatPrice(value: number | null | undefined): string {
-  if (!value || value <= 0) return "価格未設定";
-  return `¥${value.toLocaleString("ja-JP")}`;
-}
 
 // 一覧API（mode=admin）の商品情報から、詳細画面表示に必要な最小限の情報を組み立てる。
 // 詳細API（mode=admin&product_id=...）が取得できない商品でも、
@@ -129,71 +121,6 @@ const fileToBase64 = (file: File): Promise<string> =>
     reader.onerror = () => reject(new Error("Failed to read file"));
     reader.readAsDataURL(file);
   });
-
-function InfoRow({
-  label,
-  value,
-  emphasize = false,
-}: {
-  label: string;
-  value: string;
-  emphasize?: boolean;
-}) {
-  const hasValue = Boolean(value && value.trim());
-  return (
-    <div className="flex items-start gap-4 border-b border-background-100 py-2.5 last:border-b-0">
-      <span className="w-28 shrink-0 whitespace-nowrap pt-0.5 text-xs text-foreground-500">
-        {label}
-      </span>
-      <span
-        className={`min-w-0 flex-1 break-words text-[13px] ${
-          !hasValue
-            ? "text-foreground-300"
-            : emphasize
-              ? "font-semibold text-foreground-950"
-              : "font-medium text-foreground-900"
-        }`}
-      >
-        {hasValue ? value : "—"}
-      </span>
-    </div>
-  );
-}
-
-function DescriptionBlock({ label, value }: { label: string; value: string }) {
-  const hasValue = Boolean(value && value.trim());
-  return (
-    <div className="mt-3 first:mt-0">
-      <p className="text-xs text-foreground-500">{label}</p>
-      <p
-        className={`mt-1 max-w-full whitespace-pre-wrap break-words text-[13px] leading-relaxed ${
-          hasValue ? "text-foreground-800" : "text-foreground-300"
-        }`}
-      >
-        {hasValue ? value : "—"}
-      </p>
-    </div>
-  );
-}
-
-// 管理パネル（公開状態・在庫状態・英語翻訳）で共通利用する保存結果メッセージ。
-// success / error / warning の3種を、全画面共通の通知部品に委ねて見た目を統一する。
-function PanelMessage({
-  type,
-  text,
-}: {
-  type: "success" | "error" | "warning";
-  text: string;
-}) {
-  return <SaveStatusMessage tone={type} text={text} className="mt-3" />;
-}
-
-// 公開ステータスバッジのスタイル（現在保存されている状態の可視化用）
-const PUBLISH_BADGE_STYLES: Record<string, string> = {
-  draft: "bg-background-100 text-foreground-600",
-  published: "bg-primary-100 text-primary-700",
-  hidden: "bg-background-100 text-foreground-600",
-};
 
 export default function ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -263,6 +190,11 @@ export default function ProductDetailPage() {
 
   // メイン画像の拡大表示（ライトボックス）の開閉（表示専用・保存はしない）
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+
+  // 管理タブ（販売管理 / 仕入・書類 / 翻訳・外部連携）の選択状態。
+  // 基本情報（商品スペック・説明・備考）はタブから独立して常時表示する。
+  // 画面内の表示切り替えのみで、URLやデータ取得には影響しない。
+  const [activeTab, setActiveTab] = useState<ProductDetailTabKey>("sales");
 
   const loadProduct = useCallback(async (): Promise<AdminProductDetail> => {
     const url = `${GOOGLE_SHEETS_WEBHOOK_URL}?mode=admin&product_id=${encodeURIComponent(
@@ -392,10 +324,11 @@ export default function ProductDetailPage() {
       document.removeEventListener("visibilitychange", onVisibilityChange);
   }, [isEditing, isImageEditing, editSaveState, imageSaveState, refreshProduct]);
 
-  // 商品を切り替えたときはメイン画像の選択を先頭（既存のメイン画像）に戻す
+  // 商品を切り替えたときはメイン画像の選択とタブを初期状態に戻す
   useEffect(() => {
     setSelectedImageIndex(0);
     setIsLightboxOpen(false);
+    setActiveTab("sales");
   }, [id]);
 
   // 画像の追加・削除・並び替えで選択インデックスが範囲外になった場合の安全策
@@ -879,9 +812,8 @@ export default function ProductDetailPage() {
     ? statusStyles[product.publish_status] ?? "bg-foreground-100 text-foreground-600"
     : "bg-foreground-100 text-foreground-600";
   const inventoryLabel = product
-    ? INVENTORY_STATUS_OPTIONS.find(
-        (option) => option.value === product.inventory_status
-      )?.label ?? (product.inventory_status || "—")
+    ? INVENTORY_STATUS_LABELS[product.inventory_status] ??
+      (product.inventory_status || "—")
     : "—";
   const thumbnails = product?.images ?? [];
   const safeImageIndex =
@@ -902,7 +834,7 @@ export default function ProductDetailPage() {
   return (
     <div className="admin-font products-theme min-h-screen bg-background-50">
       <header className="border-b border-background-200 bg-white">
-        <div className="mx-auto flex w-full max-w-4xl items-center justify-between px-4 py-3 md:px-6">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-3 md:px-6">
           <Link
             to={listPath}
             className="flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-foreground-600 transition-colors hover:text-primary-600"
@@ -914,7 +846,7 @@ export default function ProductDetailPage() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-4xl px-4 py-6 md:px-6">
+      <main className="mx-auto w-full max-w-5xl px-4 py-6 md:px-6">
         {loadState === "loading" && <ProductDetailSkeleton />}
 
         {loadState === "error" && (
@@ -942,790 +874,247 @@ export default function ProductDetailPage() {
         )}
 
         {loadState === "success" && product && (
-          <div className="flex flex-col gap-5 lg:flex-row">
-            {/* 画像エリア */}
-            <div className="w-full lg:w-[360px] lg:shrink-0">
-              {isImageEditing ? (
-                <ImageEditor
-                  existingImages={product.images ?? []}
-                  saving={imageSaveState === "saving"}
-                  error={
-                    imageMessage?.type === "error" ? imageMessage.text : ""
-                  }
-                  onSave={handleSaveImages}
-                  onCancel={handleCancelImageEdit}
-                />
-              ) : (
-                <>
-                  <MainImage
-                    src={mainImage}
-                    alt={product.product_name}
-                    onOpen={() => setIsLightboxOpen(true)}
-                  />
-                  {thumbnails.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {thumbnails.map((img, idx) => (
-                        <Thumbnail
-                          key={idx}
-                          src={img.display_url}
-                          alt={`${product.product_name} ${idx + 1}`}
-                          selected={idx === safeImageIndex}
-                          onClick={() => setSelectedImageIndex(idx)}
-                        />
-                      ))}
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    onClick={handleStartImageEdit}
-                    className="mt-3 inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-background-300 bg-white px-4 py-2 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100"
-                  >
-                    <i className="ri-image-edit-line w-4 h-4 flex items-center justify-center"></i>
-                    画像を編集
-                  </button>
-                  {imageMessage && imageMessage.type === "success" && (
-                    <SaveStatusMessage
-                      tone="success"
-                      text={imageMessage.text}
-                      className="mt-2"
-                    />
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* 情報エリア */}
-            <div className="min-w-0 flex-1">
-              {isEditing ? (
-                <EditForm
-                  product={product}
-                  saving={editSaveState === "saving"}
-                  error={editMessage?.type === "error" ? editMessage.text : ""}
-                  aiPriceSuggestion={aiDraftPrice}
-                  onCancel={handleCancelEdit}
-                  onSave={handleSaveEdit}
-                />
-              ) : (
-                <div className="overflow-hidden rounded-[10px] border border-background-200 bg-white">
-                  {/* 商品名・商品ID・ステータス */}
-                  <div className="border-b border-background-100 p-4 md:p-5">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <h1 className="break-words text-xl font-semibold leading-snug text-foreground-950">
-                          {product.product_name || "（商品名なし）"}
-                        </h1>
-                        <p className="mt-1 font-mono text-xs text-foreground-500">
-                          {product.product_id}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span
-                          className={`inline-flex h-[22px] items-center whitespace-nowrap rounded-md px-2 text-[11px] font-medium leading-none ${statusClass}`}
-                        >
-                          {statusLabel}
-                        </span>
-                        <span className="inline-flex h-[22px] items-center whitespace-nowrap rounded-md bg-background-100 px-2 text-[11px] font-medium leading-none text-foreground-600">
-                          {categoryLabel}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 商品情報 */}
-                  <div className="px-4 py-1 md:px-5">
-                    <InfoRow label="ブランド" value={product.brand} />
-                    {/* ポケモンカードは専用の pokemon_card.card_condition を状態として表示するため、
-                        共通の商品状態は表示しない（矛盾させない）。 */}
-                    {product.category !== "pokemon_card" && (
-                      <InfoRow label="商品状態" value={product.condition} />
-                    )}
-                    <InfoRow
-                      label="仕入価格"
-                      value={formatPrice(product.purchase_price)}
-                    />
-                    <InfoRow
-                      label="販売予定価格"
-                      value={formatPrice(product.planned_sale_price)}
-                      emphasize
-                    />
-                    <InfoRow label="保管場所" value={product.storage_location} />
-                    {product.category === "sneaker" && (
-                      <>
-                        <InfoRow label="SKU" value={product.sneaker_sku ?? ""} />
-                        <InfoRow
-                          label="サイズ"
-                          value={
-                            product.sneaker_size != null
-                              ? String(product.sneaker_size)
-                              : ""
-                          }
-                        />
-                        <InfoRow
-                          label="カラー"
-                          value={product.sneaker_colorway ?? ""}
-                        />
-                        <InfoRow
-                          label="箱の有無"
-                          value={product.sneaker_box ?? ""}
-                        />
-                        <InfoRow
-                          label="付属品"
-                          value={product.sneaker_accessories ?? ""}
-                        />
-                        <InfoRow
-                          label="発売年"
-                          value={product.sneaker_release_year ?? ""}
-                        />
-                      </>
-                    )}
-                    {product.category === "jewelry" && (
-                      <>
-                        <InfoRow
-                          label="種類"
-                          value={product.jewelry_type ?? ""}
-                        />
-                        <InfoRow
-                          label="素材"
-                          value={product.jewelry_material ?? ""}
-                        />
-                        <InfoRow label="カラット" value={product.carat ?? ""} />
-                        <InfoRow label="シェイプ" value={product.shape ?? ""} />
-                        <InfoRow
-                          label="カラーグレード"
-                          value={product.color_grade ?? ""}
-                        />
-                        <InfoRow
-                          label="クラリティ"
-                          value={product.clarity ?? ""}
-                        />
-                        <InfoRow label="カット" value={product.cut ?? ""} />
-                        <InfoRow
-                          label="メインストーン"
-                          value={product.main_stone ?? ""}
-                        />
-                        <InfoRow
-                          label="サイズ"
-                          value={product.jewelry_size ?? ""}
-                        />
-                        <InfoRow label="重量" value={product.weight_g ?? ""} />
-                        <InfoRow
-                          label="鑑定書"
-                          value={product.certificate_available ?? ""}
-                        />
-                        <InfoRow
-                          label="鑑定書番号"
-                          value={product.certificate_number ?? ""}
-                        />
-                      </>
-                    )}
-                    {product.category === "pokemon_card" && (
-                      <>
-                        <InfoRow
-                          label="カード名"
-                          value={product.pokemon_card?.card_name ?? ""}
-                        />
-                        <InfoRow
-                          label="セット名"
-                          value={product.pokemon_card?.set_name ?? ""}
-                        />
-                        <InfoRow
-                          label="カード番号"
-                          value={product.pokemon_card?.card_number ?? ""}
-                        />
-                        <InfoRow
-                          label="レアリティ"
-                          value={product.pokemon_card?.rarity ?? ""}
-                        />
-                        <InfoRow
-                          label="言語"
-                          value={product.pokemon_card?.language ?? ""}
-                        />
-                        <InfoRow
-                          label="鑑定状態"
-                          value={
-                            product.pokemon_card?.grading_status === "graded"
-                              ? "鑑定済み"
-                              : product.pokemon_card?.grading_status ===
-                                  "ungraded"
-                                ? "未鑑定"
-                                : ""
-                          }
-                        />
-                        {product.pokemon_card?.grading_status === "graded" ? (
-                          <>
-                            <InfoRow
-                              label="鑑定会社"
-                              value={product.pokemon_card?.grader ?? ""}
-                            />
-                            <InfoRow
-                              label="グレード"
-                              value={product.pokemon_card?.grade ?? ""}
-                            />
-                            <InfoRow
-                              label="鑑定番号"
-                              value={
-                                product.pokemon_card?.certification_number ?? ""
-                              }
-                            />
-                          </>
-                        ) : (
-                          <>
-                            <InfoRow
-                              label="カード状態"
-                              value={product.pokemon_card?.card_condition ?? ""}
-                            />
-                            {product.pokemon_card?.card_condition === "A" && (
-                              <p className="flex items-start gap-1.5 py-2 text-[12px] leading-relaxed text-foreground-500">
-                                <i className="ri-information-line mt-0.5 w-3.5 h-3.5 flex items-center justify-center shrink-0"></i>
-                                <span className="min-w-0 flex-1">
-                                  AはAI生成直後の初期値です（現物確認前）。現物を確認のうえ、必要に応じて「商品情報を編集」からB/Cへ修正してください。
-                                </span>
-                              </p>
-                            )}
-                          </>
-                        )}
-                      </>
-                    )}
-                  </div>
-
-                  {/* 商品説明・備考 */}
-                  <div className="border-t border-background-100 px-4 py-3 md:px-5">
-                    <DescriptionBlock
-                      label="商品説明"
-                      value={product.description ?? ""}
-                    />
-                    <DescriptionBlock label="備考" value={product.notes ?? ""} />
-                  </div>
-
-                  {/* 書類（請求書・領収書）: 既存の添付がある場合のみ閲覧リンクを表示する。
-                      商品への新規アップロード導線は撤去済み（仕入書類は独立した書類台帳で取り込む）。
-                      未添付の場合は何も表示せず、区切り線も増やさない。 */}
-                  {hasAttachedDocument(product.document) && (
-                    <div className="border-t border-background-100 px-4 py-3 md:px-5">
-                      <ProductDocumentSection doc={product.document} />
-                    </div>
-                  )}
-
-                  {/* 商品情報を編集 */}
-                  <div className="flex flex-col gap-3 border-t border-background-100 px-4 py-3 md:px-5">
-                    {showAiPriceHint && (
-                      <div className="flex items-start gap-2 rounded-lg border border-accent-300 bg-accent-50/70 px-3 py-2">
-                        <i className="ri-sparkling-line mt-0.5 w-4 h-4 flex items-center justify-center shrink-0 text-accent-600"></i>
-                        <p className="min-w-0 flex-1 text-[12px] leading-relaxed text-foreground-700">
-                          販売予定価格が未設定ですが、AIの価格案
-                          <strong className="mx-1 font-semibold text-foreground-950">
-                            ¥{aiDraftPrice?.toLocaleString()}
-                          </strong>
-                          があります。「商品情報を編集」で初期値として表示され、必要に応じて修正して保存できます。
-                        </p>
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={handleStartEdit}
-                      className="inline-flex w-fit items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-background-300 bg-white px-4 py-2 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100"
-                    >
-                      <i className="ri-edit-line w-4 h-4 flex items-center justify-center"></i>
-                      商品情報を編集
-                    </button>
-                    {editMessage &&
-                      (editMessage.type === "success" ||
-                        editMessage.type === "warning") && (
-                        <SaveStatusMessage
-                          tone={editMessage.type}
-                          text={editMessage.text}
-                        />
-                      )}
-                  </div>
-                </div>
-              )}
-
-              {/* 公開状態 */}
-              <div className="mt-4 rounded-[10px] border border-background-200 bg-white p-4 md:p-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h2 className="text-[15px] font-semibold text-foreground-950">
-                      公開状態
-                    </h2>
-                    <p className="mt-1 text-xs text-foreground-500">
-                      公開サイトへの表示状態を設定します
-                    </p>
-                  </div>
-                  <span
-                    className={`inline-flex h-[22px] shrink-0 items-center whitespace-nowrap rounded-md px-2 text-[11px] font-medium leading-none ${
-                      PUBLISH_BADGE_STYLES[product.publish_status] ??
-                      "bg-background-100 text-foreground-600"
-                    }`}
-                  >
-                    {statusLabel}
-                  </span>
-                </div>
-
-                <div className="mt-4 inline-flex flex-wrap items-center gap-1 rounded-lg bg-background-100 p-1">
-                  {PUBLISH_STATUS_OPTIONS.map((option) => {
-                    const active = selectedStatus === option.value;
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => {
-                          setSelectedStatus(option.value);
-                          setMessage(null);
-                        }}
-                        aria-pressed={active}
-                        className={`whitespace-nowrap rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
-                          active
-                            ? "bg-white text-foreground-950"
-                            : "text-foreground-600 hover:text-foreground-900"
-                        }`}
-                      >
-                        {option.label}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="mt-4 flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={handleSaveStatus}
-                    disabled={saveState === "saving" || selectedStatus === product.publish_status}
-                    className="inline-flex min-w-[136px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {saveState === "saving" ? (
-                      <>
-                        <i className="ri-loader-4-line animate-spin w-4 h-4 flex items-center justify-center"></i>
-                        保存中...
-                      </>
-                    ) : (
-                      <>
-                        <i className="ri-save-line w-4 h-4 flex items-center justify-center"></i>
-                        公開状態を保存
-                      </>
-                    )}
-                  </button>
-                  {saveState !== "saving" &&
-                    selectedStatus !== product.publish_status && (
-                      <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-foreground-500">
-                        <i className="ri-edit-circle-line w-3.5 h-3.5 flex items-center justify-center"></i>
-                        未保存の変更があります
-                      </span>
-                    )}
-                </div>
-
-                {message && <PanelMessage type={message.type} text={message.text} />}
-              </div>
-
-              {/* 在庫状態 */}
-              <div className="mt-4 rounded-[10px] border border-background-200 bg-white p-4 md:p-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h2 className="text-[15px] font-semibold text-foreground-950">
-                      在庫状態
-                    </h2>
-                    <p className="mt-1 text-xs text-foreground-500">
-                      現在の在庫・販売状況を設定します
-                    </p>
-                  </div>
-                  <span className="inline-flex h-[22px] shrink-0 items-center whitespace-nowrap rounded-md bg-background-100 px-2 text-[11px] font-medium leading-none text-foreground-600">
-                    {inventoryLabel}
-                  </span>
-                </div>
-
-                <div className="mt-4 inline-flex flex-wrap items-center gap-1 rounded-lg bg-background-100 p-1">
-                  {INVENTORY_STATUS_OPTIONS.map((option) => {
-                    const active = selectedInventoryStatus === option.value;
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => {
-                          setSelectedInventoryStatus(option.value);
-                          setInventoryMessage(null);
-                        }}
-                        aria-pressed={active}
-                        className={`whitespace-nowrap rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
-                          active
-                            ? "bg-white text-foreground-950"
-                            : "text-foreground-600 hover:text-foreground-900"
-                        }`}
-                      >
-                        {option.label}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="mt-4 flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={handleSaveInventoryStatus}
-                    disabled={
-                      inventorySaveState === "saving" ||
-                      selectedInventoryStatus === product.inventory_status
+          <>
+            {/* 上部サマリー: 商品画像 + 商品名・主要情報・価格・状態・編集 */}
+            <div className="flex flex-col gap-5 lg:flex-row">
+              <div className="w-full lg:w-[340px] lg:shrink-0">
+                {isImageEditing ? (
+                  <ImageEditor
+                    existingImages={product.images ?? []}
+                    saving={imageSaveState === "saving"}
+                    error={
+                      imageMessage?.type === "error" ? imageMessage.text : ""
                     }
-                    className="inline-flex min-w-[136px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {inventorySaveState === "saving" ? (
-                      <>
-                        <i className="ri-loader-4-line animate-spin w-4 h-4 flex items-center justify-center"></i>
-                        保存中...
-                      </>
-                    ) : (
-                      <>
-                        <i className="ri-save-line w-4 h-4 flex items-center justify-center"></i>
-                        在庫状態を保存
-                      </>
-                    )}
-                  </button>
-                  {inventorySaveState !== "saving" &&
-                    selectedInventoryStatus !== product.inventory_status && (
-                      <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-foreground-500">
-                        <i className="ri-edit-circle-line w-3.5 h-3.5 flex items-center justify-center"></i>
-                        未保存の変更があります
-                      </span>
-                    )}
-                </div>
-
-                {inventoryMessage && (
-                  <PanelMessage
-                    type={inventoryMessage.type}
-                    text={inventoryMessage.text}
+                    onSave={handleSaveImages}
+                    onCancel={handleCancelImageEdit}
                   />
-                )}
-              </div>
-
-              {/* 英語翻訳（越境EC用） */}
-              {product.category !== "pokemon_card" && (
-              <div className="mt-4">
-                <ProductTranslationSection
-                  productId={product.product_id}
-                  translation={product.translation}
-                  onTranslationChange={(translation) => {
-                    setProduct((prev) =>
-                      prev ? { ...prev, translation } : prev
-                    );
-                  }}
-                />
-              </div>
-              )}
-
-              {/* レコード状態 */}
-              <div className="mt-4 rounded-lg border border-background-200 bg-white p-4 md:p-5">
-                <h2 className="text-[15px] font-semibold text-foreground-950">
-                  レコード状態
-                </h2>
-
-                {/* 通常管理 / アーカイブ済み を切り替えるセグメント。
-                    現在の状態をハイライト表示し、非選択側をクリックすると
-                    確認ダイアログを経由してアーカイブ / 復元を実行する。 */}
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <div className="inline-flex flex-wrap items-center gap-1 rounded-lg bg-background-100 p-1">
-                    {RECORD_STATUS_OPTIONS.map((option) => {
-                      const active = product.record_status === option.value;
-                      return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          onClick={() => {
-                            if (active || recordSaveState === "saving") return;
-                            if (option.value === "archived") {
-                              setRecordMessage(null);
-                              setIsArchiveConfirmOpen(true);
-                            } else if (isSquareLinked) {
-                              setRestoreRegenerateLink(false);
-                              setRecordMessage(null);
-                              setIsRestoreConfirmOpen(true);
-                            } else {
-                              handleSaveRecordStatus(false);
-                            }
-                          }}
-                          disabled={recordSaveState === "saving"}
-                          aria-pressed={active}
-                          className={`whitespace-nowrap rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
-                            active
-                              ? "bg-white text-foreground-950"
-                              : "text-foreground-600 hover:text-foreground-900"
-                          } disabled:cursor-not-allowed disabled:opacity-50`}
-                        >
-                          {option.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {recordSaveState === "saving" && (
-                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-foreground-500">
-                      <i className="ri-loader-4-line animate-spin h-4 w-4 flex items-center justify-center"></i>
-                      処理中...
-                    </span>
-                  )}
-                </div>
-
-                {/* 完全削除はアーカイブ済みのときのみ表示（アーカイブ / 復元は上のセグメントから実行） */}
-                {product.record_status !== "active" && (
-                  <div className="mt-4">
+                ) : (
+                  <>
+                    <MainImage
+                      src={mainImage}
+                      alt={product.product_name}
+                      onOpen={() => setIsLightboxOpen(true)}
+                    />
+                    {thumbnails.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {thumbnails.map((img, idx) => (
+                          <Thumbnail
+                            key={idx}
+                            src={img.display_url}
+                            alt={`${product.product_name} ${idx + 1}`}
+                            selected={idx === safeImageIndex}
+                            onClick={() => setSelectedImageIndex(idx)}
+                          />
+                        ))}
+                      </div>
+                    )}
                     <button
                       type="button"
-                      onClick={() => {
-                        setDeleteMessage(null);
-                        setDeleteConfirmInput("");
-                        setIsDeleteConfirmOpen(true);
-                      }}
-                      disabled={recordSaveState === "saving"}
-                      className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={handleStartImageEdit}
+                      className="mt-3 inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-background-300 bg-white px-4 py-2 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100"
                     >
-                      <i className="ri-delete-bin-6-line w-4 h-4 flex items-center justify-center"></i>
-                      商品を完全削除
+                      <i className="ri-image-edit-line w-4 h-4 flex items-center justify-center"></i>
+                      画像を編集
                     </button>
-                  </div>
-                )}
-
-                {recordMessage && (
-                  <SaveStatusMessage
-                    tone={recordMessage.type}
-                    text={recordMessage.text}
-                    className="mt-3"
-                  />
+                    {imageMessage && imageMessage.type === "success" && (
+                      <SaveStatusMessage
+                        tone="success"
+                        text={imageMessage.text}
+                        className="mt-2"
+                      />
+                    )}
+                  </>
                 )}
               </div>
 
-              {/* Square連携 */}
-              <SquareIntegrationSection
-                product={product}
-                onRefreshed={refreshProduct}
-              />
-
-              {/* アーカイブ確認ダイアログ */}
-              {isArchiveConfirmOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-                  <div className="w-full max-w-md rounded-lg border border-background-200 bg-white p-5">
-                    <div className="flex items-center gap-2">
-                      <i className="ri-error-warning-line w-5 h-5 flex items-center justify-center text-red-600"></i>
-                      <h3 className="text-base font-bold text-foreground-950">
-                        商品をアーカイブ
-                      </h3>
-                    </div>
-                    <p className="mt-3 text-sm leading-relaxed text-foreground-700">
-                      この商品をアーカイブしますか？
-                      <br />
-                      アーカイブすると通常の商品一覧と公開サイトから除外されます。
-                      <br />
-                      商品データと画像は削除されません。
-                    </p>
-                    {(product.square_item_id ||
-                      product.square_variation_id) && (
-                      <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm leading-relaxed font-medium text-amber-800">
-                        Square連携済み商品のため、Square側でも在庫停止・決済リンク無効化・商品アーカイブが実行されます。
-                      </p>
-                    )}
-                    <div className="mt-5 flex justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setIsArchiveConfirmOpen(false)}
-                        disabled={recordSaveState === "saving"}
-                        className="whitespace-nowrap rounded-lg border border-background-300 bg-background-50 px-4 py-2 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        キャンセル
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSaveRecordStatus(false)}
-                        disabled={recordSaveState === "saving"}
-                        className="inline-flex min-w-[124px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {recordSaveState === "saving" ? (
-                          <>
-                            <i className="ri-loader-4-line animate-spin w-4 h-4 flex items-center justify-center"></i>
-                            処理中...
-                          </>
-                        ) : (
-                          "アーカイブする"
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* 再有効化（復元）確認ダイアログ（Square連携済みのみ） */}
-              {isRestoreConfirmOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-                  <div className="w-full max-w-md rounded-lg border border-background-200 bg-white p-5">
-                    <div className="flex items-center gap-2">
-                      <i className="ri-refresh-line w-5 h-5 flex items-center justify-center text-primary-600"></i>
-                      <h3 className="text-base font-bold text-foreground-950">
-                        商品を復元
-                      </h3>
-                    </div>
-                    <p className="mt-3 text-sm leading-relaxed text-foreground-700">
-                      この商品を復元しますか？
-                      <br />
-                      復元すると通常の商品一覧と公開サイトに表示されます。
-                    </p>
-                    <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm leading-relaxed font-medium text-amber-800">
-                      Square連携済み商品ですが、復元してもSquare側は停止したままです（自動では再開されません）。Squareでの再開・再連携が必要です。決済リンクは下のチェックで再生成できます。
-                    </p>
-
-                    <label className="mt-4 flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        checked={restoreRegenerateLink}
-                        disabled={
-                          !canRegeneratePaymentLink ||
-                          recordSaveState === "saving"
-                        }
-                        onChange={(e) =>
-                          setRestoreRegenerateLink(e.target.checked)
-                        }
-                        className="mt-0.5 h-4 w-4 cursor-pointer accent-primary-500 disabled:cursor-not-allowed disabled:opacity-50"
-                      />
-                      <span className="min-w-0 flex-1 text-sm font-medium text-foreground-800">
-                        決済リンクも再生成する
-                      </span>
-                    </label>
-                    {!canRegeneratePaymentLink && (
-                      <p className="mt-1 text-xs text-foreground-400">
-                        商品が未公開または在庫なしのため、決済リンクは再生成できません。
-                      </p>
-                    )}
-
-                    {recordMessage && recordMessage.type === "error" && (
-                      <SaveStatusMessage
-                        tone="error"
-                        text={recordMessage.text}
-                        className="mt-3"
-                      />
-                    )}
-
-                    <div className="mt-5 flex justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setIsRestoreConfirmOpen(false)}
-                        disabled={recordSaveState === "saving"}
-                        className="whitespace-nowrap rounded-lg border border-background-300 bg-background-50 px-4 py-2 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        キャンセル
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleSaveRecordStatus(
-                            canRegeneratePaymentLink && restoreRegenerateLink
-                          )
-                        }
-                        disabled={recordSaveState === "saving"}
-                        className="inline-flex min-w-[116px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-bold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {recordSaveState === "saving" ? (
-                          <>
-                            <i className="ri-loader-4-line animate-spin w-4 h-4 flex items-center justify-center"></i>
-                            処理中...
-                          </>
-                        ) : (
-                          "復元する"
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* 完全削除確認ダイアログ */}
-              {isDeleteConfirmOpen && product && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-                  <div className="w-full max-w-md rounded-lg border border-background-200 bg-white p-5">
-                    <div className="flex items-center gap-2">
-                      <i className="ri-error-warning-line w-5 h-5 flex items-center justify-center text-red-600"></i>
-                      <h3 className="text-base font-bold text-foreground-950">
-                        商品を完全削除
-                      </h3>
-                    </div>
-                    <p className="mt-3 text-sm leading-relaxed text-foreground-700">
-                      この商品を完全に削除しますか？
-                      <br />
-                      <br />
-                      この操作は取り消せません。
-                      <br />
-                      Google Sheetsの商品データは削除され、
-                      <br />
-                      Google Driveの商品フォルダはゴミ箱へ移動します。
-                      <br />
-                      <br />
-                      続行するには、商品IDを入力してください。
-                    </p>
-
-                    <div className="mt-4">
-                      <label className="text-xs font-medium text-foreground-500">
-                        対象商品ID
-                      </label>
-                      <p className="mt-1 font-mono text-sm font-bold text-foreground-950">
-                        {product.product_id}
-                      </p>
-                      <input
-                        type="text"
-                        value={deleteConfirmInput}
-                        onChange={(e) => setDeleteConfirmInput(e.target.value)}
-                        placeholder={product.product_id}
-                        disabled={deleteSaveState === "saving"}
-                        className="mt-2 w-full rounded-lg border border-background-300 bg-background-50 px-3 py-2 text-sm text-foreground-900 placeholder:text-foreground-300 focus:border-red-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-                      />
-                    </div>
-
-                    {deleteMessage && deleteMessage.type === "error" && (
-                      <SaveStatusMessage
-                        tone="error"
-                        text={deleteMessage.text}
-                        className="mt-3"
-                      />
-                    )}
-
-                    <div className="mt-5 flex justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsDeleteConfirmOpen(false);
-                          setDeleteConfirmInput("");
-                        }}
-                        disabled={deleteSaveState === "saving"}
-                        className="whitespace-nowrap rounded-lg border border-background-300 bg-background-50 px-4 py-2 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        キャンセル
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleDeleteProduct}
-                        disabled={
-                          deleteSaveState === "saving" ||
-                          deleteConfirmInput !== product.product_id
-                        }
-                        className="inline-flex min-w-[124px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {deleteSaveState === "saving" ? (
-                          <>
-                            <i className="ri-loader-4-line animate-spin w-4 h-4 flex items-center justify-center"></i>
-                            削除中...
-                          </>
-                        ) : (
-                          "完全に削除する"
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* 画像の拡大表示（ライトボックス） */}
-              {isLightboxOpen && imageUrls.length > 0 && (
-                <ImageLightbox
-                  images={imageUrls}
-                  index={safeImageIndex}
-                  productName={product.product_name}
-                  onClose={() => setIsLightboxOpen(false)}
-                  onNavigate={setSelectedImageIndex}
-                />
-              )}
+              <div className="min-w-0 flex-1">
+                {isEditing ? (
+                  <EditForm
+                    product={product}
+                    saving={editSaveState === "saving"}
+                    error={editMessage?.type === "error" ? editMessage.text : ""}
+                    aiPriceSuggestion={aiDraftPrice}
+                    onCancel={handleCancelEdit}
+                    onSave={handleSaveEdit}
+                  />
+                ) : (
+                  <ProductSummaryCard
+                    product={product}
+                    categoryLabel={categoryLabel}
+                    statusLabel={statusLabel}
+                    inventoryLabel={inventoryLabel}
+                    statusClass={statusClass}
+                    aiPriceHint={{ show: showAiPriceHint, price: aiDraftPrice }}
+                    editMessage={editMessage}
+                    onStartEdit={handleStartEdit}
+                  />
+                )}
+              </div>
             </div>
-          </div>
+
+            {/* 商品説明・備考はタブから独立して常時表示する（商品スペックは右上カードに集約） */}
+            {!isEditing && (
+              <div className="mt-4">
+                <ProductSpecPanel product={product} />
+              </div>
+            )}
+
+            {/* 管理タブ（販売管理 / 仕入・書類 / 翻訳・外部連携） */}
+            {isEditing ? (
+              <p className="mt-4 flex items-start gap-1.5 rounded-lg border border-background-200 bg-white px-3 py-2 text-[12px] leading-relaxed text-foreground-500">
+                <i className="ri-information-line mt-0.5 w-4 h-4 flex items-center justify-center shrink-0"></i>
+                <span className="min-w-0 flex-1">
+                  商品情報を編集中です。保存またはキャンセルすると、商品説明・備考と、販売管理・仕入・書類などの管理タブが表示されます。
+                </span>
+              </p>
+            ) : (
+              <div className="mt-4">
+                <ProductDetailTabs
+                  activeTab={activeTab}
+                  onChange={setActiveTab}
+                />
+
+                {/* 販売管理 */}
+                {activeTab === "sales" && (
+                  <div className="mt-4">
+                    <SalesManagementPanel
+                      publish={{
+                        statusLabel,
+                        currentStatus: product.publish_status,
+                        selectedStatus,
+                        saving: saveState === "saving",
+                        message,
+                        onSelect: (value) => {
+                          setSelectedStatus(value);
+                          setMessage(null);
+                        },
+                        onSave: handleSaveStatus,
+                      }}
+                      inventory={{
+                        inventoryLabel,
+                        currentStatus: product.inventory_status,
+                        selectedStatus: selectedInventoryStatus,
+                        saving: inventorySaveState === "saving",
+                        message: inventoryMessage,
+                        onSelect: (value) => {
+                          setSelectedInventoryStatus(value);
+                          setInventoryMessage(null);
+                        },
+                        onSave: handleSaveInventoryStatus,
+                      }}
+                      record={{
+                        recordStatus: product.record_status,
+                        saving: recordSaveState === "saving",
+                        message: recordMessage,
+                        onSelectArchived: () => {
+                          setRecordMessage(null);
+                          setIsArchiveConfirmOpen(true);
+                        },
+                        onSelectActive: () => {
+                          if (isSquareLinked) {
+                            setRestoreRegenerateLink(false);
+                            setRecordMessage(null);
+                            setIsRestoreConfirmOpen(true);
+                          } else {
+                            void handleSaveRecordStatus(false);
+                          }
+                        },
+                        onRequestDelete: () => {
+                          setDeleteMessage(null);
+                          setDeleteConfirmInput("");
+                          setIsDeleteConfirmOpen(true);
+                        },
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* 仕入・書類 */}
+                {activeTab === "purchase" && (
+                  <div className="mt-4 flex flex-col gap-4">
+                    <ProductLedgerSection
+                      productId={product.product_id}
+                      productName={product.product_name}
+                      plannedSalePrice={product.planned_sale_price}
+                    />
+                    {hasAttachedDocument(product.document) && (
+                      <div className="rounded-[10px] border border-background-200 bg-white px-4 py-4 md:px-5">
+                        <ProductDocumentSection doc={product.document} />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 翻訳・外部連携 */}
+                {activeTab === "external" && (
+                  <div className="mt-4 flex flex-col gap-4">
+                    {product.category !== "pokemon_card" && (
+                      <ProductTranslationSection
+                        productId={product.product_id}
+                        translation={product.translation}
+                        onTranslationChange={(translation) => {
+                          setProduct((prev) =>
+                            prev ? { ...prev, translation } : prev
+                          );
+                        }}
+                      />
+                    )}
+                    <SquareIntegrationSection
+                      product={product}
+                      onRefreshed={refreshProduct}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* アーカイブ / 復元 / 完全削除の確認ダイアログ */}
+            <ProductDangerDialogs
+              productId={product.product_id}
+              squareLinked={isSquareLinked}
+              isArchiveOpen={isArchiveConfirmOpen}
+              archiveSaving={recordSaveState === "saving"}
+              archiveError={
+                recordMessage?.type === "error" ? recordMessage.text : ""
+              }
+              onCloseArchive={() => setIsArchiveConfirmOpen(false)}
+              onConfirmArchive={() => void handleSaveRecordStatus(false)}
+              isRestoreOpen={isRestoreConfirmOpen}
+              restoreSaving={recordSaveState === "saving"}
+              canRegeneratePaymentLink={canRegeneratePaymentLink}
+              restoreRegenerateLink={restoreRegenerateLink}
+              onToggleRestoreRegenerateLink={setRestoreRegenerateLink}
+              onCloseRestore={() => setIsRestoreConfirmOpen(false)}
+              onConfirmRestore={() =>
+                void handleSaveRecordStatus(
+                  canRegeneratePaymentLink && restoreRegenerateLink
+                )
+              }
+              isDeleteOpen={isDeleteConfirmOpen}
+              deleteSaving={deleteSaveState === "saving"}
+              deleteConfirmInput={deleteConfirmInput}
+              deleteError={
+                deleteMessage?.type === "error" ? deleteMessage.text : ""
+              }
+              onChangeDeleteInput={setDeleteConfirmInput}
+              onCloseDelete={() => {
+                setIsDeleteConfirmOpen(false);
+                setDeleteConfirmInput("");
+              }}
+              onConfirmDelete={() => void handleDeleteProduct()}
+            />
+
+            {/* 画像の拡大表示（ライトボックス） */}
+            {isLightboxOpen && imageUrls.length > 0 && (
+              <ImageLightbox
+                images={imageUrls}
+                index={safeImageIndex}
+                productName={product.product_name}
+                onClose={() => setIsLightboxOpen(false)}
+                onNavigate={setSelectedImageIndex}
+              />
+            )}
+          </>
         )}
       </main>
     </div>

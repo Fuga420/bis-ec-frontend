@@ -11,7 +11,7 @@ const block = "product-skeleton-block rounded";
 export default function ProductListSkeleton() {
   return (
     <div
-      className="overflow-hidden rounded-lg border border-background-200/70 bg-white transition-opacity"
+      className="overflow-hidden rounded-lg border border-background-200 bg-white transition-opacity"
       aria-busy="true"
       aria-live="polite"
     >
@@ -21,7 +21,7 @@ export default function ProductListSkeleton() {
       <div className="overflow-x-auto">
         <div className="min-w-full lg:min-w-[1240px]">
           {/* ヘッダー行（デスクトップ）：実際の列幅に沿ったプレースホルダ */}
-          <div className="hidden items-center border-b border-background-200 bg-white py-2.5 lg:flex">
+          <div className="hidden items-center border-b border-background-200 bg-background-50 py-2.5 lg:flex">
             <div className="flex w-10 shrink-0 items-center justify-center">
               <div className={`h-4 w-4 ${block}`}></div>
             </div>
@@ -70,10 +70,10 @@ export default function ProductListSkeleton() {
                   <div className={`h-3 w-20 shrink-0 ${block}`}></div>
                   {/* 公開状態・在庫状態のバッジ */}
                   <div
-                    className={`h-5 w-[84px] shrink-0 rounded-md ${block}`}
+                    className={`h-[22px] w-[84px] shrink-0 rounded-md ${block}`}
                   ></div>
                   <div
-                    className={`h-5 w-[84px] shrink-0 rounded-md ${block}`}
+                    className={`h-[22px] w-[84px] shrink-0 rounded-md ${block}`}
                   ></div>
                   {/* 登録日時 */}
                   <div className={`h-3 w-[110px] shrink-0 ${block}`}></div>

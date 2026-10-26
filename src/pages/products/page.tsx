@@ -676,24 +676,24 @@ export default function ProductsPage() {
       </header>
 
       <main className="mx-auto w-full max-w-7xl px-4 py-4 md:px-6">
-        {/* 一覧切り替えタブ（下線タイプ。カード状の背景は使わない） */}
-        <div className="mb-5 flex items-center gap-6 border-b border-background-200">
+        {/* 一覧切り替えタブ */}
+        <div className="mb-6 inline-flex items-center gap-1 rounded-lg bg-background-100 p-1">
           <Link
             to="/products"
-            className={`-mb-px whitespace-nowrap border-b-2 px-0.5 pb-2.5 pt-1 text-sm font-medium transition-colors ${
+            className={`whitespace-nowrap rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
               !isArchived
-                ? "border-primary-500 text-foreground-950"
-                : "border-transparent text-foreground-500 hover:text-foreground-900"
+                ? "bg-white text-foreground-950"
+                : "text-foreground-600 hover:text-foreground-900"
             }`}
           >
             商品一覧
           </Link>
           <Link
             to="/products?record_status=archived"
-            className={`-mb-px whitespace-nowrap border-b-2 px-0.5 pb-2.5 pt-1 text-sm font-medium transition-colors ${
+            className={`whitespace-nowrap rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
               isArchived
-                ? "border-primary-500 text-foreground-950"
-                : "border-transparent text-foreground-500 hover:text-foreground-900"
+                ? "bg-white text-foreground-950"
+                : "text-foreground-600 hover:text-foreground-900"
             }`}
           >
             アーカイブ済み
@@ -772,7 +772,7 @@ export default function ProductsPage() {
                         handleSortChange(e.target.value as ProductSortKey)
                       }
                       aria-label="商品の並び替え"
-                      className="h-9 w-full rounded-md border border-background-300 bg-white px-3 text-xs text-foreground-900 transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                      className="h-9 w-full rounded-lg border border-background-300 bg-white px-3 text-xs text-foreground-900 transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
                     >
                       {PRODUCT_SORT_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>
@@ -785,23 +785,23 @@ export default function ProductsPage() {
               </>
             )}
 
-            {/* 一括操作バー（ニュートラルなツールバー。色による強調はしない） */}
+            {/* 一括操作バー */}
             {hasSelection && products.length > 0 && (
-              <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-3 rounded-lg border border-background-200 bg-white px-4 py-3">
-                <span className="inline-flex flex-wrap items-center gap-1.5 whitespace-nowrap text-[13px] font-semibold text-foreground-700">
-                  <span className="inline-flex h-6 items-center rounded-md bg-background-100 px-2 text-[13px] font-semibold text-foreground-700">
-                    {selectedIds.size}件
+              <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-primary-200 bg-primary-50 px-4 py-2.5">
+                <span className="inline-flex items-baseline gap-1 whitespace-nowrap text-sm font-medium text-foreground-700">
+                  <span className="text-base font-bold text-primary-700">
+                    {selectedIds.size}
                   </span>
-                  選択中
+                  件選択中
                 </span>
                 {isBulkProcessing && (
-                  <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[13px] font-medium text-foreground-600">
+                  <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-primary-700">
                     <i className="ri-loader-4-line animate-spin w-4 h-4 flex items-center justify-center"></i>
                     処理中 {bulkProgress.done} / {bulkProgress.total}件
                   </span>
                 )}
                 {archive.isRunning && (
-                  <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[13px] font-medium text-foreground-600">
+                  <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-red-700">
                     <i className="ri-loader-4-line animate-spin w-4 h-4 flex items-center justify-center"></i>
                     アーカイブ中 {archive.progress.done} / {archive.progress.total}件
                   </span>
@@ -811,7 +811,7 @@ export default function ProductsPage() {
                     type="button"
                     onClick={() => setIsBulkConfirmOpen(true)}
                     disabled={isAnyBulkBusy}
-                    className="inline-flex h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border border-background-400 bg-white px-3 text-[13px] font-medium text-foreground-700 transition-colors hover:bg-background-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 disabled:cursor-not-allowed disabled:border-background-300 disabled:bg-background-50 disabled:text-foreground-400"
+                    className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-bold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <i className="ri-upload-2-line w-4 h-4 flex items-center justify-center"></i>
                     一括公開
@@ -820,7 +820,7 @@ export default function ProductsPage() {
                     type="button"
                     onClick={() => setIsAiConfirmOpen(true)}
                     disabled={isAnyBulkBusy}
-                    className="inline-flex h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border border-background-400 bg-white px-3 text-[13px] font-medium text-foreground-700 transition-colors hover:bg-background-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 disabled:cursor-not-allowed disabled:border-background-300 disabled:bg-background-50 disabled:text-foreground-400"
+                    className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg bg-accent-500 px-4 py-2 text-sm font-bold text-background-50 transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <i className="ri-sparkling-line w-4 h-4 flex items-center justify-center"></i>
                     一括AI生成
@@ -830,22 +830,22 @@ export default function ProductsPage() {
                       type="button"
                       onClick={() => setIsArchiveConfirmOpen(true)}
                       disabled={isAnyBulkBusy}
-                      className="inline-flex h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border border-background-400 bg-white px-3 text-[13px] font-medium text-foreground-700 transition-colors hover:bg-background-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 disabled:cursor-not-allowed disabled:border-background-300 disabled:bg-background-50 disabled:text-foreground-400"
+                      className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border border-red-300 bg-red-50 px-4 py-2 text-sm font-bold text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <i className="ri-archive-line w-4 h-4 flex items-center justify-center"></i>
                       一括アーカイブ
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={clearSelection}
+                    disabled={isAnyBulkBusy}
+                    className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-foreground-600 transition-colors hover:bg-background-100 hover:text-foreground-900 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <i className="ri-close-circle-line w-4 h-4 flex items-center justify-center"></i>
+                    選択解除
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={clearSelection}
-                  disabled={isAnyBulkBusy}
-                  className="inline-flex h-9 cursor-pointer items-center gap-1 whitespace-nowrap rounded-lg border border-transparent px-3 text-[13px] font-medium text-foreground-500 transition-colors hover:bg-background-100 hover:text-foreground-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 sm:ml-auto disabled:cursor-not-allowed disabled:bg-transparent disabled:text-foreground-400"
-                >
-                  <i className="ri-close-line w-4 h-4 flex items-center justify-center"></i>
-                  選択解除
-                </button>
               </div>
             )}
 
@@ -858,7 +858,7 @@ export default function ProductsPage() {
             ) : (
               <div
                 aria-busy={isRefreshing}
-                className={`overflow-hidden rounded-lg border border-background-200/70 bg-white transition-opacity duration-150 ${
+                className={`overflow-hidden rounded-lg border border-background-200 bg-white transition-opacity duration-150 ${
                   isRefreshing ? "opacity-60" : "opacity-100"
                 }`}
               >
@@ -866,7 +866,7 @@ export default function ProductsPage() {
                 <div className="overflow-x-auto">
                   <div className="min-w-full lg:min-w-[1240px]">
                     {/* ヘッダー行（デスクトップ） */}
-                    <div className="hidden items-center border-b border-background-200 bg-white py-2.5 lg:flex">
+                    <div className="hidden items-center border-b border-background-200 bg-background-50 py-2.5 lg:flex">
                       <div className="flex w-10 shrink-0 items-center justify-center">
                         <input
                           ref={selectAllRef}

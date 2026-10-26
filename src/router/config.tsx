@@ -9,8 +9,9 @@ import DocumentDetailPage from "@/pages/documents/detail/page";
 
 const routes: RouteObject[] = [
   {
+    // トップページは商品一覧（商品管理）画面
     path: "/",
-    element: <RegisterPage />,
+    element: <ProductsPage />,
   },
   {
     path: "/register",

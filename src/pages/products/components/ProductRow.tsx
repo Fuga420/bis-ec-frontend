@@ -26,36 +26,29 @@ interface ProductRowProps {
   onNavigateToDetail?: () => void;
 }
 
-// ステータスチップ共通の見た目（角丸6px・高さ20px・11px/500・1pxの薄い枠線で統一）。
-// 塗りつぶしの強さを抑え、色に頼らなくてもラベル文字で状態が分かるようにする。
+// 全ステータスバッジ共通の見た目（角丸6px・高さ22px・11px/500・余白を圧縮して統一）
 const badgeBase =
-  "inline-flex h-5 max-w-full items-center gap-1 whitespace-nowrap rounded-md border px-1.5 text-[11px] font-medium leading-none";
-
-// 補助情報（サイズ・Square連携・アーカイブ）は「チップ」ではなく小さなテキストで表示する。
-const metaTextBase =
-  "inline-flex items-center gap-1 whitespace-nowrap text-[11px] leading-none";
+  "inline-flex h-[22px] max-w-full items-center gap-1 whitespace-nowrap rounded-md px-2 text-[11px] font-medium leading-none";
 
 // 行右端の操作アイコン共通スタイル（36px のクリック領域・薄いグレー枠線・角丸8px・16pxアイコン）。
 // 商品詳細への遷移と編集はどちらもこの見た目で並べ、アイコンとアクセシブル名で区別する。
 const actionIconBase =
-  "flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-md border border-background-300 bg-white text-base text-foreground-500 transition-colors hover:border-background-400 hover:bg-background-100 hover:text-foreground-800 focus:outline-none focus-visible:border-primary-400 focus-visible:ring-2 focus-visible:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-background-300 disabled:hover:bg-white";
+  "flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-background-300 bg-white text-base text-foreground-500 transition-colors hover:border-background-400 hover:bg-background-100 hover:text-foreground-800 focus:outline-none focus-visible:border-primary-400 focus-visible:ring-2 focus-visible:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-background-300 disabled:hover:bg-white";
 
 // 右端の操作列幅（詳細36 + 間隔6 + 別タブ36 + 間隔6 + 編集36 + 右余白16 = 136px）。
 // ヘッダー側と合わせて桁を固定する。
 export const ACTION_COLUMN_WIDTH = "w-[136px]";
 
-// 公開状態：公開中だけをごく淡いグリーンにし、下書き・非公開はニュートラルに寄せる。
 const statusStyles: Record<string, string> = {
-  draft: "border-background-300 bg-white text-foreground-600",
-  published: "border-primary-200 bg-primary-50 text-primary-700",
-  hidden: "border-background-200 bg-background-100 text-foreground-500",
+  draft: "bg-background-100 text-foreground-600",
+  published: "bg-primary-100 text-primary-500",
+  hidden: "bg-background-100 text-foreground-600",
 };
 
-// 在庫状態：在庫ありはニュートラル（文字で判別）、対応が必要な取り置き・売却済みだけ色を残す。
 const inventoryStyles: Record<string, string> = {
-  in_stock: "border-background-300 bg-white text-foreground-600",
-  reserved: "border-amber-200 bg-amber-50 text-amber-800",
-  sold: "border-red-200 bg-red-50 text-red-700",
+  in_stock: "bg-primary-100 text-primary-500",
+  reserved: "bg-amber-100 text-amber-800",
+  sold: "bg-red-100 text-red-800",
 };
 
 // スニーカーのサイズが入力済みか判定する（null・空文字・0 は未入力扱い）
@@ -110,14 +103,13 @@ export default function ProductRow({
     PUBLISH_STATUS_LABELS[product.publish_status] ??
     (product.publish_status || "—");
   const statusClass =
-    statusStyles[product.publish_status] ??
-    "border-background-200 bg-white text-foreground-600";
+    statusStyles[product.publish_status] ?? "bg-foreground-100 text-foreground-600";
   const inventoryLabel =
     INVENTORY_STATUS_LABELS[product.inventory_status] ??
     (product.inventory_status || "—");
   const inventoryClass =
     inventoryStyles[product.inventory_status] ??
-    "border-background-200 bg-white text-foreground-600";
+    "bg-foreground-100 text-foreground-600";
   const priceText =
     product.planned_sale_price && product.planned_sale_price > 0
       ? `¥${product.planned_sale_price.toLocaleString("ja-JP")}`
@@ -169,11 +161,9 @@ export default function ProductRow({
   const recordStatusLabel =
     RECORD_STATUS_LABELS[product.record_status] ??
     (product.record_status || "—");
-  // アーカイブ済みは「状態チップ」ではなく控えめな補助テキストで示す。
-  const recordStatusNode =
+  const recordStatusBadge =
     product.record_status === "archived" ? (
-      <span className={`${metaTextBase} text-foreground-500`}>
-        <i className="ri-archive-line w-3 h-3 flex items-center justify-center"></i>
+      <span className={`${badgeBase} bg-background-100 text-foreground-600`}>
         {recordStatusLabel}
       </span>
     ) : null;
@@ -188,36 +178,37 @@ export default function ProductRow({
   const isSneaker = product.category === "sneaker";
   const sneakerSizeText = formatSneakerSize(product.sneaker_size);
   const hasSize = sneakerSizeText !== "";
-  // サイズはステータスではないためチップ化しない。
-  // 入力済みは通常の補助テキスト（例: 27.0cm）、未設定だけは公開できない事実を示す注意表示を残す。
-  const sneakerSizeNode = isSneaker ? (
-    hasSize ? (
-      <span className="whitespace-nowrap text-[11px] tabular-nums leading-none text-foreground-500">
-        {sneakerSizeText}
-      </span>
-    ) : (
-      <span className={`${badgeBase} border-amber-200 bg-amber-50 text-amber-800`}>
-        <i className="ri-error-warning-line w-3 h-3 flex items-center justify-center"></i>
-        サイズ未設定
-      </span>
-    )
+  // 補助情報バッジ（サイズ）: グリーンはステータス専用のため、通常はニュートラルなグレーで表示する
+  const sneakerSizeBadge = isSneaker ? (
+    <span
+      className={`${badgeBase} ${
+        hasSize
+          ? "bg-background-100 text-foreground-600"
+          : "bg-amber-100 text-amber-800"
+      }`}
+    >
+      <i
+        className={`${
+          hasSize ? "ri-ruler-2-line" : "ri-error-warning-line"
+        } w-3 h-3 flex items-center justify-center text-xs`}
+      ></i>
+      {hasSize ? `サイズ ${sneakerSizeText}` : "サイズ未設定"}
+    </span>
   ) : null;
 
-  // Square連携：連携済みはグレーのアイコン＋テキスト、未連携は控えめなアンバーのテキスト。
-  // 一覧APIには連携エラーを示す項目が無いため、エラーと未連携を推測で作り分けることはしない
-  // （存在しない項目を追加せず、現在の状態値だけで判定する）。
+  // 補助情報バッジ（Square連携）: 連携済みはグレー、未連携のみ注意色
   const squareBadge = (
     <span
-      className={`${metaTextBase} ${
+      className={`${badgeBase} ${
         isSquareLinked
-          ? "text-foreground-500"
-          : "font-medium text-amber-700"
+          ? "bg-background-100 text-foreground-600"
+          : "bg-amber-100 text-amber-800"
       }`}
     >
       <i
         className={`${
           isSquareLinked ? "ri-link" : "ri-link-unlink"
-        } w-3 h-3 flex items-center justify-center`}
+        } w-3 h-3 flex items-center justify-center text-xs`}
       ></i>
       {isSquareLinked
         ? SQUARE_LINK_LABELS.linked
@@ -236,7 +227,7 @@ export default function ProductRow({
   // 商品名の下に置く補助情報（サイズ・Square連携・アーカイブ状態・ブランド）。
   // すべて無い場合は行そのものを描画しない。
   const hasMetaRow = Boolean(
-    sneakerSizeNode || squareBadge || recordStatusNode || brandNode
+    sneakerSizeBadge || squareBadge || recordStatusBadge || brandNode
   );
 
   // 一覧行の編集（インライン編集）を開くボタン。
@@ -270,14 +261,14 @@ export default function ProductRow({
   );
 
   return (
-    <div className="border-b border-background-200/80 last:border-b-0">
+    <div className="border-b border-background-200 last:border-b-0">
       {/* 選択中はごく薄いグリーン系の背景を保持し、ホバー時はその選択色を一段濃くして
           「選択中の背景」と「ホバー」が競合しないようにする（未選択はホバーで薄いニュートラルグレー）。 */}
       <div
         className={`group/row flex items-stretch transition-colors duration-150 ${
           isSelected
-            ? "bg-primary-50 hover:bg-primary-100/70"
-            : "hover:bg-background-100/70"
+            ? "bg-primary-100/60 hover:bg-primary-100"
+            : "hover:bg-background-100"
         }`}
       >
         {/* チェックボックスは Link の外に配置し、操作時に詳細へ遷移しないようにする */}
@@ -314,10 +305,10 @@ export default function ProductRow({
                 {name}
               </p>
               {hasMetaRow && (
-                <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
-                  {sneakerSizeNode}
+                <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+                  {sneakerSizeBadge}
                   {squareBadge}
-                  {recordStatusNode}
+                  {recordStatusBadge}
                   {brandNode}
                 </div>
               )}
@@ -358,15 +349,15 @@ export default function ProductRow({
                   {brandText}
                 </p>
               )}
-              <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-                <span className="whitespace-nowrap text-[11px] font-normal tabular-nums leading-none text-foreground-500">
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                <span className="whitespace-nowrap text-xs font-normal tabular-nums text-foreground-500">
                   {product.product_id}
                 </span>
-                {sneakerSizeNode}
+                {sneakerSizeBadge}
                 {statusBadge}
                 {inventoryBadge}
                 {squareBadge}
-                {recordStatusNode}
+                {recordStatusBadge}
               </div>
             </div>
             <div className="shrink-0 text-right">

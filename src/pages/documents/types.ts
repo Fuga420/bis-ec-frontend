@@ -42,6 +42,16 @@ export const TRANSACTION_TYPE_OPTIONS: Array<{
   { value: "other", label: "その他" },
 ];
 
+// 明細に紐付いた商品（分割紐付けに対応するため複数保持する）。
+export interface DocumentLedgerProductLink {
+  link_id: string;
+  product_id: string;
+  // 割当金額（allocated_amount）
+  allocated_amount: number | null;
+  // 紐付け種別（primary_cost / commission / shipping_cost など）
+  link_type: string;
+}
+
 // 手動で追加・修正する明細行（1書類に複数）。
 export interface DocumentLedgerLine {
   // 画面上の安定キー（保存済みはサーバーID、未保存はローカルID）
@@ -64,6 +74,24 @@ export interface DocumentLedgerLine {
   link_id?: string;
   // 割当金額（allocated_amount）
   allocated_amount?: number | null;
+  // 受付番号（reception_number_raw）。スタッフが明細を探すときの主要キー。
+  reception_number?: string;
+  // 箱番・枝番・出品番号（原本の補助情報）
+  lot_number?: string;
+  branch_number?: string;
+  auction_bid_number?: string;
+  // 商品代金（item_amount・税抜の商品本体価格）
+  item_amount?: number | null;
+  // 落札手数料（fee_amount）
+  fee_amount?: number | null;
+  // 商品代金の税額（tax_amount）
+  tax_amount?: number | null;
+  // 落札手数料の税額（fee_tax_amount）
+  fee_tax_amount?: number | null;
+  // 備考（notes）
+  notes?: string;
+  // 紐付け済み商品（分割紐付け対応。未紐付けは空配列）
+  links?: DocumentLedgerProductLink[];
 }
 
 // 書類1件（原本は Drive に保管、構造化データは台帳に保存する想定）。
@@ -75,6 +103,10 @@ export interface DocumentLedgerDocument {
   mime_type: string;
   // Drive原本を開くリンク（未取得時は空文字）
   drive_url: string;
+  // 原本が置かれているDriveフォルダID（documents.drive_folder_id）
+  drive_folder_id?: string;
+  // DriveのファイルID（documents.drive_file_id）
+  drive_file_id?: string;
   // 原本に印字された合計額（原本合計 = documents.total_amount）
   original_total: number;
   // アップロード日時
@@ -89,8 +121,41 @@ export interface DocumentLedgerDocument {
   line_total?: number;
   // 照合状態。バックエンドの status から写像する。
   match_status?: DocumentMatchStatus;
+  // 書類番号（documents.document_number）
+  document_number?: string;
+  // 請求日 / 発行日（documents.issue_date）
+  issue_date?: string;
   // 明細行（詳細取得時のみ中身が入る）
   lines: DocumentLedgerLine[];
+}
+
+// 受付番号検索の1件（明細単位）。
+export interface DocumentLineSearchHit {
+  line_id: string;
+  document_id: string;
+  // 明細番号（document_lines.line_number）
+  line_number?: number;
+  document_file_name: string;
+  supplier_name: string;
+  issue_date: string;
+  reception_number: string;
+  item_name: string;
+  // ブランド名（document_lines.brand_name_raw）
+  brand_name: string;
+  transaction_type: TransactionType;
+  item_amount: number | null;
+  fee_amount: number | null;
+  total_line_amount: number | null;
+  // 紐付け済み商品ID（未紐付けは空配列）
+  linked_product_ids: string[];
+  // 原本PDFリンク（documents.drive_file_url）
+  drive_url: string;
+}
+
+// 仕入明細の検索条件（受付番号・ことばの両方指定はAND絞り込み）。
+export interface DocumentLineSearchParams {
+  receptionNumber?: string;
+  keyword?: string;
 }
 
 export const DOCUMENT_MATCH_STATUS_LABELS: Record<DocumentMatchStatus, string> =

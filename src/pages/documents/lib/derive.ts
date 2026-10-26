@@ -14,6 +14,46 @@ export function lineTotal(lines: DocumentLedgerLine[]): number {
   return (lines ?? []).reduce((sum, line) => sum + toAmount(line.amount), 0);
 }
 
+// 明細の商品代金合計（item_amount の合計）。
+export function lineItemAmountTotal(lines: DocumentLedgerLine[]): number {
+  return (lines ?? []).reduce((sum, line) => sum + toAmount(line.item_amount), 0);
+}
+
+// 明細の落札手数料合計（fee_amount の合計）。
+export function lineFeeAmountTotal(lines: DocumentLedgerLine[]): number {
+  return (lines ?? []).reduce((sum, line) => sum + toAmount(line.fee_amount), 0);
+}
+
+// 明細の商品税合計（tax_amount の合計）。税額は商品代金に混ぜず内訳として扱う。
+export function lineTaxAmountTotal(lines: DocumentLedgerLine[]): number {
+  return (lines ?? []).reduce((sum, line) => sum + toAmount(line.tax_amount), 0);
+}
+
+// 明細の手数料税合計（fee_tax_amount の合計）。税額は手数料に混ぜず内訳として扱う。
+export function lineFeeTaxAmountTotal(lines: DocumentLedgerLine[]): number {
+  return (lines ?? []).reduce((sum, line) => sum + toAmount(line.fee_tax_amount), 0);
+}
+
+// 明細の税額合計（商品税 + 手数料税）。
+export function lineTaxTotal(lines: DocumentLedgerLine[]): number {
+  return lineTaxAmountTotal(lines) + lineFeeTaxAmountTotal(lines);
+}
+
+// 明細に紐付いた商品IDの一覧（分割紐付け対応。未紐付けは空配列）。
+export function lineLinkedProductIds(line: DocumentLedgerLine): string[] {
+  const fromLinks = (line.links ?? [])
+    .map((link) => (link.product_id ?? "").trim())
+    .filter((id) => id !== "");
+  if (fromLinks.length > 0) return Array.from(new Set(fromLinks));
+  const fallback = (line.product_id ?? "").trim();
+  return fallback === "" ? [] : [fallback];
+}
+
+// 明細が商品に紐付いているか。
+export function isLineLinked(line: DocumentLedgerLine): boolean {
+  return lineLinkedProductIds(line).length > 0;
+}
+
 // 差額（原本合計 − 明細合計）。
 export function documentDifference(
   originalTotal: number,

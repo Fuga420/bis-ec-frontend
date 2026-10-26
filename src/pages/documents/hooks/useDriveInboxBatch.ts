@@ -74,7 +74,8 @@ export function useDriveInboxBatch(): DriveInboxBatchView {
 
   const counts = useMemo(() => {
     if (!batch) return null;
-    return countDriveInboxStatuses(batch.files);
+    // 結果照会が返す summary の内訳を優先し、無い項目だけファイル別結果から数える。
+    return countDriveInboxStatuses(batch.files, batch.summary ?? null);
   }, [batch]);
 
   const running = isDriveInboxBatchRunning(batch);

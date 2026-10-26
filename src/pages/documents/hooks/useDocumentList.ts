@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchDocumentList } from "@/pages/documents/lib/documentLedgerApi";
 import { getDocumentMatchStatus } from "@/pages/documents/lib/derive";
+import {
+  summarizeLedger,
+  type DocumentLedgerSummary,
+} from "@/pages/documents/lib/ledgerSummary";
 import type {
   DocumentLedgerDocument,
   DocumentMatchStatus,
@@ -61,6 +65,12 @@ export function useDocumentList() {
 
   const hasFilter = keyword.trim() !== "" || statusFilter !== "";
 
+  // 台帳サマリーは一覧の絞り込みとは独立に、取得済みの全書類から集計する。
+  const summary: DocumentLedgerSummary = useMemo(
+    () => summarizeLedger(documents),
+    [documents]
+  );
+
   const clearFilter = useCallback(() => {
     setKeyword("");
     setStatusFilter("");
@@ -78,5 +88,6 @@ export function useDocumentList() {
     clearFilter,
     retry,
     addDocument,
+    summary,
   };
 }

@@ -239,7 +239,6 @@ export default function EditForm({
         <div className="flex flex-col gap-3">
         <FormField
           label="カテゴリー"
-          required
           hint="カテゴリは登録後に変更できません"
         >
           <select
@@ -256,7 +255,7 @@ export default function EditForm({
           </select>
         </FormField>
 
-        <FormField label="ブランド" required>
+        <FormField label="ブランド">
           <select
             className={inputClass}
             value={brand}
@@ -274,7 +273,7 @@ export default function EditForm({
           </select>
         </FormField>
 
-        <FormField label="商品名" required>
+        <FormField label="商品名">
           <input
             className={inputClass}
             type="text"
@@ -286,7 +285,7 @@ export default function EditForm({
         {/* ポケモンカードは専用の pokemon_card.card_condition（A/B/C）を使うため、
             共通の状態欄は表示しない（両方を状態として見せて矛盾させない）。 */}
         {category !== "pokemon_card" && (
-          <FormField label="商品の状態" required>
+          <FormField label="商品の状態">
             <select
               className={inputClass}
               value={condition}

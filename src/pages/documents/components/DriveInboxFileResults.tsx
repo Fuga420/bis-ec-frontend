@@ -13,6 +13,8 @@ interface DriveInboxFileResultsProps {
   files: DriveInboxFileResult[];
   message: string;
   onRetry: () => void;
+  // 処理済みファイルの表示ラベル（処理済み / 処理見込み / 処理結果）。
+  processedLabel: string;
 }
 
 const STATUS_STYLES: Record<DriveInboxFileStatus, string> = {
@@ -34,7 +36,13 @@ function formatDateTime(value?: string): string {
   )} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-function StatusChip({ status }: { status: DriveInboxFileStatus }) {
+function StatusChip({
+  status,
+  label,
+}: {
+  status: DriveInboxFileStatus;
+  label?: string;
+}) {
   return (
     <span
       className={`inline-flex h-[22px] items-center gap-1 whitespace-nowrap rounded-md px-2 text-[11px] font-medium leading-none ${STATUS_STYLES[status]}`}
@@ -44,7 +52,7 @@ function StatusChip({ status }: { status: DriveInboxFileStatus }) {
           status === "processing" ? "animate-spin" : ""
         }`}
       ></i>
-      {DRIVE_INBOX_STATUS_LABELS[status]}
+      {label ?? DRIVE_INBOX_STATUS_LABELS[status]}
     </span>
   );
 }
@@ -58,6 +66,7 @@ export default function DriveInboxFileResults({
   files,
   message,
   onRetry,
+  processedLabel,
 }: DriveInboxFileResultsProps) {
   if (state === "loading") {
     return (
@@ -128,7 +137,10 @@ export default function DriveInboxFileResults({
         <span className="w-[96px] shrink-0 text-[11px] font-medium text-foreground-500">
           状態
         </span>
-        <span className="min-w-0 flex-[1.4] text-[11px] font-medium text-foreground-500">
+        <span className="w-[52px] shrink-0 text-right text-[11px] font-medium text-foreground-500">
+          明細
+        </span>
+        <span className="min-w-0 flex-[1.2] text-[11px] font-medium text-foreground-500">
           失敗理由
         </span>
         <span className="w-[110px] shrink-0 text-[11px] font-medium text-foreground-500">
@@ -157,9 +169,24 @@ export default function DriveInboxFileResults({
 
             <div className="flex flex-wrap items-center gap-2 lg:contents">
               <span className="shrink-0 lg:w-[96px]">
-                <StatusChip status={status} />
+                <StatusChip
+                  status={status}
+                  label={status === "processed" ? processedLabel : undefined}
+                />
               </span>
-              <p className="min-w-0 text-[11px] leading-relaxed text-foreground-600 lg:w-auto lg:flex-[1.4]">
+              <span className="shrink-0 whitespace-nowrap text-[11px] tabular-nums text-foreground-700 lg:w-[52px] lg:text-right">
+                {typeof file.line_count === "number" ? (
+                  <>
+                    {file.line_count}
+                    <span className="ml-0.5 text-[10px] text-foreground-400">
+                      件
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-foreground-300">—</span>
+                )}
+              </span>
+              <p className="min-w-0 text-[11px] leading-relaxed text-foreground-600 lg:w-auto lg:flex-[1.2]">
                 {status === "failed" ? (
                   file.error_reason || "失敗理由が取得できていません"
                 ) : (
@@ -177,6 +204,11 @@ export default function DriveInboxFileResults({
             {status === "processed" && file.document_id && (
               <Link
                 to={`/documents/${file.document_id}`}
+                title={
+                  file.document_id_source === "ledger"
+                    ? "台帳のファイル名一致から確認した書類を開きます"
+                    : "台帳の書類を開きます"
+                }
                 className="inline-flex w-fit shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-medium text-primary-700 transition-colors hover:bg-primary-50"
               >
                 台帳を開く

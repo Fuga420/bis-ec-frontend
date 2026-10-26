@@ -76,6 +76,8 @@ export default function ProductTranslationSection({
     setTranslationData(translation ?? null);
   }, [translation]);
 
+  // 英語翻訳の生成処理自体は残しています（画面からの個別生成ボタンは撤去済み）。
+  // 自動生成など別経路で呼び出す場合にそのまま利用できます。
   const handleGenerate = async () => {
     if (!productId || syncState === "generating") return;
 
@@ -278,25 +280,6 @@ export default function ProductTranslationSection({
           )}
         </button>
       )}
-
-      <button
-        type="button"
-        onClick={handleGenerate}
-        disabled={syncState === "generating"}
-        className="mt-4 inline-flex min-w-[168px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {syncState === "generating" ? (
-          <>
-            <i className="ri-loader-4-line animate-spin w-4 h-4 flex items-center justify-center"></i>
-            生成中...
-          </>
-        ) : (
-          <>
-            <i className="ri-translate-2 w-4 h-4 flex items-center justify-center"></i>
-            英語説明を生成する
-          </>
-        )}
-      </button>
 
       {syncState === "generating" && (
         <div className="mt-3 flex flex-col gap-2">

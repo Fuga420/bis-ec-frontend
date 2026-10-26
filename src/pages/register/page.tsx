@@ -380,10 +380,7 @@ export default function RegisterPage() {
         next.images = "1枚あたり5MBを超える画像は登録できません";
       }
     }
-    if (!category) next.category = "カテゴリを選択してください";
-    if (!name.trim()) next.name = "商品名を入力してください";
-    if (!brand) next.brand = "ブランドを選択してください";
-    if (!condition) next.condition = "商品の状態を選択してください";
+    // カテゴリー・ブランド・商品名・商品の状態は任意項目（未入力でも登録できる）
 
     // サイズは公開前に必須。下書き保存では未入力を許可する。
     if (category === "sneaker" && publishOn && !sneaker.size) {
@@ -792,7 +789,7 @@ export default function RegisterPage() {
           className="py-4"
         >
           <div className="flex flex-col gap-4">
-            <FormField label="カテゴリー" required error={errors.category}>
+            <FormField label="カテゴリー" error={errors.category}>
               <select
                 className={inputClass}
                 value={category}
@@ -816,7 +813,7 @@ export default function RegisterPage() {
               </select>
             </FormField>
 
-            <FormField label="ブランド" required error={errors.brand}>
+            <FormField label="ブランド" error={errors.brand}>
               <select
                 className={inputClass}
                 value={brand}
@@ -834,7 +831,7 @@ export default function RegisterPage() {
               </select>
             </FormField>
 
-            <FormField label="商品名" required error={errors.name}>
+            <FormField label="商品名" error={errors.name}>
               <input
                 className={inputClass}
                 type="text"
@@ -844,7 +841,7 @@ export default function RegisterPage() {
               />
             </FormField>
 
-            <FormField label="商品の状態" required error={errors.condition}>
+            <FormField label="商品の状態" error={errors.condition}>
               <select
                 className={inputClass}
                 value={condition}

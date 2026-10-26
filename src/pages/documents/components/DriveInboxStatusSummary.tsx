@@ -6,6 +6,8 @@ interface DriveInboxStatusSummaryProps {
   counts: DriveInboxStatusCounts | null;
   running: boolean;
   progressPercent: number | null;
+  // 「処理済み」/「処理見込み」/「処理結果」をモードに応じて切り替える。
+  processedLabel: string;
 }
 
 const CARDS: Array<{
@@ -65,6 +67,7 @@ export default function DriveInboxStatusSummary({
   counts,
   running,
   progressPercent,
+  processedLabel,
 }: DriveInboxStatusSummaryProps) {
   return (
     <div>
@@ -73,6 +76,7 @@ export default function DriveInboxStatusSummary({
           const value = counts ? counts[card.key] : null;
           const emphasize =
             card.key === "processing" && (value ?? 0) > 0 ? true : false;
+          const label = card.key === "processed" ? processedLabel : card.label;
           return (
             <div
               key={card.key}
@@ -91,7 +95,7 @@ export default function DriveInboxStatusSummary({
                   }`}
                 ></i>
                 <span className="truncate text-[11px] font-medium text-foreground-500">
-                  {card.label}
+                  {label}
                 </span>
               </div>
               <p
