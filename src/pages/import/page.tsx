@@ -13,9 +13,18 @@ export default function ImportPage() {
     summary.success > 0 || summary.error > 0 || summary.unknown > 0;
 
   // 取り込みに成功した（product_id を取得できた）商品を、画面の並び順で集める。
-  const successProducts = sets
-    .filter((s) => s.status === "success" && s.productId)
+  // ただし AI解析用画像の保存が終わっていない（保存中・失敗）商品は、
+  // 保存できていない選択のまま生成を進めないよう一括AI生成の対象から外す。
+  const successSets = sets.filter((s) => s.status === "success" && s.productId);
+  const successProducts = successSets
+    .filter(
+      (s) =>
+        s.aiSelectionStatus !== "error" && s.aiSelectionStatus !== "saving"
+    )
     .map((s) => ({ product_id: s.productId as string }));
+  const aiSelectionBlockedCount = successSets.filter(
+    (s) => s.aiSelectionStatus === "error" || s.aiSelectionStatus === "saving"
+  ).length;
 
   // success:false の後に内容を変更し、まだ「前回の取込結果を確認した」承認が
   // 得られていないセットの数（新IDでの取り込みは承認後にのみ実行できる）。
@@ -94,6 +103,10 @@ export default function ImportPage() {
                   <i className="ri-checkbox-blank-circle-fill w-3.5 h-3.5 flex items-center justify-center text-[6px] text-primary-500"></i>
                   成功したセットは再送しません
                 </li>
+                <li className="flex items-center gap-1.5">
+                  <i className="ri-checkbox-blank-circle-fill w-3.5 h-3.5 flex items-center justify-center text-[6px] text-primary-500"></i>
+                  AI解析に使う画像を最大3枚まで選択可（未選択は先頭3枚）
+                </li>
               </ul>
               <p className="mt-2.5 flex items-start gap-1.5 rounded-md bg-background-100 px-3 py-2 text-[11px] leading-relaxed text-foreground-500">
                 <i className="ri-information-line mt-0.5 w-4 h-4 flex items-center justify-center"></i>
@@ -115,11 +128,16 @@ export default function ImportPage() {
               set={set}
               disabled={isImporting}
               onImagesChange={(files) => importer.setImages(set.id, files)}
+              onAuctionItemNumberChange={(value) =>
+                importer.setAuctionItemNumber(set.id, value)
+              }
               onRemove={() => importer.removeSet(set.id)}
               onResend={() => importer.resendSet(set.id)}
               onAcknowledgeNewId={(ack) =>
                 importer.acknowledgeNewId(set.id, ack)
               }
+              onToggleAiImage={(file) => importer.toggleAiImage(set.id, file)}
+              onRetryAiSelection={() => void importer.retryAiSelection(set.id)}
             />
           ))}
         </div>
@@ -237,7 +255,10 @@ export default function ImportPage() {
         </div>
 
         {/* 取り込み済み商品の一覧＋一括AI生成への導線（既存バッチ生成を再利用） */}
-        <ImportBatchSection products={successProducts} />
+        <ImportBatchSection
+          products={successProducts}
+          blockedAiSelectionCount={aiSelectionBlockedCount}
+        />
       </main>
     </div>
   );

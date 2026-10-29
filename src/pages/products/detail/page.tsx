@@ -22,6 +22,10 @@ import {
   extractAiDraftPrice,
   getAiProductDraft,
 } from "@/pages/register/lib/aiProduct";
+import {
+  MAX_AI_ANALYSIS_IMAGES,
+  saveProductAiSelectedImages,
+} from "@/pages/products/lib/aiBatch";
 import EditForm from "./components/EditForm";
 import ProductDetailSkeleton from "./components/ProductDetailSkeleton";
 import ImageEditor, { type ImageSavePayload } from "./components/ImageEditor";
@@ -31,7 +35,12 @@ import SquareIntegrationSection from "./components/SquareIntegrationSection";
 import ProductDocumentSection, {
   hasAttachedDocument,
 } from "./components/ProductDocumentSection";
-import ProductLedgerSection from "./components/ProductLedgerSection";
+import ProductLedgerSection, {
+  type AutoLinkNotice,
+} from "./components/ProductLedgerSection";
+import { autoLinkProductByItemNumber } from "@/pages/documents/lib/productAutoLink";
+import { useProductCostDetail } from "./hooks/useProductCostDetail";
+import { deriveProductCost } from "./lib/productCost";
 import ProductSummaryCard from "./components/ProductSummaryCard";
 import ProductSpecPanel from "./components/ProductSpecPanel";
 import ProductDetailTabs, {
@@ -93,6 +102,31 @@ function hasSneakerSize(value: number | null | undefined): boolean {
   return text !== "" && text !== "0";
 }
 
+/**
+ * 商品詳細からAI解析用画像の選択（Driveのfile_id）を読む。
+ * 商品詳細APIは selected_image_ids / ai_selected_image_ids のどちらかで返すため、
+ * 両方を確認する。どちらも存在しない場合は null（保存結果を検証できない）。
+ */
+function readAiSelectedImageIds(
+  product: AdminProductDetail
+): string[] | null {
+  const source = product as unknown as Record<string, unknown>;
+  const hasSelected = Object.prototype.hasOwnProperty.call(
+    source,
+    "selected_image_ids"
+  );
+  const hasAiSelected = Object.prototype.hasOwnProperty.call(
+    source,
+    "ai_selected_image_ids"
+  );
+  if (!hasSelected && !hasAiSelected) return null;
+  const raw = hasSelected ? source.selected_image_ids : source.ai_selected_image_ids;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((v) => (v == null ? "" : String(v).trim()))
+    .filter(Boolean);
+}
+
 // バックエンドが返す安全なエラー情報を表示用に整形する（秘密値は含まない）
 function extractBackendError(
   data: { error?: string; message?: string; error_code?: string } | null,
@@ -136,6 +170,11 @@ export default function ProductDetailPage() {
 
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [product, setProduct] = useState<AdminProductDetail | null>(null);
+
+  // 確定済みの仕入原価（get_product_cost）を1回だけ取得し、上部サマリーと
+  // 下部「仕入・書類」の両方で同じ結果を使う（二重加算・表示の食い違いを防ぐ）。
+  const productCost = useProductCostDetail(product?.product_id);
+  const costView = deriveProductCost(productCost.detail);
   // 詳細APIで取得できず、一覧APIの情報で表示しているか（部分表示の案内用）
   const [isPartialLoad, setIsPartialLoad] = useState(false);
   // AIドラフト（get_ai_product_draft）の candidate.price。
@@ -177,6 +216,10 @@ export default function ProductDetailPage() {
     type: "success" | "error" | "warning";
     text: string;
   } | null>(null);
+  // 仕入台帳の商品番号による自動照合の結果（編集保存の成否とは別に表示する）
+  const [autoLinkNotice, setAutoLinkNotice] = useState<AutoLinkNotice | null>(
+    null
+  );
 
   const [isImageEditing, setIsImageEditing] = useState(false);
   const [imageSaveState, setImageSaveState] = useState<SaveState>("idle");
@@ -187,6 +230,12 @@ export default function ProductDetailPage() {
 
   // メイン画像エリアに表示するサムネイルの選択インデックス（表示専用・保存はしない）
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+
+  // AI解析に使う画像（最大3枚・Driveのfile_id）。商品詳細の保存値を初期値にする。
+  const [aiSelectedImageIds, setAiSelectedImageIds] = useState<string[]>([]);
+  const [aiSelectionSaving, setAiSelectionSaving] = useState(false);
+  const [aiSelectionError, setAiSelectionError] = useState("");
+  const [aiSelectionMessage, setAiSelectionMessage] = useState("");
 
   // メイン画像の拡大表示（ライトボックス）の開閉（表示専用・保存はしない）
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
@@ -324,12 +373,26 @@ export default function ProductDetailPage() {
       document.removeEventListener("visibilitychange", onVisibilityChange);
   }, [isEditing, isImageEditing, editSaveState, imageSaveState, refreshProduct]);
 
-  // 商品を切り替えたときはメイン画像の選択とタブを初期状態に戻す
+  // 商品を切り替えたときはメイン画像の選択とタブ、AI解析用画像の選択を初期状態に戻す
   useEffect(() => {
     setSelectedImageIndex(0);
     setIsLightboxOpen(false);
     setActiveTab("sales");
+    setAiSelectionError("");
+    setAiSelectionMessage("");
+    setAutoLinkNotice(null);
   }, [id]);
+
+  // 商品詳細の取得結果（初回・再取得）からAI解析用画像の保存値を反映する。
+  // 画像編集中はスタッフの未保存選択を上書きしないよう同期しない。
+  useEffect(() => {
+    if (!product) {
+      setAiSelectedImageIds([]);
+      return;
+    }
+    if (isImageEditing) return;
+    setAiSelectedImageIds(readAiSelectedImageIds(product) ?? []);
+  }, [product, isImageEditing]);
 
   // 画像の追加・削除・並び替えで選択インデックスが範囲外になった場合の安全策
   const imageCount = product?.images?.length ?? 0;
@@ -621,6 +684,61 @@ export default function ProductDetailPage() {
     setImageMessage(null);
   };
 
+  // AI解析用の画像（最大3枚）の選択を切り替える。画像の並び順・メイン画像は変えない。
+  const handleToggleAiImage = (fileId: string) => {
+    setAiSelectionError("");
+    setAiSelectionMessage("");
+    setAiSelectedImageIds((prev) => {
+      if (prev.includes(fileId)) return prev.filter((v) => v !== fileId);
+      if (prev.length >= MAX_AI_ANALYSIS_IMAGES) return prev;
+      return [...prev, fileId];
+    });
+  };
+
+  // AI解析用の画像選択を保存し、再取得して選択が残っていることを確認する。
+  const handleSaveAiSelection = async () => {
+    if (!product || aiSelectionSaving) return;
+    const productId = product.product_id;
+    const requested = [...aiSelectedImageIds];
+    setAiSelectionSaving(true);
+    setAiSelectionError("");
+    setAiSelectionMessage("");
+    try {
+      await saveProductAiSelectedImages({
+        productId,
+        selectedImageIds: requested,
+      });
+      const updated = await loadProduct();
+      setProduct(updated);
+      setSelectedStatus(updated.publish_status);
+      setSelectedInventoryStatus(updated.inventory_status);
+      const serverIds = readAiSelectedImageIds(updated);
+      if (serverIds === null) {
+        // 商品詳細APIが選択項目を返さない場合は再取得では検証できない。
+        setAiSelectionMessage("AI解析用の画像を保存しました。");
+        return;
+      }
+      const expected = [...requested].sort().join("|");
+      const actual = [...serverIds].sort().join("|");
+      setAiSelectedImageIds(serverIds);
+      if (expected !== actual) {
+        setAiSelectionError(
+          "保存は受け付けられましたが、再取得した選択内容が一致しませんでした。保存状況を確認してください。"
+        );
+        return;
+      }
+      setAiSelectionMessage("AI解析用の画像を保存しました（再取得して確認済み）。");
+    } catch (err) {
+      setAiSelectionError(
+        err instanceof Error && err.message
+          ? err.message
+          : "AI解析用画像の保存に失敗しました。"
+      );
+    } finally {
+      setAiSelectionSaving(false);
+    }
+  };
+
   const handleSaveImages = async (payload: ImageSavePayload) => {
     if (!product || imageSaveState === "saving") return;
     setImageSaveState("saving");
@@ -737,6 +855,35 @@ export default function ProductDetailPage() {
           // update_product 自体は成功しているため、同期失敗はwarning扱いにする
           squareSyncFailed = true;
           console.error("sync_square_production_details failed:", err);
+        }
+      }
+
+      // 仕入台帳の商品番号を新規入力・変更して保存されたときだけ、保存成功後に自動照合を試みる。
+      // 空欄（クリア）や変更なしの保存では呼び出さない（既存の紐付けを変化させない）。
+      const savedAuctionNumber =
+        typeof payload.auction_item_number === "string"
+          ? payload.auction_item_number
+          : null;
+      const previousAuctionNumber = (product.auction_item_number ?? "").trim();
+      const autoLinkTarget =
+        savedAuctionNumber !== null ? savedAuctionNumber.trim() : "";
+      if (autoLinkTarget !== "" && autoLinkTarget !== previousAuctionNumber) {
+        const result = await autoLinkProductByItemNumber({
+          productId: product.product_id,
+          auctionItemNumber: autoLinkTarget,
+        });
+        if (result.status !== "disabled") {
+          setAutoLinkNotice({
+            tone: result.linked ? "success" : "warning",
+            text: result.message,
+            needsManualLink: result.needsManualLink,
+          });
+          // 結果と紐付け状況を「仕入・書類」タブで確認できるようにする。
+          setActiveTab("purchase");
+        }
+        if (result.linked) {
+          // 上部の仕入原価と「仕入・書類」を同じ取得結果で再取得する。
+          productCost.reload();
         }
       }
 
@@ -885,6 +1032,12 @@ export default function ProductDetailPage() {
                     error={
                       imageMessage?.type === "error" ? imageMessage.text : ""
                     }
+                    aiSelectedFileIds={aiSelectedImageIds}
+                    aiSelectionSaving={aiSelectionSaving}
+                    aiSelectionError={aiSelectionError}
+                    aiSelectionMessage={aiSelectionMessage}
+                    onToggleAiImage={handleToggleAiImage}
+                    onSaveAiSelection={handleSaveAiSelection}
                     onSave={handleSaveImages}
                     onCancel={handleCancelImageEdit}
                   />
@@ -946,6 +1099,14 @@ export default function ProductDetailPage() {
                     statusClass={statusClass}
                     aiPriceHint={{ show: showAiPriceHint, price: aiDraftPrice }}
                     editMessage={editMessage}
+                    cost={{
+                      loadState: productCost.loadState,
+                      errorText: productCost.errorText,
+                      hasLinks: costView.hasLinks,
+                      hasCostAmount: costView.hasCostAmount,
+                      costTotal: costView.costTotal,
+                      hasUnconfirmedTax: costView.hasUnconfirmedTax,
+                    }}
                     onStartEdit={handleStartEdit}
                   />
                 )}
@@ -1036,6 +1197,12 @@ export default function ProductDetailPage() {
                       productId={product.product_id}
                       productName={product.product_name}
                       plannedSalePrice={product.planned_sale_price}
+                      costDetail={productCost.detail}
+                      costLoadState={productCost.loadState}
+                      costErrorText={productCost.errorText}
+                      onReloadCost={productCost.reload}
+                      autoLinkNotice={autoLinkNotice}
+                      onDismissAutoLinkNotice={() => setAutoLinkNotice(null)}
                     />
                     {hasAttachedDocument(product.document) && (
                       <div className="rounded-[10px] border border-background-200 bg-white px-4 py-4 md:px-5">

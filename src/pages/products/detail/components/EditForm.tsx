@@ -106,6 +106,17 @@ export default function EditForm({
     aiPriceSuggestion > 0;
 
   const [name, setName] = useState(product.product_name ?? "");
+  // 仕入台帳（オークション等）の商品番号。文字列のまま扱う（数値変換しない）。
+  // 詳細APIが項目自体を返さない（古い応答・部分表示）場合は編集させない。
+  const hasAuctionNumberField = Object.prototype.hasOwnProperty.call(
+    product,
+    "auction_item_number"
+  );
+  const [auctionItemNumber, setAuctionItemNumber] = useState(
+    typeof product.auction_item_number === "string"
+      ? product.auction_item_number
+      : ""
+  );
   const [brand, setBrand] = useState(product.brand ?? "");
   const [condition, setCondition] = useState(
     conditions.find((c) => c.label === product.condition)?.id ??
@@ -169,6 +180,13 @@ export default function EditForm({
       description: description || null,
       notes: notes || null,
     };
+
+    // 仕入台帳の商品番号は、取得できている場合のみ送る（項目を省略すればGAS側は既存値を維持）。
+    // 画面上で空にしたときは "" を明示送信してクリアする。
+    // 商品名など他項目だけの保存でも、現在値を送るため既存値は消えない。
+    if (hasAuctionNumberField) {
+      payload.auction_item_number = auctionItemNumber.trim();
+    }
 
     if (category === "sneaker") {
       payload.sneaker_sku = sneaker.sku || null;
@@ -286,6 +304,28 @@ export default function EditForm({
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
+          />
+        </FormField>
+
+        <FormField
+          label="仕入台帳の商品番号"
+          badge="社内用"
+          badgeColor="secondary"
+          hint={
+            hasAuctionNumberField
+              ? "先頭のゼロやハイフンはそのまま保存されます。空欄にすると未設定に戻ります（この項目を変更しない保存では消えません）。"
+              : "この商品では現在の値を取得できていないため、この欄は編集できません。他の項目を保存しても、登録済みの番号は変更されません。"
+          }
+        >
+          <input
+            className={`${inputClass} font-mono`}
+            type="text"
+            inputMode="text"
+            autoComplete="off"
+            placeholder="例: 00842-01"
+            value={auctionItemNumber}
+            disabled={!hasAuctionNumberField || saving}
+            onChange={(e) => setAuctionItemNumber(e.target.value)}
           />
         </FormField>
 

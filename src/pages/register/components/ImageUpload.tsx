@@ -8,8 +8,12 @@ interface ImageUploadProps {
   files: File[];
   onChange: (files: File[]) => void;
   error?: string;
-  // AI解析に使用する先頭枚数（バッジ表示用）
+  // AI解析に使用する先頭枚数（未選択時のバッジ表示用）
   analysisCount?: number;
+  // AI解析に使う画像として選択中のインデックス（最大3枚・選択順）
+  aiSelectedIndexes?: number[];
+  // サムネイルからAI解析用画像を選ぶ／解除する（未指定なら選択UIを出さない）
+  onToggleAiSelected?: (index: number) => void;
 }
 
 export default function ImageUpload({
@@ -17,7 +21,11 @@ export default function ImageUpload({
   onChange,
   error,
   analysisCount,
+  aiSelectedIndexes,
+  onToggleAiSelected,
 }: ImageUploadProps) {
+  const selectable = typeof onToggleAiSelected === "function";
+  const selectedIndexes = aiSelectedIndexes ?? [];
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [limitError, setLimitError] = useState("");
@@ -100,10 +108,38 @@ export default function ImageUpload({
                 メイン
               </span>
             )}
-            {typeof analysisCount === "number" && index < analysisCount && (
-              <span className="absolute right-0.5 top-0.5 rounded bg-primary-500 px-1 py-0 text-[8px] font-bold text-background-50">
-                AI解析
-              </span>
+            {selectable ? (
+              <button
+                type="button"
+                onClick={() => onToggleAiSelected?.(index)}
+                title={
+                  selectedIndexes.includes(index)
+                    ? "AI解析に使う画像から外す"
+                    : "この画像をAI解析に使う"
+                }
+                aria-pressed={selectedIndexes.includes(index)}
+                aria-label={
+                  selectedIndexes.includes(index)
+                    ? `商品画像 ${index + 1} をAI解析対象から外す`
+                    : `商品画像 ${index + 1} をAI解析対象にする`
+                }
+                className={`absolute right-0.5 top-0.5 flex h-4 min-w-4 cursor-pointer items-center justify-center rounded px-1 text-[9px] font-bold ${
+                  selectedIndexes.includes(index)
+                    ? "bg-primary-500 text-background-50"
+                    : "bg-white/85 text-foreground-600 hover:bg-white"
+                }`}
+              >
+                {selectedIndexes.includes(index)
+                  ? selectedIndexes.indexOf(index) + 1
+                  : "AI"}
+              </button>
+            ) : (
+              typeof analysisCount === "number" &&
+              index < analysisCount && (
+                <span className="absolute right-0.5 top-0.5 rounded bg-primary-500 px-1 py-0 text-[8px] font-bold text-background-50">
+                  AI解析
+                </span>
+              )
             )}
             <div className="absolute inset-x-0 bottom-0 flex items-center justify-end bg-black/40 px-0.5 py-0.5 opacity-0 transition-opacity group-hover:opacity-100">
               {index !== 0 && (
@@ -157,6 +193,15 @@ export default function ImageUpload({
       <p className="text-[11px] text-foreground-400">
         最大20枚・ドラッグ＆ドロップ可・1枚目がメイン画像（JPG / PNG / WEBP・1枚5MBまで）
       </p>
+      {selectable && (
+        <p className="text-[11px] text-foreground-400">
+          AI解析に使う画像は右上の「AI」で最大3枚選べます（
+          {selectedIndexes.length > 0
+            ? `${selectedIndexes.length}枚選択中`
+            : "未選択の場合は先頭3枚"}
+          ）。画像の並び順とメイン画像は変わりません。
+        </p>
+      )}
       {(error || limitError) && (
         <p className="flex items-start gap-1 text-xs leading-relaxed text-red-600">
           <i className="ri-error-warning-line mt-0.5 w-4 h-4 flex items-center justify-center"></i>

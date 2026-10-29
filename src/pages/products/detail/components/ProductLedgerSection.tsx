@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   DocumentLedgerApiError,
-  fetchProductCostDetail,
   unlinkProductManual,
-  type ProductCostDetail,
-  type ProductCostLinkDetail,
 } from "@/pages/documents/lib/documentLedgerApi";
+import type { ProductCostDetail } from "@/pages/documents/lib/documentLedgerApi";
+import type { ProductCostLoadState } from "../hooks/useProductCostDetail";
+import { deriveProductCost } from "../lib/productCost";
 import ProductLedgerLinker from "./ProductLedgerLinker";
 import LedgerOverview from "./LedgerOverview";
 import LedgerDocumentList from "./LedgerDocumentList";
@@ -16,28 +16,42 @@ interface ProductLedgerSectionProps {
   productName?: string;
   // 販売予定価格（概算利益の算出に使う。未設定なら利益は表示しない）
   plannedSalePrice: number | null | undefined;
+  // 商品詳細ページが取得した確定済み仕入原価（上部サマリーと同じ取得結果）。
+  costDetail: ProductCostDetail | null;
+  costLoadState: ProductCostLoadState;
+  costErrorText: string;
+  // 紐付け確定・解除のあとに原価を取り直す（上部の表示も同時に更新する）。
+  onReloadCost: () => void;
+  // 仕入台帳の商品番号による自動照合の結果（商品登録・編集の成否とは別に表示する）。
+  autoLinkNotice?: AutoLinkNotice | null;
+  onDismissAutoLinkNotice?: () => void;
 }
 
-type LoadState = "loading" | "success" | "error";
+export interface AutoLinkNotice {
+  tone: "success" | "warning" | "error";
+  text: string;
+  // 既存の「明細を探して紐付け」へ進むべきか（自動では紐付けていない）
+  needsManualLink: boolean;
+}
 
 /**
  * 商品詳細の「仕入内訳（書類台帳）」。
  *
- * documents-relay の get_product_cost を使い、紐付いた書類明細の
- * 仕入先・受付番号・商品代金・落札手数料・原本PDFリンクを表示する。
- * 金額は税額の厳密な配分を行わないため、利益は「概算」と明記する。
- *
- * 表示は「仕入れ概要（数字）」と「紐付け書類（一覧・操作）」の2ブロックに分ける。
+ * 取得は商品詳細ページ（useProductCostDetail）が1回だけ行い、上部サマリーと
+ * このセクションが同じ結果を使う。ここでは取得し直さない。
+ * 金額の集計は deriveProductCost に集約し、上部の「仕入原価（概算）」と同じ値になる。
  */
 export default function ProductLedgerSection({
   productId,
   productName,
   plannedSalePrice,
+  costDetail,
+  costLoadState,
+  costErrorText,
+  onReloadCost,
+  autoLinkNotice = null,
+  onDismissAutoLinkNotice,
 }: ProductLedgerSectionProps) {
-  const [loadState, setLoadState] = useState<LoadState>("loading");
-  const [detail, setDetail] = useState<ProductCostDetail | null>(null);
-  const [errorText, setErrorText] = useState("");
-  const [reloadKey, setReloadKey] = useState(0);
   // スタッフ用の明細検索パネルの開閉
   const [linkerOpen, setLinkerOpen] = useState(false);
   // 解除の確認対象（link_id）と実行中フラグ
@@ -46,161 +60,134 @@ export default function ProductLedgerSection({
   const [unlinkError, setUnlinkError] = useState("");
   const [notice, setNotice] = useState("");
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoadState("loading");
-    setErrorText("");
-    fetchProductCostDetail(productId)
-      .then((result) => {
-        if (cancelled) return;
-        setDetail(result);
-        setLoadState("success");
-      })
-      .catch((e: unknown) => {
-        if (cancelled) return;
-        setErrorText(
-          e instanceof DocumentLedgerApiError
-            ? e.message
-            : "仕入内訳を取得できませんでした。"
-        );
-        setLoadState("error");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [productId, reloadKey]);
-
-  const retry = useCallback(() => setReloadKey((k) => k + 1), []);
+  const retry = useCallback(() => onReloadCost(), [onReloadCost]);
 
   // 紐付け確定・解除のあとは仕入内訳を再取得する。
   const handleChanged = useCallback(() => {
     setUnlinkTarget(null);
     setUnlinkError("");
-    setReloadKey((k) => k + 1);
-  }, []);
+    onReloadCost();
+  }, [onReloadCost]);
 
-  const handleUnlink = useCallback(async (linkId: string) => {
-    setUnlinkBusy(linkId);
-    setUnlinkError("");
-    setNotice("");
-    try {
-      await unlinkProductManual(linkId);
-      setUnlinkTarget(null);
-      setNotice("紐付けを解除しました。");
-      setReloadKey((k) => k + 1);
-    } catch (e: unknown) {
-      setUnlinkError(
-        e instanceof DocumentLedgerApiError
-          ? e.message
-          : "紐付けの解除に失敗しました。時間をおいて再度お試しください。"
-      );
-    } finally {
-      setUnlinkBusy(null);
-    }
-  }, []);
-
-  const links: ProductCostLinkDetail[] = detail?.links ?? [];
-  const hasLinks = links.length > 0;
-
-  // 金額は「リンクの割当金額（allocated_amount）」ではなく、明細の内訳列から集計する。
-  // ・商品代金  = item_amount（税抜）
-  // ・落札手数料 = fee_amount（税抜）
-  // ・税額      = tax_amount / fee_tax_amount（商品代金・手数料には混ぜない）
-  // 同一明細に複数の紐付け（分割・手数料の別リンク等）があっても二重計上しないよう、
-  // 明細ID単位に1件へまとめてから合計する。
-  const uniqueLines = useMemo(() => {
-    const map = new Map<string, ProductCostLinkDetail>();
-    for (const link of links) {
-      const key = link.line_id || link.link_id;
-      if (!map.has(key)) map.set(key, link);
-    }
-    return Array.from(map.values());
-  }, [links]);
-
-  const isOtherExpenseLine = (link: ProductCostLinkDetail): boolean =>
-    link.transaction_type === "shipping" ||
-    link.transaction_type === "other_expense" ||
-    link.transaction_type === "participation_fee" ||
-    link.transaction_type === "unsold_fee";
-
-  const itemTotal = uniqueLines.reduce(
-    (sum, link) => sum + (link.item_amount ?? 0),
-    0
-  );
-  const feeTotal = uniqueLines.reduce(
-    (sum, link) => sum + (link.fee_amount ?? 0),
-    0
-  );
-  const itemTaxTotal = uniqueLines.reduce(
-    (sum, link) => sum + (link.tax_amount ?? 0),
-    0
-  );
-  const feeTaxTotal = uniqueLines.reduce(
-    (sum, link) => sum + (link.fee_tax_amount ?? 0),
-    0
-  );
-  const taxTotal = itemTaxTotal + feeTaxTotal;
-
-  // 内訳が取得できていない列は「0円」と断定せず「—」で表示を保留する（再入力を促さない）。
-  const hasItemBreakdown = uniqueLines.some(
-    (link) => link.item_amount !== null
-  );
-  const hasFeeBreakdown = uniqueLines.some((link) => link.fee_amount !== null);
-  const hasTaxBreakdown = uniqueLines.some(
-    (link) => link.tax_amount !== null || link.fee_tax_amount !== null
+  const handleUnlink = useCallback(
+    async (linkId: string) => {
+      setUnlinkBusy(linkId);
+      setUnlinkError("");
+      setNotice("");
+      try {
+        await unlinkProductManual(linkId);
+        setUnlinkTarget(null);
+        setNotice("紐付けを解除しました。");
+        onReloadCost();
+      } catch (e: unknown) {
+        setUnlinkError(
+          e instanceof DocumentLedgerApiError
+            ? e.message
+            : "紐付けの解除に失敗しました。時間をおいて再度お試しください。"
+        );
+      } finally {
+        setUnlinkBusy(null);
+      }
+    },
+    [onReloadCost]
   );
 
-  // 送料・その他経費は商品代金／手数料の内訳を持たないため、明細金額をそのまま使う。
-  const otherTotal = uniqueLines.reduce((sum, link) => {
-    const hasBreakdown =
-      link.item_amount !== null || link.fee_amount !== null;
-    if (hasBreakdown || !isOtherExpenseLine(link)) return sum;
-    return sum + (link.total_line_amount ?? 0);
-  }, 0);
-
-  // 内訳（商品代金・手数料）が未取得の明細。金額は原価に含めるが、商品代金としては表示しない。
-  const unknownBreakdownTotal = uniqueLines.reduce((sum, link) => {
-    const hasBreakdown =
-      link.item_amount !== null || link.fee_amount !== null;
-    if (hasBreakdown || isOtherExpenseLine(link)) return sum;
-    return sum + (link.total_line_amount ?? 0);
-  }, 0);
-  const hasUnknownBreakdown = unknownBreakdownTotal > 0;
-
-  // 仕入原価（概算）: 商品代金＋落札手数料＋税額＋送料その他（それぞれ1回だけ）。
-  const costTotal =
-    itemTotal + feeTotal + taxTotal + otherTotal + unknownBreakdownTotal;
+  const cost = deriveProductCost(costDetail);
+  const links = costDetail?.links ?? [];
 
   const price = Number(plannedSalePrice) || 0;
-  const canShowProfit = price > 0 && hasLinks;
-  const profit = price - costTotal;
+  const canShowProfit = price > 0 && cost.hasLinks;
+  const profit = price - cost.costTotal;
   const profitRate = price > 0 ? (profit / price) * 100 : 0;
 
   return (
     <div className="mt-4 flex flex-col gap-4">
+      {/* 自動照合の結果（商品の登録・編集の成否とは別に表示する） */}
+      {autoLinkNotice && (
+        <div
+          className={`rounded-[10px] border bg-white px-3.5 py-3 ${
+            autoLinkNotice.tone === "success"
+              ? "border-primary-200"
+              : autoLinkNotice.tone === "error"
+                ? "border-background-300"
+                : "border-amber-300"
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex items-start gap-2">
+            <i
+              className={`mt-0.5 w-4 h-4 flex items-center justify-center ${
+                autoLinkNotice.tone === "success"
+                  ? "ri-link text-primary-600"
+                  : autoLinkNotice.tone === "error"
+                    ? "ri-information-line text-foreground-500"
+                    : "ri-error-warning-line text-amber-600"
+              }`}
+            ></i>
+            <div className="min-w-0 flex-1">
+              <p className="text-[12.5px] leading-relaxed text-foreground-800">
+                {autoLinkNotice.text}
+              </p>
+              {autoLinkNotice.needsManualLink && (
+                <p className="mt-1 text-[11px] leading-relaxed text-foreground-500">
+                  自動で別の明細を選んだり、既存の紐付けを付け替えたりはしていません。下の「明細を探して紐付け」から手動で紐付けてください。
+                </p>
+              )}
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {autoLinkNotice.needsManualLink && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLinkerOpen(true);
+                      setNotice("");
+                      setUnlinkError("");
+                    }}
+                    className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border border-background-300 bg-white px-3 py-1.5 text-xs font-bold text-foreground-800 transition-colors hover:bg-background-100"
+                  >
+                    <i className="ri-search-line w-4 h-4 flex items-center justify-center"></i>
+                    明細を探して紐付け
+                  </button>
+                )}
+                {onDismissAutoLinkNotice && (
+                  <button
+                    type="button"
+                    onClick={onDismissAutoLinkNotice}
+                    className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap rounded-md px-2 py-1.5 text-[11px] font-medium text-foreground-500 transition-colors hover:bg-background-100 hover:text-foreground-700"
+                  >
+                    閉じる
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <LedgerOverview
-        loading={loadState === "loading"}
-        hasLinks={hasLinks}
-        itemTotal={itemTotal}
-        hasItemBreakdown={hasItemBreakdown}
-        feeTotal={feeTotal}
-        hasFeeBreakdown={hasFeeBreakdown}
-        taxTotal={taxTotal}
-        hasTaxBreakdown={hasTaxBreakdown}
-        itemTaxTotal={itemTaxTotal}
-        feeTaxTotal={feeTaxTotal}
-        costTotal={costTotal}
-        otherTotal={otherTotal}
-        unknownBreakdownTotal={unknownBreakdownTotal}
-        hasUnknownBreakdown={hasUnknownBreakdown}
+        loading={costLoadState === "loading"}
+        hasLinks={cost.hasLinks}
+        hasCostAmount={cost.hasCostAmount}
+        itemTotal={cost.itemTotal}
+        hasItemBreakdown={cost.hasItemBreakdown}
+        feeTotal={cost.feeTotal}
+        hasFeeBreakdown={cost.hasFeeBreakdown}
+        taxTotal={cost.taxTotal}
+        hasTaxBreakdown={cost.hasTaxBreakdown}
+        itemTaxTotal={cost.itemTaxTotal}
+        feeTaxTotal={cost.feeTaxTotal}
+        costTotal={cost.costTotal}
+        otherTotal={cost.otherTotal}
+        unknownBreakdownTotal={cost.unknownBreakdownTotal}
+        hasUnknownBreakdown={cost.hasUnknownBreakdown}
         canShowProfit={canShowProfit}
         profit={profit}
         profitRate={profitRate}
       />
 
       <LedgerDocumentList
-        loading={loadState === "loading"}
-        errorText={loadState === "error" ? errorText : ""}
+        loading={costLoadState === "loading"}
+        errorText={costLoadState === "error" ? costErrorText : ""}
         onRetry={retry}
         links={links}
         notice={notice}

@@ -52,6 +52,10 @@ export interface AdminProductDetail {
   category: string;
   brand: string;
   product_name: string;
+  // GAS v108: 仕入台帳（オークション等）の商品番号。任意の文字列で、
+  // 先頭ゼロ・ハイフンを保持する。未設定は ""。商品ID・メーカー品番・型番とは別項目。
+  // 古い応答では項目自体が存在しないことがある（その場合は編集で送らない）。
+  auction_item_number?: string;
   condition: string;
   purchase_price: number | null;
   planned_sale_price: number;
@@ -85,6 +89,11 @@ export interface AdminProductDetail {
   square_payment_link_id: string;
   square_checkout_url: string;
   images?: AdminProductImage[];
+  // AI解析に使う画像（Driveのfile_id）。GAS側の項目名は selected_image_ids /
+  // ai_selected_image_ids のどちらかで返るため、両方を任意項目として受ける。
+  // 空配列＝指定解除（未選択）。未設定＝従来どおり先頭3枚を使用。
+  selected_image_ids?: string[];
+  ai_selected_image_ids?: string[];
   translation?: ProductTranslation | null;
   pokemon_card?: PokemonCardData;
   // 添付済みの書類（未添付は null/未設定）。
@@ -377,6 +386,12 @@ export interface AiBatchItem {
   error_code?: string | null;
   error_message?: string | null;
   retry_count?: number;
+  // GAS v102以降: 提案価格・価格根拠（candidate.price_note）・解析に使った画像
+  proposed_price?: number | null;
+  price_note?: string | null;
+  // GAS v103: 価格根拠の種別。"cost_markup_floor" は「原価上乗せ下限」を採用したことを示す。
+  price_basis?: string | null;
+  source_image_ids?: string[];
 }
 
 // get_ai_product_draft_batch の応答
@@ -427,6 +442,11 @@ export interface AiBatchDisplayItem {
   // 進捗表示・商品詳細への導線の補助に使う（表示名の生成には使わない）。
   draft_id?: string | null;
   draft_version?: number | null;
+  // GAS が返す提案価格と価格根拠（相場より原価上乗せ下限を優先した場合の理由も含む）
+  proposed_price?: number | null;
+  price_note?: string | null;
+  // GAS v103: 価格根拠の種別（"cost_markup_floor" = 原価上乗せ下限を採用）
+  price_basis?: string | null;
 }
 
 export const CATEGORY_LABELS: Record<string, string> = {

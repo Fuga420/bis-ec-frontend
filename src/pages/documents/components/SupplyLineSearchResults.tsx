@@ -3,6 +3,8 @@ import type { DocumentLineSearchHit } from "@/pages/documents/types";
 
 interface SupplyLineSearchResultsProps {
   hits: DocumentLineSearchHit[];
+  // 検索条件をクリアする
+  onClear: () => void;
 }
 
 function formatYen(value: number | null | undefined): string {
@@ -25,17 +27,18 @@ const HEAD_CELL = "text-[11px] font-medium text-foreground-500";
  */
 export default function SupplyLineSearchResults({
   hits,
+  onClear,
 }: SupplyLineSearchResultsProps) {
   const linkedCount = hits.filter((hit) => hit.linked_product_ids.length > 0).length;
   const unlinkedCount = hits.length - linkedCount;
 
   return (
     <div className="overflow-hidden rounded-lg border border-background-200 bg-white">
-      {/* 件数（検索結果件数を主、紐付け内訳を補助テキストとして同じ行に置く） */}
+      {/* 件数（候補件数を主、紐付け内訳を補助テキストとして同じ行に置く） */}
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-background-200 px-4 py-2.5">
         <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12px] text-foreground-600">
           <span>
-            検索結果{" "}
+            候補{" "}
             <span className="text-sm font-semibold tabular-nums text-foreground-950">
               {hits.length}
             </span>{" "}
@@ -50,6 +53,14 @@ export default function SupplyLineSearchResults({
             </span>
           )}
         </p>
+        <button
+          type="button"
+          onClick={onClear}
+          className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-medium text-foreground-500 transition-colors hover:bg-background-100 hover:text-foreground-800"
+        >
+          <i className="ri-close-line w-3.5 h-3.5 flex items-center justify-center"></i>
+          検索条件をクリア
+        </button>
       </div>
 
       {/* ヘッダー行（デスクトップ） */}

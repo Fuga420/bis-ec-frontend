@@ -12,7 +12,9 @@ import ProductListSkeleton from "./components/ProductListSkeleton";
 import ProductEmptyState from "./components/ProductEmptyState";
 import ProductFilterEmptyState from "./components/ProductFilterEmptyState";
 import ProductLoadErrorState from "./components/ProductLoadErrorState";
-import AiBatchConfirmModal from "./components/AiBatchConfirmModal";
+import AiBatchConfirmModal, {
+  parseMinMarkupPercent,
+} from "./components/AiBatchConfirmModal";
 import BulkArchiveConfirmModal from "./components/BulkArchiveConfirmModal";
 import BulkArchiveResultModal from "./components/BulkArchiveResultModal";
 import { useAiBatch } from "./context/AiBatchProvider";
@@ -416,6 +418,8 @@ export default function ProductsPage() {
   // 一括AI生成の状態（バッチ受付＋進捗ポーリング。一括公開・決済リンク処理とは別操作）
   // 状態は管理画面共通のプロバイダーが保持する。ここで独自にポーリングしない。
   const [isAiConfirmOpen, setIsAiConfirmOpen] = useState(false);
+  // 概算原価への最低上乗せ率（％表記の入力値）。送信時に小数（0.3 = 30％）へ変換する。
+  const [minMarkupPercent, setMinMarkupPercent] = useState("30");
   const aiBatch = useAiBatch();
 
   // 一括アーカイブ（既存の単品APIを1件ずつ実行）
@@ -638,8 +642,13 @@ export default function ProductsPage() {
   // 一括AI生成を「一括受付＋進捗取得」で開始する（ブラウザからの直列生成ループは使わない）
   const startAiBatch = async () => {
     if (aiBatch.isBusy || selectedProducts.length === 0) return;
+    const percent = parseMinMarkupPercent(minMarkupPercent);
+    // 未入力・範囲外は確認ダイアログ側にエラーを表示しているので、送信しない。
+    if (percent === null) return;
     setIsAiConfirmOpen(false);
-    await aiBatch.start(selectedProducts);
+    // スタッフが入力した％を小数（0より大きく5.0以下）へ変換して送信する。
+    const rate = Math.round((percent / 100) * 10000) / 10000;
+    await aiBatch.start(selectedProducts, rate);
   };
 
   const hasSelection = selectedIds.size > 0;
@@ -1141,6 +1150,8 @@ export default function ProductsPage() {
         count={selectedIds.size}
         isBusy={aiBatch.isBusy}
         errorMessage={aiBatch.errorMessage}
+        minMarkupPercent={minMarkupPercent}
+        onMinMarkupPercentChange={setMinMarkupPercent}
         onCancel={() => setIsAiConfirmOpen(false)}
         onConfirm={startAiBatch}
       />

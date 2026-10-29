@@ -39,6 +39,8 @@ export interface ImportResponseData {
   inventory_status?: string;
   record_status?: string;
   image_count?: number;
+  // GAS v108: 仕入台帳の商品番号（任意の文字列。未設定は ""）。
+  auction_item_number?: string;
   error?: string;
   error_code?: string;
   message?: string;
@@ -76,6 +78,9 @@ function asString(value: unknown): string {
 export async function importProductByImages(params: {
   importAttemptId: string;
   images: ImportImagePayload[];
+  // 仕入台帳の商品番号（任意）。文字列のまま送り、先頭ゼロ・ハイフンを保持する。
+  // 未入力のときは空文字を送る（数値変換はしない）。
+  auctionItemNumber?: string;
 }): Promise<ImportSendResult> {
   let response: Response;
   try {
@@ -90,6 +95,9 @@ export async function importProductByImages(params: {
         action: IMPORT_PRODUCT_BY_IMAGES_ACTION,
         import_attempt_id: params.importAttemptId,
         images: params.images,
+        // 仕入台帳の商品番号（そのセットに対する任意入力）。
+        // 型は文字列のまま送る（"00842-01" のような値を保持するため数値にしない）。
+        auction_item_number: (params.auctionItemNumber ?? "").trim(),
         publish_status: "draft",
       }),
     });
@@ -211,6 +219,18 @@ export function createImportAttemptId(): string {
       .slice(2, 10)}-${Math.random().toString(16).slice(2, 10)}`;
   }
   return `IMP_${yyyy}${mm}${dd}_${uuid}`;
+}
+
+/**
+ * 送信済みの仕入台帳の商品番号と現在の入力値が同一かを判定する。
+ * 画像が同じでも商品番号が変わっていれば、同一 import_attempt_id での再送は行わない
+ * （同一IDで内容が変わると指紋照合で中止されるため）。
+ */
+export function sameAuctionNumber(
+  sent: string | null | undefined,
+  current: string | null | undefined
+): boolean {
+  return (sent ?? "").trim() === (current ?? "").trim();
 }
 
 /**

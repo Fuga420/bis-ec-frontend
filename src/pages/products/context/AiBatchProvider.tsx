@@ -38,8 +38,15 @@ export interface AiBatchContextValue {
   pollError: string;
   /** 結果モーダルが開いているか */
   isResultOpen: boolean;
-  /** 一括生成を開始する（受付直後だけ結果モーダルを自動表示する） */
-  start: (targets: AiBatchTarget[]) => Promise<void>;
+  /**
+   * 一括生成を開始する（受付直後だけ結果モーダルを自動表示する）。
+   * minCostMarkupRate は概算原価への最低上乗せ率（0より大きく5.0以下の小数）。
+   * 未指定は 0.30（30%）。
+   */
+  start: (
+    targets: AiBatchTarget[],
+    minCostMarkupRate?: number
+  ) => Promise<void>;
   /** 失敗分のみ再実行 */
   retryFailed: () => Promise<void>;
   /** バッチ状態を破棄する（保存済みIDも削除） */
@@ -73,11 +80,11 @@ export function AiBatchProvider({ children }: { children: ReactNode }) {
   // 受付開始時だけ結果モーダルを自動表示する。
   // 画面移動や再読込で復帰したときは自動で開かない（上部の進捗表示から開ける）。
   const start = useCallback(
-    async (targets: AiBatchTarget[]) => {
+    async (targets: AiBatchTarget[], minCostMarkupRate?: number) => {
       // items は start 内で同期的に用意されるため、先に開いても空表示にはならない。
       // 受付に失敗した場合もモーダル内で理由を確認できる。
       setIsResultOpen(true);
-      await startBatch(targets);
+      await startBatch(targets, minCostMarkupRate);
     },
     [startBatch]
   );

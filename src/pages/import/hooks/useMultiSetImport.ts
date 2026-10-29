@@ -1,10 +1,17 @@
 import { useCallback, useRef, useState } from "react";
+import { MAX_AI_ANALYSIS_IMAGES } from "@/pages/products/lib/aiBatch";
+import { saveImportAiSelection } from "@/pages/import/lib/aiImageSelection";
+import {
+  autoLinkProductByItemNumber,
+  type AutoLinkResult,
+} from "@/pages/documents/lib/productAutoLink";
 import {
   IMPORT_MAX_IMAGES,
   IMPORT_MIN_IMAGES,
   buildImagePayload,
   createImportAttemptId,
   importProductByImages,
+  sameAuctionNumber,
   sameFiles,
   type ImportImagePayload,
 } from "@/pages/import/lib/multiImport";
@@ -16,15 +23,29 @@ export type ImportSetStatus =
   | "error"
   | "unknown";
 
+// AI解析用に選んだ画像（最大3枚）の保存状況。
+// none: 未選択（先頭3枚を使用）/ saving: 保存中 / saved: 保存済み / error: 保存失敗
+export type AiSelectionStatus = "none" | "saving" | "saved" | "error";
+
 export interface ImportSet {
   id: string;
   // 画面で確定した順序の画像（先頭がメイン画像）。
   images: File[];
+  // AI解析に使う画像として選んだ File（images 内の参照）。空なら先頭3枚。
+  aiSelectedFiles: File[];
+  aiSelectionStatus: AiSelectionStatus;
+  aiSelectionError: string | null;
+  // 保存した（または保存を要求した）Drive の file_id
+  aiSelectedFileIds: string[];
   status: ImportSetStatus;
+  // 仕入台帳の商品番号（任意入力）。文字列として保持し、先頭ゼロ・ハイフンを保つ。
+  auctionItemNumber: string;
   // 送信に使った（使う）import_attempt_id。
   attemptId: string | null;
   // attemptId を発行したときの画像配列。編集検知＝attemptId の再利用可否の判定に使う。
   attemptFiles: File[] | null;
+  // attemptId で送信したときの仕入台帳の商品番号。再送時に同じ値を送るために保持する。
+  attemptAuctionNumber: string | null;
   // 「受付済みか不明」のセットで保持する、送信済みの完全なペイロード。
   // 同一ID・同一内容での再送に使う（再送前に編集させない）。
   retainedPayload: ImportImagePayload[] | null;
@@ -35,6 +56,9 @@ export interface ImportSet {
   productId: string | null;
   errorCode: string | null;
   errorMessage: string | null;
+  // 仕入台帳の商品番号による自動照合の結果（未実行・無効時は null）。
+  // 商品登録の成否とは独立して表示する（照合だけが未完了のケースを混同しない）。
+  autoLink: AutoLinkResult | null;
 }
 
 let setSeq = 0;
@@ -47,14 +71,21 @@ function emptySet(): ImportSet {
   return {
     id: createSetId(),
     images: [],
+    aiSelectedFiles: [],
+    aiSelectionStatus: "none",
+    aiSelectionError: null,
+    aiSelectedFileIds: [],
+    auctionItemNumber: "",
     status: "idle",
     attemptId: null,
     attemptFiles: null,
+    attemptAuctionNumber: null,
     retainedPayload: null,
     newIdAckFiles: null,
     productId: null,
     errorCode: null,
     errorMessage: null,
+    autoLink: null,
   };
 }
 
@@ -102,9 +133,96 @@ export function useMultiSetImport() {
 
   const setImages = useCallback(
     (id: string, files: File[]) => {
-      updateSet(id, (s) => ({ ...s, images: files }));
+      updateSet(id, (s) => ({
+        ...s,
+        images: files,
+        // 削除した画像は AI 解析用の選択からも外す（残った画像の順序は変えない）。
+        aiSelectedFiles: s.aiSelectedFiles.filter((f) => files.includes(f)),
+      }));
     },
     [updateSet]
+  );
+
+  // AI解析に使う画像（最大3枚）の選択切り替え。並び順やメイン画像は変えない。
+  const toggleAiImage = useCallback(
+    (id: string, file: File) => {
+      updateSet(id, (s) => {
+        if (!s.images.includes(file)) return s;
+        if (s.status === "processing" || s.status === "success") return s;
+        const already = s.aiSelectedFiles.includes(file);
+        if (already) {
+          return {
+            ...s,
+            aiSelectedFiles: s.aiSelectedFiles.filter((f) => f !== file),
+            aiSelectionStatus: "none" as AiSelectionStatus,
+            aiSelectionError: null,
+            aiSelectedFileIds: [],
+          };
+        }
+        if (s.aiSelectedFiles.length >= MAX_AI_ANALYSIS_IMAGES) return s;
+        return {
+          ...s,
+          aiSelectedFiles: [...s.aiSelectedFiles, file],
+          aiSelectionStatus: "none" as AiSelectionStatus,
+          aiSelectionError: null,
+        };
+      });
+    },
+    [updateSet]
+  );
+
+  // 選択したAI解析用画像を保存し、再取得で確認する（成功を断定できない場合はエラー）。
+  const persistAiSelection = useCallback(
+    async (id: string, productId: string, files: File[], selected: File[]) => {
+      updateSet(id, (s) => ({
+        ...s,
+        aiSelectionStatus: "saving",
+        aiSelectionError: null,
+      }));
+      const result = await saveImportAiSelection({
+        productId,
+        images: files,
+        selectedFiles: selected,
+      });
+      updateSet(id, (s) => ({
+        ...s,
+        aiSelectionStatus: result.ok ? "saved" : "error",
+        aiSelectionError: result.ok ? null : result.message ?? "AI解析用の画像の保存に失敗しました。",
+        aiSelectedFileIds: result.selectedIds,
+      }));
+    },
+    [updateSet]
+  );
+
+  // AI解析用画像の保存だけを再試行する（商品は既に作成済みなので再取り込みはしない）。
+  const retryAiSelection = useCallback(
+    async (id: string) => {
+      const set = setsRef.current.find((s) => s.id === id);
+      if (!set || !set.productId) return;
+      if (set.aiSelectedFiles.length === 0) return;
+      await persistAiSelection(id, set.productId, set.images, set.aiSelectedFiles);
+    },
+    [persistAiSelection]
+  );
+
+  // 仕入台帳の商品番号（任意入力）の変更。文字列のまま保持する（数値変換しない）。
+  const setAuctionItemNumber = useCallback(
+    (id: string, value: string) => {
+      updateSet(id, (s) => {
+        if (s.status === "processing" || s.status === "success") return s;
+        if (s.status === "unknown") return s;
+        return { ...s, auctionItemNumber: value };
+      });
+    },
+    [updateSet]
+  );
+
+  // 画像と仕入台帳の商品番号の両方が送信時と同じか（同一IDでの再送可否の判定）。
+  const isAttemptContentSame = useCallback(
+    (s: ImportSet) =>
+      sameFiles(s.attemptFiles, s.images) &&
+      sameAuctionNumber(s.attemptAuctionNumber, s.auctionItemNumber),
+    []
   );
 
   const moveImage = useCallback(
@@ -148,11 +266,19 @@ export function useMultiSetImport() {
 
   // 実際の送信と、結果に応じた状態更新。
   const sendSet = useCallback(
-    async (id: string, attemptId: string, payload: ImportImagePayload[]) => {
+    async (
+      id: string,
+      attemptId: string,
+      payload: ImportImagePayload[],
+      files: File[],
+      aiSelected: File[],
+      auctionItemNumber: string
+    ) => {
       updateSet(id, (s) => ({
         ...s,
         status: "processing",
         attemptId,
+        attemptAuctionNumber: auctionItemNumber,
         errorCode: null,
         errorMessage: null,
       }));
@@ -160,6 +286,7 @@ export function useMultiSetImport() {
       const result = await importProductByImages({
         importAttemptId: attemptId,
         images: payload,
+        auctionItemNumber,
       });
 
       if (result.kind === "success") {
@@ -172,6 +299,24 @@ export function useMultiSetImport() {
           retainedPayload: null,
           newIdAckFiles: null,
         }));
+
+        // 商品IDが確定し、仕入台帳の商品番号が入力されているときだけ自動照合を試みる。
+        // 照合の結果は商品登録の成否とは別に保持する（失敗しても登録は成功のまま）。
+        if (result.productId && auctionItemNumber !== "") {
+          const autoLink = await autoLinkProductByItemNumber({
+            productId: result.productId,
+            auctionItemNumber,
+          });
+          updateSet(id, (s) => ({
+            ...s,
+            autoLink: autoLink.status === "disabled" ? null : autoLink,
+          }));
+        }
+        // 商品IDが発行されたので、選んだAI解析用画像を Drive の file_id で保存する。
+        // 保存に失敗した場合は「保存できた」ように扱わず、AI生成の対象から外す。
+        if (result.productId && aiSelected.length > 0) {
+          await persistAiSelection(id, result.productId, files, aiSelected);
+        }
       } else if (result.kind === "rejected") {
         // 応答本文 success:false を明示。ただし Drive 保存や本票書込みの「途中」で失敗した
         // 可能性があり、受付済みか判断できないケースがある。送信時のペイロードと
@@ -195,7 +340,7 @@ export function useMultiSetImport() {
         }));
       }
     },
-    [updateSet]
+    [persistAiSelection, updateSet]
   );
 
   // 1セットを（必要なら再送として）処理する。
@@ -209,7 +354,7 @@ export function useMultiSetImport() {
       // 途中で失敗した可能性がある」（error）セットは、送信時のペイロードと ID を保持している。
       const hadAttempt =
         set.retainedPayload !== null && set.attemptId !== null;
-      const contentUnchanged = sameFiles(set.attemptFiles, set.images);
+      const contentUnchanged = isAttemptContentSame(set);
 
       // 内容が送信時と完全に同一なら、保存済みの同一ペイロード・同一 import_attempt_id で
       // 再送する（冪等・重複しない）。内容が変わっていなければ新IDは発行しない。
@@ -221,7 +366,10 @@ export function useMultiSetImport() {
         await sendSet(
           id,
           set.attemptId as string,
-          set.retainedPayload as ImportImagePayload[]
+          set.retainedPayload as ImportImagePayload[],
+          set.images,
+          set.aiSelectedFiles,
+          set.attemptAuctionNumber ?? ""
         );
         return;
       }
@@ -274,19 +422,27 @@ export function useMultiSetImport() {
 
       // 内容が前回と完全に同一のときだけ attempt_id を再利用する。
       // 1文字でも変わっていれば新しい attempt_id を発行する（契約の指紋照合に合わせる）。
-      const reuse =
-        set.attemptId !== null && sameFiles(set.attemptFiles, set.images);
+      const auctionItemNumber = set.auctionItemNumber.trim();
+      const reuse = set.attemptId !== null && isAttemptContentSame(set);
       const attemptId =
         reuse && set.attemptId ? set.attemptId : createImportAttemptId();
       updateSet(id, (s) => ({
         ...s,
         attemptFiles: s.images,
+        attemptAuctionNumber: auctionItemNumber,
         newIdAckFiles: null,
       }));
 
-      await sendSet(id, attemptId, payload);
+      await sendSet(
+        id,
+        attemptId,
+        payload,
+        set.images,
+        set.aiSelectedFiles,
+        auctionItemNumber
+      );
     },
-    [sendSet, updateSet]
+    [isAttemptContentSame, sendSet, updateSet]
   );
 
   const importAll = useCallback(async () => {
@@ -353,8 +509,11 @@ export function useMultiSetImport() {
     addSet,
     removeSet,
     setImages,
+    setAuctionItemNumber,
     moveImage,
     setMainImage,
+    toggleAiImage,
+    retryAiSelection,
     acknowledgeNewId,
     importAll,
     resendSet,

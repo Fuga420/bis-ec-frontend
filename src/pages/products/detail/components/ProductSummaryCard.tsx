@@ -1,6 +1,8 @@
 import type { AdminProductDetail } from "@/pages/products/types";
 import SaveStatusMessage from "@/components/base/SaveStatusMessage";
-import ProductSpecGrid from "./ProductSpecGrid";
+import ProductSpecGrid, {
+  type ProductCostSpecInput,
+} from "./ProductSpecGrid";
 import { formatPrice } from "../lib/format";
 
 interface ProductSummaryCardProps {
@@ -11,6 +13,8 @@ interface ProductSummaryCardProps {
   statusClass: string;
   aiPriceHint: { show: boolean; price: number | null };
   editMessage: { type: "success" | "error" | "warning"; text: string } | null;
+  // 確定済みの仕入原価（下部「仕入・書類」と同じ取得結果）
+  cost: ProductCostSpecInput;
   onStartEdit: () => void;
 }
 
@@ -28,6 +32,7 @@ export default function ProductSummaryCard({
   aiPriceHint,
   editMessage,
   onStartEdit,
+  cost,
 }: ProductSummaryCardProps) {
   return (
     <div className="flex flex-col overflow-hidden rounded-[10px] border border-background-200 bg-white">
@@ -57,7 +62,7 @@ export default function ProductSummaryCard({
 
       {/* 2. 商品スペック */}
       <dl className="border-b border-background-100 px-4 py-4 md:px-5">
-        <ProductSpecGrid product={product} />
+        <ProductSpecGrid product={product} cost={cost} />
       </dl>
 
       {/* 3. 販売予定価格 + 公開/在庫状態 */}

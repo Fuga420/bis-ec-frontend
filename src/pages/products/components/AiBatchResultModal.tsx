@@ -8,6 +8,7 @@ import {
   AI_BATCH_STATUS_LABELS,
   deriveAiBatchDisplayStatus,
   explainAiBatchError,
+  isCostMarkupFloorBasis,
   isTerminalBatchStatus,
 } from "@/pages/products/lib/aiBatch";
 
@@ -165,6 +166,30 @@ export default function AiBatchResultModal({
                   <p className="truncate font-mono text-xs text-foreground-500">
                     {item.product_id}
                   </p>
+                  {(item.proposed_price != null || item.price_note) && (
+                    <div className="mt-1 rounded-md bg-background-100 px-2 py-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {item.proposed_price != null && (
+                          <p className="text-xs font-semibold tabular-nums text-foreground-900">
+                            提案価格 ¥{item.proposed_price.toLocaleString("ja-JP")}
+                          </p>
+                        )}
+                        {isCostMarkupFloorBasis(item.price_basis) && (
+                          <span className="inline-flex h-[18px] items-center whitespace-nowrap rounded-md bg-secondary-100 px-1.5 text-[10px] font-medium text-secondary-900">
+                            原価上乗せ下限
+                          </span>
+                        )}
+                      </div>
+                      {item.price_note && (
+                        <p className="mt-0.5 break-words text-[11px] leading-relaxed text-foreground-600">
+                          {item.price_note}
+                        </p>
+                      )}
+                      <p className="mt-0.5 break-words text-[10px] leading-relaxed text-foreground-500">
+                        原価は確定済みの仕入明細からの概算です（税額未確認の明細を含む場合があります）。
+                      </p>
+                    </div>
+                  )}
                   {display === "failed" &&
                     (item.error_code || item.error_message) && (
                       <p className="mt-0.5 break-words text-xs text-red-700">

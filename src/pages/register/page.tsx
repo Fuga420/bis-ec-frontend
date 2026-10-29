@@ -24,6 +24,7 @@ import {
 } from "./lib/squareProduction";
 import {
   AI_ANALYSIS_IMAGE_COUNT,
+  MAX_AI_SELECTED_IMAGES,
   buildConfirmedData,
   confirmAiProductDraft,
   createConfirmationAttemptId,
@@ -131,6 +132,12 @@ export default function RegisterPage() {
   const [submitError, setSubmitError] = useState("");
   const [productId, setProductId] = useState("");
 
+  // AI解析に使う画像（0始まりの画像インデックス、選択順・最大3枚）。
+  // 未選択の場合は GAS 側の従来処理（先頭3枚）に委ねる。
+  const [aiSelectedImageIndexes, setAiSelectedImageIndexes] = useState<number[]>(
+    []
+  );
+
   // 公開・Square連携オプション（MVP: 通常運用はデフォルトON）
   const [publishOn, setPublishOn] = useState(true);
   const [squareOn, setSquareOn] = useState(true);
@@ -144,7 +151,7 @@ export default function RegisterPage() {
   const [checkoutCopyFeedback, setCheckoutCopyFeedback] = useState("");
 
   // AI商品情報生成（① 単品生成）
-  const ai = useAiProductGeneration(images);
+  const ai = useAiProductGeneration(images, aiSelectedImageIndexes);
   const [isApplyConfirmOpen, setIsApplyConfirmOpen] = useState(false);
   // AI候補の確定保存（confirm_ai_product_draft）
   const [isConfirming, setIsConfirming] = useState(false);
@@ -232,6 +239,21 @@ export default function RegisterPage() {
       return;
     }
     applyCandidate();
+  };
+
+  // 画像の追加・削除に合わせて、AI解析用の選択インデックスを有効範囲に収める。
+  const handleImagesChange = (next: File[]) => {
+    setImages(next);
+    setAiSelectedImageIndexes((prev) => prev.filter((i) => i < next.length));
+  };
+
+  // サムネイルからAI解析用画像を選ぶ／解除する（最大3枚・選択した順に保持）。
+  const toggleAiSelectedImage = (index: number) => {
+    setAiSelectedImageIndexes((prev) => {
+      if (prev.includes(index)) return prev.filter((i) => i !== index);
+      if (prev.length >= MAX_AI_SELECTED_IMAGES) return prev;
+      return [...prev, index];
+    });
   };
 
   // 販売予定価格の変更（下部フォームとAIドラフト確認カードで共通）。
@@ -685,6 +707,7 @@ export default function RegisterPage() {
 
   const resetForm = () => {
     setImages([]);
+    setAiSelectedImageIndexes([]);
     setCategory("");
     setName("");
     setBrand("");
@@ -739,9 +762,11 @@ export default function RegisterPage() {
         >
           <ImageUpload
             files={images}
-            onChange={setImages}
+            onChange={handleImagesChange}
             error={errors.images}
             analysisCount={AI_ANALYSIS_IMAGE_COUNT}
+            aiSelectedIndexes={aiSelectedImageIndexes}
+            onToggleAiSelected={toggleAiSelectedImage}
           />
 
           {/* 画像登録欄のすぐ下：AIで商品情報を生成（①） */}

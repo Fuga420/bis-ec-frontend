@@ -11,6 +11,10 @@ interface SetImageEditorProps {
   // 取り込み中・成功・受付不明のセットは編集させない（再送前に内容を変えないため）。
   disabled?: boolean;
   error?: string;
+  // AI解析に使う画像（最大3枚）。未選択なら先頭3枚が使われる。
+  aiSelectedFiles?: File[];
+  onToggleAiImage?: (file: File) => void;
+  aiMaxCount?: number;
 }
 
 /**
@@ -24,6 +28,9 @@ export default function SetImageEditor({
   onChange,
   disabled = false,
   error,
+  aiSelectedFiles = [],
+  onToggleAiImage,
+  aiMaxCount = 3,
 }: SetImageEditorProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -203,6 +210,26 @@ export default function SetImageEditor({
                     メイン
                   </span>
                 )}
+                {onToggleAiImage && (
+                  <button
+                    type="button"
+                    onClick={() => onToggleAiImage(file)}
+                    disabled={disabled}
+                    aria-pressed={aiSelectedFiles.includes(file)}
+                    title={
+                      aiSelectedFiles.includes(file)
+                        ? "AI解析に使う画像から外す"
+                        : "この画像をAI解析に使う"
+                    }
+                    className={`absolute right-1 top-1 flex h-5 items-center justify-center rounded px-1.5 text-[10px] font-bold transition-colors ${
+                      aiSelectedFiles.includes(file)
+                        ? "bg-accent-500 text-background-50"
+                        : "bg-white/90 text-foreground-600 hover:bg-white"
+                    } ${disabled ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
+                  >
+                    AI
+                  </button>
+                )}
                 {!disabled && (
                   <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-0.5 bg-black/50 px-1 py-1 opacity-0 transition-opacity group-hover:opacity-100">
                     <div className="flex items-center gap-0.5">
@@ -280,6 +307,19 @@ export default function SetImageEditor({
           画像 {images.length} / {IMPORT_MAX_IMAGES}枚・ドラッグ＆ドロップ可・
           <span className="text-foreground-500">1枚目がメイン画像</span>
           （JPG / PNG / WEBP・1枚5MBまで）
+        </p>
+      )}
+      {onToggleAiImage && !isEmpty && (
+        <p className="flex flex-wrap items-center gap-1.5 text-[11px] leading-relaxed text-foreground-500">
+          <span className="inline-flex items-center gap-1 rounded bg-accent-100 px-1.5 py-0.5 text-[10px] font-bold text-accent-900">
+            AI
+          </span>
+          <span>
+            AI解析に使う画像 {aiSelectedFiles.length} / {aiMaxCount}枚
+            {aiSelectedFiles.length === 0
+              ? "（未選択のときは先頭3枚を使用します）"
+              : ""}
+          </span>
         </p>
       )}
       {message && (

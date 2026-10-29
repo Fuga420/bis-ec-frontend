@@ -15,12 +15,31 @@ import type {
   AiBatchRetryResponse,
 } from "@/pages/products/types";
 
-// 中継（gas-ai-batch-relay）が扱う3action名。GAS/契約と一致させる。
+// 中継（gas-ai-batch-relay）が扱うaction名。GAS/契約と一致させる。
 export const AI_BATCH_ACTIONS = {
   create: "create_ai_product_draft_batch",
   get: "get_ai_product_draft_batch",
   retry: "retry_ai_product_draft_batch",
+  // AI解析に使う画像（Drive file_id）の保存・指定解除（空配列）。
+  saveSelectedImages: "save_product_ai_selected_images",
 } as const;
+
+// 概算原価への最低上乗せ率の既定値（30% = 下限価格は原価 × 1.30）。
+// GAS v103 契約: 0 < min_cost_markup_rate <= 5.0
+export const DEFAULT_MIN_COST_MARKUP_RATE = 0.3;
+export const MIN_COST_MARKUP_RATE_EXCLUSIVE_MIN = 0;
+export const MIN_COST_MARKUP_RATE_MAX = 5.0;
+
+// 価格根拠の種別（GAS v103）。原価上乗せ下限を採用した場合の price_basis。
+export const PRICE_BASIS_COST_MARKUP_FLOOR = "cost_markup_floor";
+
+/** price_basis が「原価上乗せ下限」かどうか。 */
+export function isCostMarkupFloorBasis(basis?: string | null): boolean {
+  return (basis ?? "").trim() === PRICE_BASIS_COST_MARKUP_FLOOR;
+}
+
+// AI解析に使う画像の最大枚数（サーバー・GASと一致）
+export const MAX_AI_ANALYSIS_IMAGES = 3;
 
 // 契約 2.1: 1リクエストあたり最大20件
 export const MAX_AI_BATCH_SIZE = 20;
@@ -197,15 +216,21 @@ export async function createAiProductDraftBatch(params: {
   requestId: string;
   productIds: string[];
   forceRegenerate?: boolean;
+  // 概算原価への最低上乗せ率（0より大きく5.0以下の小数）。未指定は 0.30（30%）。
+  minCostMarkupRate?: number;
 }): Promise<AiBatchCreateResponse> {
   const body: Record<string, unknown> = {
     action: AI_BATCH_ACTIONS.create,
     request_id: params.requestId,
     product_ids: params.productIds,
+    min_cost_markup_rate:
+      params.minCostMarkupRate ?? DEFAULT_MIN_COST_MARKUP_RATE,
   };
   if (params.forceRegenerate !== undefined) {
     body.force_regenerate = params.forceRegenerate;
   }
+  // product_costs は送らない。原価は中継サーバーが確定済み照合から取得して GAS へ渡す
+  // （ブラウザ送信値を原価の正本として採用しない）。
   // model_name は送らない。旧モデル（gemini-3.5-flash-lite 等）を明示送信すると、
   // サーバー側で指定される検索付き生成モデルを上書きしてしまうため、
   // モデルの選択は常にサーバー既定（GAS側）に委ねる。
@@ -323,6 +348,42 @@ export function classifyRetryFailure(err: unknown): RetryFailureClass {
 }
 
 /**
+ * AI解析に使う画像（Drive の file_id）を保存する。
+ * 空配列 [] は指定解除。成功（success:true）を確認できない場合は例外にする
+ * （保存されたように扱って生成を進めないため）。
+ */
+export async function saveProductAiSelectedImages(params: {
+  productId: string;
+  selectedImageIds: string[];
+}): Promise<void> {
+  if (params.selectedImageIds.length > MAX_AI_ANALYSIS_IMAGES) {
+    throw new AiRelayError(
+      `AI解析に使う画像は最大${MAX_AI_ANALYSIS_IMAGES}枚です。`,
+      "TOO_MANY_SELECTED_IMAGES"
+    );
+  }
+  const data = await invokeAiRelay<Record<string, unknown>>(
+    {
+      action: AI_BATCH_ACTIONS.saveSelectedImages,
+      product_id: params.productId,
+      selected_image_ids: params.selectedImageIds,
+    },
+    AI_BATCH_RELAY_FUNCTION_NAME
+  );
+  if (!data || data.success !== true) {
+    const info = extractRelayError(
+      data as { error?: string; message?: string; error_code?: string } | null,
+      "AI解析用画像の保存に失敗しました。"
+    );
+    throw new AiRelayError(info.message, info.code);
+  }
+}
+
+function asNumberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
  * 契約の items[] を画面表示用アイテムへ変換する。
  * product_name は受付時に保持した名前マップから復元する（APIは名前を返さないため）。
  */
@@ -350,6 +411,11 @@ export function toAiBatchDisplayItems(
       draft_id: api.draft_id ? asString(api.draft_id) : null,
       draft_version:
         typeof api.draft_version === "number" ? api.draft_version : null,
+      // GAS v102以降: 提案価格と価格根拠（price_note）。未返却なら null のまま保持する。
+      proposed_price: asNumberOrNull(api.proposed_price),
+      price_note: api.price_note ? asString(api.price_note) : null,
+      // GAS v103: 価格根拠の種別（"cost_markup_floor" = 原価上乗せ下限を採用）
+      price_basis: api.price_basis ? asString(api.price_basis) : null,
     };
   });
 }

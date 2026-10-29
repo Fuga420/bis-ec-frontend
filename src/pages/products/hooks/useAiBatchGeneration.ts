@@ -7,6 +7,7 @@ import type {
 import { AiRelayError } from "@/pages/register/lib/aiProduct";
 import {
   AI_BATCH_POLL_INTERVAL_MS,
+  DEFAULT_MIN_COST_MARKUP_RATE,
   MAX_AI_BATCH_SIZE,
   classifyRetryFailure,
   createAiProductDraftBatch,
@@ -34,6 +35,9 @@ interface StoredBatchState {
   // 受付成功後に得られる batch_id。取得後はこのIDで進捗へ復帰する（未取得なら null）。
   batchId: string | null;
   items: StoredBatchItem[];
+  // 受付時に送った概算原価への最低上乗せ率（0より大きく5.0以下の小数）。
+  // 再送時も同じ条件で送り直す。
+  minCostMarkupRate: number | null;
 }
 
 function readStoredState(): StoredBatchState | null {
@@ -60,6 +64,11 @@ function readStoredState(): StoredBatchState | null {
           ? parsed.batchId
           : null,
       items: normalized,
+      minCostMarkupRate:
+        typeof parsed.minCostMarkupRate === "number" &&
+        Number.isFinite(parsed.minCostMarkupRate)
+          ? parsed.minCostMarkupRate
+          : null,
     };
   } catch {
     return null;
@@ -177,13 +186,18 @@ export function useAiBatchGeneration() {
     async (
       requestId: string,
       productIds: string[],
-      nameMap: Record<string, string>
+      nameMap: Record<string, string>,
+      minCostMarkupRate: number
     ) => {
       setErrorMessage("");
       setPollError("");
       setIsSubmitting(true);
       try {
-        const res = await createAiProductDraftBatch({ requestId, productIds });
+        const res = await createAiProductDraftBatch({
+          requestId,
+          productIds,
+          minCostMarkupRate,
+        });
         const newBatchId = String(res.batch_id);
         // batch_id 取得後は、そのIDで進捗へ復帰できるよう保存を更新する。
         writeStoredState({
@@ -193,6 +207,7 @@ export function useAiBatchGeneration() {
             product_id: id,
             product_name: nameMap[id] ?? "",
           })),
+          minCostMarkupRate,
         });
         setBatchStatus(res.status ?? "queued");
         setBatchId(newBatchId);
@@ -231,11 +246,16 @@ export function useAiBatchGeneration() {
       return;
     }
 
-    // batch_id 未取得＝受付の応答未受信。同じ request_id で受付を再送する。
+    // batch_id 未取得＝受付の応答未受信。同じ request_id・同じ条件で受付を再送する。
     const productIds = stored.items.map((i) => i.product_id);
     if (productIds.length > 0) {
       setBatchStatus("queued");
-      void submitRequest(stored.requestId, productIds, map);
+      void submitRequest(
+        stored.requestId,
+        productIds,
+        map,
+        stored.minCostMarkupRate ?? DEFAULT_MIN_COST_MARKUP_RATE
+      );
     }
   }, [submitRequest]);
 
@@ -287,7 +307,10 @@ export function useAiBatchGeneration() {
   }, [batchId, pollToken]);
 
   const start = useCallback(
-    async (targets: AiBatchTarget[]) => {
+    async (
+      targets: AiBatchTarget[],
+      minCostMarkupRate: number = DEFAULT_MIN_COST_MARKUP_RATE
+    ) => {
       if (isSubmitting || targets.length === 0) return;
       if (targets.length > MAX_AI_BATCH_SIZE) {
         setErrorMessage(
@@ -328,6 +351,7 @@ export function useAiBatchGeneration() {
           product_id: id,
           product_name: map[id] ?? "",
         })),
+        minCostMarkupRate,
       });
 
       // 受付直後の初期表示（まだ契約の応答がないため pending で埋める）
@@ -343,7 +367,7 @@ export function useAiBatchGeneration() {
       );
       setBatchStatus("queued");
 
-      await submitRequest(requestId, productIds, map);
+      await submitRequest(requestId, productIds, map, minCostMarkupRate);
     },
     [isSubmitting, submitRequest]
   );

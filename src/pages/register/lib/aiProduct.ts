@@ -87,6 +87,65 @@ interface AiGenerateResponse {
   message?: string;
 }
 
+// AI解析に使う画像の最大枚数（GAS・中継と一致）
+export const MAX_AI_SELECTED_IMAGES = 3;
+
+/**
+ * 商品の画像（Driveのfile_id）と、保存済みのAI解析用画像選択を取得する。
+ * 商品詳細API（mode=admin）を利用する。
+ * selectedIds は API が selected_image_ids / ai_selected_image_ids を
+ * どちらも返していない場合 null（＝保存結果を検証できない）。
+ */
+export interface ProductImageSelectionSnapshot {
+  fileIds: string[];
+  selectedIds: string[] | null;
+}
+
+export async function fetchProductImageSelection(
+  productId: string
+): Promise<ProductImageSelectionSnapshot> {
+  const response = await fetch(
+    `${GOOGLE_SHEETS_WEBHOOK_URL}?mode=admin&product_id=${encodeURIComponent(
+      productId
+    )}`,
+    { method: "GET" }
+  );
+  if (!response.ok) {
+    throw new Error(`商品画像の取得に失敗しました (HTTP ${response.status})`);
+  }
+  const data = (await response.json()) as {
+    success?: boolean;
+    product?: Record<string, unknown> | null;
+  };
+  if (!data || data.success !== true || !data.product) {
+    throw new Error("商品画像の取得に失敗しました。");
+  }
+  const product = data.product;
+  const images = Array.isArray(product.images)
+    ? (product.images as Record<string, unknown>[])
+    : [];
+  const fileIds = images.map((img) => asString(img?.file_id).trim());
+
+  const hasSelected = Object.prototype.hasOwnProperty.call(
+    product,
+    "selected_image_ids"
+  );
+  const hasAiSelected = Object.prototype.hasOwnProperty.call(
+    product,
+    "ai_selected_image_ids"
+  );
+  const raw = hasSelected
+    ? product.selected_image_ids
+    : hasAiSelected
+      ? product.ai_selected_image_ids
+      : null;
+  const selectedIds = Array.isArray(raw)
+    ? raw.map((v) => asString(v).trim()).filter(Boolean)
+    : null;
+
+  return { fileIds, selectedIds };
+}
+
 export interface ConfirmAiProductDraftParams {
   productId: string;
   draftId: string;

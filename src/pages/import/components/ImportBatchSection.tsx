@@ -11,6 +11,8 @@ import type { AiBatchTarget } from "@/pages/products/types";
 interface ImportBatchSectionProps {
   // 取り込みに成功した（product_id を取得できた）商品のみ。
   products: AiBatchTarget[];
+  // AI解析用画像の保存が終わっていないため、対象から外した商品の件数。
+  blockedAiSelectionCount?: number;
 }
 
 /**
@@ -23,6 +25,7 @@ interface ImportBatchSectionProps {
  */
 export default function ImportBatchSection({
   products,
+  blockedAiSelectionCount = 0,
 }: ImportBatchSectionProps) {
   // バッチ状態は管理画面共通のプロバイダーが保持する（ここで独自にポーリングしない）。
   const batch = useAiBatch();
@@ -38,7 +41,7 @@ export default function ImportBatchSection({
     return out;
   }, [products]);
 
-  if (products.length === 0) return null;
+  if (products.length === 0 && blockedAiSelectionCount === 0) return null;
 
   const isSplit = products.length > MAX_AI_BATCH_SIZE;
 
@@ -88,13 +91,27 @@ export default function ImportBatchSection({
         )}
       </div>
 
-      <p className="mt-2 text-sm leading-relaxed text-foreground-600">
-        下書きとして取り込んだ商品IDです。ここから既存の一括AI生成へ進み、
-        商品名・説明・価格などの商品情報を画像から補完できます
-        （生成結果は下書きへ自動反映されます）。
-      </p>
+      {blockedAiSelectionCount > 0 && (
+        <p className="mt-2 flex items-start gap-1.5 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[11px] leading-relaxed text-red-800">
+          <i className="ri-error-warning-line mt-0.5 w-4 h-4 flex items-center justify-center shrink-0"></i>
+          <span className="min-w-0 flex-1">
+            AI解析用に選んだ画像の保存が終わっていない商品が
+            {blockedAiSelectionCount}
+            件あります。保存できていない選択のまま生成を進めないため、対象から外しています。各商品セットの「AI解析用画像の保存を再試行」で保存してから一括AI生成を実行してください。
+          </span>
+        </p>
+      )}
+
+      {products.length > 0 && (
+        <p className="mt-2 text-sm leading-relaxed text-foreground-600">
+          下書きとして取り込んだ商品IDです。ここから既存の一括AI生成へ進み、
+          商品名・説明・価格などの商品情報を画像から補完できます
+          （生成結果は下書きへ自動反映されます）。
+        </p>
+      )}
 
       {/* 成功した商品IDの一覧 */}
+      {products.length > 0 && (
       <ul className="mt-3 max-h-72 overflow-y-auto rounded-md border border-background-200">
         {products.map((product, index) => (
           <li
@@ -117,6 +134,7 @@ export default function ImportBatchSection({
           </li>
         ))}
       </ul>
+      )}
 
       {/* 20件超は画面で区切る案内 */}
       {isSplit && (

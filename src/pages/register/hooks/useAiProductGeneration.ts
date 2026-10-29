@@ -1,10 +1,13 @@
 import { useCallback, useRef, useState } from "react";
 import {
+  MAX_AI_SELECTED_IMAGES,
   createTempProductDraft,
+  fetchProductImageSelection,
   generateAiProductDraft,
   updateProductImages,
   type AiProductCandidate,
 } from "@/pages/register/lib/aiProduct";
+import { saveProductAiSelectedImages } from "@/pages/products/lib/aiBatch";
 
 // idle: 待機中 / saving: 画像保存（アップロード）中 / generating: AI生成中 / error: 失敗
 export type AiGeneratePhase = "idle" | "saving" | "generating" | "error";
@@ -20,7 +23,12 @@ export function isAiBusy(phase: AiGeneratePhase): boolean {
  *  3. generate_ai_product_draft を呼んで candidate と draft_id / draft_version を取得
  * 再試行・画像変更のどちらでも新規登録POSTは送らない（商品を二重作成しない）。
  */
-export function useAiProductGeneration(images: File[]) {
+export function useAiProductGeneration(
+  images: File[],
+  // AI解析に使う画像（0始まりの画像インデックス、最大3枚）。
+  // 未選択（空配列）の場合は従来どおり GAS 側で先頭3枚が使われる。
+  selectedAiIndexes: number[] = []
+) {
   const [phase, setPhase] = useState<AiGeneratePhase>("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [candidate, setCandidate] = useState<AiProductCandidate | null>(null);
@@ -45,6 +53,48 @@ export function useAiProductGeneration(images: File[]) {
       draftImageBaselineRef.current = images;
     },
     [images]
+  );
+
+  /**
+   * 登録中のAI解析用画像の選択を、商品IDと各画像のDrive file_id が確定した後に保存する。
+   * IDが解決できない・保存を確認できない場合は例外にし、生成を進めない。
+   */
+  const persistAiSelection = useCallback(
+    async (productId: string) => {
+      if (selectedAiIndexes.length === 0) return;
+      if (selectedAiIndexes.length > MAX_AI_SELECTED_IMAGES) {
+        throw new Error(
+          `AI解析に使う画像は最大${MAX_AI_SELECTED_IMAGES}枚です。`
+        );
+      }
+      const snapshot = await fetchProductImageSelection(productId);
+      const ids: string[] = [];
+      for (const index of selectedAiIndexes) {
+        const id = snapshot.fileIds[index] ?? "";
+        if (!id) {
+          throw new Error(
+            "AI解析に使う画像のIDを特定できませんでした。画像を保存し直してから再度お試しください。"
+          );
+        }
+        ids.push(id);
+      }
+      await saveProductAiSelectedImages({
+        productId,
+        selectedImageIds: ids,
+      });
+      // 保存後に再取得して、選択が残っていることを確認する。
+      const after = await fetchProductImageSelection(productId);
+      if (after.selectedIds !== null) {
+        const expected = [...ids].sort().join("|");
+        const actual = [...after.selectedIds].sort().join("|");
+        if (expected !== actual) {
+          throw new Error(
+            "AI解析用画像の保存を確認できませんでした。時間をおいて再度お試しください。"
+          );
+        }
+      }
+    },
+    [selectedAiIndexes]
   );
 
   const generate = useCallback(async () => {
@@ -72,6 +122,9 @@ export function useAiProductGeneration(images: File[]) {
         draftImageBaselineRef.current = images;
       }
 
+      // 画像の保存（＝Drive file_id の確定）後に、AI解析用の選択を保存する。
+      await persistAiSelection(currentProductId);
+
       setPhase("generating");
       const generation = await generateAiProductDraft(currentProductId);
       // 生成応答の product_id も保持する（以後の再試行・確定保存で再利用）
@@ -86,7 +139,7 @@ export function useAiProductGeneration(images: File[]) {
       );
       setPhase("error");
     }
-  }, [images, phase, draftProductId]);
+  }, [images, phase, draftProductId, persistAiSelection]);
 
   const updateCandidate = useCallback((patch: Partial<AiProductCandidate>) => {
     setCandidate((prev) => (prev ? { ...prev, ...patch } : prev));

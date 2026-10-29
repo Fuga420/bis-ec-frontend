@@ -47,7 +47,16 @@ interface ImageEditorProps {
   error: string;
   onSave: (payload: ImageSavePayload) => void;
   onCancel: () => void;
+  // AI解析に使う画像（Driveのfile_id）。最大3枚。空配列は指定解除。
+  aiSelectedFileIds?: string[];
+  aiSelectionSaving?: boolean;
+  aiSelectionError?: string;
+  aiSelectionMessage?: string;
+  onToggleAiImage?: (fileId: string) => void;
+  onSaveAiSelection?: (fileIds: string[]) => void;
 }
+
+const MAX_AI_IMAGES = 3;
 
 export default function ImageEditor({
   existingImages,
@@ -55,7 +64,19 @@ export default function ImageEditor({
   error,
   onSave,
   onCancel,
+  aiSelectedFileIds,
+  aiSelectionSaving = false,
+  aiSelectionError = "",
+  aiSelectionMessage = "",
+  onToggleAiImage,
+  onSaveAiSelection,
 }: ImageEditorProps) {
+  // AI解析用の選択は親が保持する（保存→再取得で検証するため）
+  const aiSelectionEnabled =
+    Array.isArray(aiSelectedFileIds) &&
+    typeof onToggleAiImage === "function" &&
+    typeof onSaveAiSelection === "function";
+  const selectedAiIds = aiSelectedFileIds ?? [];
   const inputRef = useRef<HTMLInputElement>(null);
   const blobUrlsRef = useRef<string[]>([]);
 
@@ -73,6 +94,12 @@ export default function ImageEditor({
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   const totalCount = items.length;
+
+  // 保存済み（Driveのfile_id がある）画像だけがAI解析用に選べる。
+  const selectableImages = items.filter(
+    (item): item is Extract<UnifiedImage, { source: "existing" }> =>
+      item.source === "existing" && Boolean(item.image.file_id)
+  );
 
   useEffect(() => {
     const urls = blobUrlsRef.current;
@@ -344,6 +371,102 @@ export default function ImageEditor({
       <p className="mt-2 text-[11px] text-foreground-400">
         ドラッグ＆ドロップまたは「前へ・後ろへ」で並び替え・1枚目がメイン画像（最大20枚・JPG / JPEG / PNG / WEBP・1枚5MBまで）
       </p>
+
+      {/* AI解析に使う画像（最大3枚）。販売用のメイン画像・並び順は変更しない。 */}
+      {aiSelectionEnabled && (
+        <div className="mt-4 rounded-lg border border-background-200 bg-background-50 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="flex items-center gap-1.5 text-[13px] font-semibold text-foreground-900">
+              <i className="ri-sparkling-line w-4 h-4 flex items-center justify-center text-primary-600"></i>
+              AI解析に使う画像
+            </p>
+            <span className="text-[11px] tabular-nums text-foreground-500">
+              {selectedAiIds.length} / {MAX_AI_IMAGES} 枚
+            </span>
+          </div>
+
+          {selectableImages.length === 0 ? (
+            <p className="mt-2 text-[11px] text-foreground-500">
+              保存済みの商品画像がありません。画像を保存すると選べるようになります。
+            </p>
+          ) : (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {selectableImages.map((item) => {
+                const order = selectedAiIds.indexOf(item.image.file_id);
+                const isSelected = order >= 0;
+                const atLimit =
+                  !isSelected && selectedAiIds.length >= MAX_AI_IMAGES;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => onToggleAiImage?.(item.image.file_id)}
+                    disabled={atLimit || aiSelectionSaving}
+                    aria-pressed={isSelected}
+                    aria-label={
+                      isSelected
+                        ? `この画像をAI解析対象から外す`
+                        : `この画像をAI解析対象にする`
+                    }
+                    className={`relative h-14 w-14 shrink-0 overflow-hidden rounded-md border-2 transition-colors ${
+                      isSelected
+                        ? "border-primary-500"
+                        : "border-background-300 hover:border-background-400"
+                    } ${atLimit || aiSelectionSaving ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+                  >
+                    <img
+                      src={item.preview_url}
+                      alt="AI解析に使う画像の候補"
+                      className="h-full w-full object-cover object-top"
+                    />
+                    {isSelected && (
+                      <span className="absolute right-0 top-0 flex h-4 min-w-4 items-center justify-center rounded-bl bg-primary-500 px-1 text-[9px] font-bold text-background-50">
+                        {order + 1}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          <p className="mt-2 text-[11px] leading-relaxed text-foreground-500">
+            未選択の場合は先頭3枚を解析に使います。ここでの選択は販売用のメイン画像や画像の並び順を変えません。
+          </p>
+
+          {aiSelectionError && (
+            <p className="mt-1.5 flex items-start gap-1 text-[11px] font-medium text-red-700">
+              <i className="ri-error-warning-line mt-0.5 w-3.5 h-3.5 flex items-center justify-center shrink-0"></i>
+              <span className="min-w-0 flex-1">{aiSelectionError}</span>
+            </p>
+          )}
+          {aiSelectionMessage && (
+            <p className="mt-1.5 flex items-start gap-1 text-[11px] font-medium text-primary-700">
+              <i className="ri-checkbox-circle-line mt-0.5 w-3.5 h-3.5 flex items-center justify-center shrink-0"></i>
+              <span className="min-w-0 flex-1">{aiSelectionMessage}</span>
+            </p>
+          )}
+
+          <button
+            type="button"
+            onClick={() => onSaveAiSelection?.(selectedAiIds)}
+            disabled={aiSelectionSaving || selectableImages.length === 0}
+            className="mt-2 inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-background-300 bg-white px-3 py-1.5 text-xs font-medium text-foreground-800 transition-colors hover:bg-background-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {aiSelectionSaving ? (
+              <>
+                <i className="ri-loader-4-line animate-spin w-3.5 h-3.5 flex items-center justify-center"></i>
+                保存中...
+              </>
+            ) : (
+              <>
+                <i className="ri-save-line w-3.5 h-3.5 flex items-center justify-center"></i>
+                AI解析用の画像を保存
+              </>
+            )}
+          </button>
+        </div>
+      )}
 
       {(localError || error) && (
         <p className="mt-2 flex items-center gap-1 text-sm text-accent-600">

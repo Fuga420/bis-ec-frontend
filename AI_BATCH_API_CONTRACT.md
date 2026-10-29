@@ -44,12 +44,22 @@
       "TMP-000091"
     ],
     "force_regenerate": false,
+    "min_cost_markup_rate": 0.3,
+    "product_costs": {
+      "TMP-000088": { "cost_breakdown": { "total_allocated_cost": 132000 }, "links": [] },
+      "TMP-000090": null
+    },
     "model_name": "gemini-3.5-flash-lite"
   }
   ```
   - `request_id`: 必須（クライアントが生成するUUIDやユニーク文字列。冪等性キー）。
   - `product_ids`: 必須（配列。最大20件。重複IDはサーバー側で自動排除）。
   - `force_regenerate`: 任意（boolean、デフォルト `false`。既に確定済みドラフトが存在する場合に再生成を許可するか）。
+  - `min_cost_markup_rate`: 任意（GAS v103。number、既定 `0.3` = 30%。許容範囲 `0 < min_cost_markup_rate <= 5.0`）。
+    下限価格は「概算原価 × (1 + min_cost_markup_rate)」を既存の価格単位で切り上げた金額。相場がこれを上回る場合は相場価格を提案する。
+    旧項目 `min_gross_margin_rate` は廃止（中継は受理・転送しない）。
+  - `product_costs`: 中継サーバーが確定済み手動照合から取得して付与する（商品IDをキーにしたオブジェクト、紐付けなしは `null`）。
+    ブラウザから送られた値は原価の正本として採用しない。
   - `model_name`: 任意（モデル指定。省略時はシステムデフォルトの `gemini-3.5-flash-lite`）。
 
 - **Success Response (HTTP 200)**:
@@ -61,6 +71,9 @@
     "status": "queued",
     "total_count": 3,
     "is_reused": false,
+    "pricing_rule": "cost_markup_floor",
+    "min_cost_markup_rate": 0.3,
+    "cost_markup_multiplier": 1.3,
     "created_at": "2026-10-05T10:00:00.000Z"
   }
   ```
@@ -70,6 +83,7 @@
   - `REQUEST_ID_REQUIRED`: `request_id` が未指定または空文字。
   - `EMPTY_PRODUCT_IDS`: `product_ids` が空配列。
   - `MAX_BATCH_SIZE_EXCEEDED`: `product_ids` の件数が20件を超過。
+  - `INVALID_MIN_COST_MARKUP_RATE`: `min_cost_markup_rate` が `0 < rate <= 5.0` の範囲外。
   - `UNAUTHORIZED_ADMIN_ACCESS`: 管理者キー不一致または未指定。
 
 ---
@@ -137,6 +151,11 @@
     ]
   }
   ```
+
+- **価格根拠（GAS v103）**: 完了した `items[]` には以下の項目が含まれる場合があります。
+  - `proposed_price`: 提案価格（既存の価格単位）。
+  - `price_note`: 価格の根拠説明（スタッフ向けの表示用テキスト）。
+  - `price_basis`: 価格根拠の種別。`"cost_markup_floor"` は「原価上乗せ下限」を採用したことを示す。
 
 - **主なエラー**:
   - `BATCH_ID_REQUIRED`: `batch_id` が未指定。

@@ -1,9 +1,12 @@
 import { Link } from "react-router-dom";
 import IndeterminateProgressBar from "@/components/base/IndeterminateProgressBar";
 import SetImageEditor from "@/pages/import/components/SetImageEditor";
+import { inputClass } from "@/pages/register/components/FormField";
+import { MAX_AI_ANALYSIS_IMAGES } from "@/pages/products/lib/aiBatch";
 import {
   IMPORT_PAYLOAD_MISMATCH_CODE,
   evaluateRejectionRisk,
+  sameAuctionNumber,
   sameFiles,
 } from "@/pages/import/lib/multiImport";
 import type {
@@ -16,10 +19,16 @@ interface ImportSetCardProps {
   set: ImportSet;
   disabled: boolean;
   onImagesChange: (files: File[]) => void;
+  // 仕入台帳の商品番号（任意入力）の変更。文字列のまま扱う。
+  onAuctionItemNumberChange: (value: string) => void;
   onRemove: () => void;
   onResend: () => void;
   // success:false のセットで内容を変更した後、新IDでの取り込みに進む前の明示承認。
   onAcknowledgeNewId: (acknowledged: boolean) => void;
+  // AI解析に使う画像（最大3枚）の選択切り替え。
+  onToggleAiImage: (file: File) => void;
+  // AI解析用画像の保存だけを再試行する（商品は作成済み）。
+  onRetryAiSelection: () => void;
 }
 
 const STATUS_LABELS: Record<ImportSetStatus, string> = {
@@ -43,9 +52,12 @@ export default function ImportSetCard({
   set,
   disabled,
   onImagesChange,
+  onAuctionItemNumberChange,
   onRemove,
   onResend,
   onAcknowledgeNewId,
+  onToggleAiImage,
+  onRetryAiSelection,
 }: ImportSetCardProps) {
   const isProcessing = set.status === "processing";
   const isSuccess = set.status === "success";
@@ -58,13 +70,38 @@ export default function ImportSetCard({
 
   // 送信済み（受付状況が不明 or success:false）＝ペイロードと attempt_id を保持している。
   const hadAttempt = set.retainedPayload !== null && set.attemptId !== null;
-  // 現在の画像が「送信時の内容」と同一か。
-  const contentUnchanged = sameFiles(set.attemptFiles, set.images);
+  // 現在の画像・仕入台帳の商品番号が「送信時の内容」と同一か。
+  const contentUnchanged =
+    sameFiles(set.attemptFiles, set.images) &&
+    sameAuctionNumber(set.attemptAuctionNumber, set.auctionItemNumber);
+  // 仕入台帳の商品番号の入力可否（取り込み中・成功・受付不明は変更不可）。
+  const auctionInputDisabled = editorDisabled;
   // 「前回の取込結果を確認した」というスタッフ承認が現在の内容に対して有効か。
   const acknowledged = sameFiles(set.newIdAckFiles, set.images);
 
   const risk = evaluateRejectionRisk(set.errorCode || "");
   const isPayloadMismatch = isError && risk.isPayloadMismatch;
+
+  // 自動照合の結果表示用（商品登録の成否とは別扱い）。
+  const autoLink = set.autoLink;
+  const autoLinkPending =
+    autoLink !== null &&
+    (autoLink.status === "error" || autoLink.status === "unsupported");
+  const autoLinkBoxClass = autoLink?.linked
+    ? "border-primary-200 bg-primary-50"
+    : autoLinkPending
+      ? "border-background-300 bg-background-50"
+      : "border-amber-300 bg-amber-50";
+  const autoLinkTextClass = autoLink?.linked
+    ? "text-primary-700"
+    : autoLinkPending
+      ? "text-foreground-700"
+      : "text-amber-900";
+  const autoLinkIcon = autoLink?.linked
+    ? "ri-link"
+    : autoLinkPending
+      ? "ri-information-line"
+      : "ri-error-warning-line";
 
   // success:false の後に内容を変更して「新しい取り込みID」で取り込もうとしている状態。
   const isNewIdAfterFailure = isError && hadAttempt && !contentUnchanged;
@@ -126,11 +163,41 @@ export default function ImportSetCard({
         </div>
       </div>
 
+      {/* 仕入台帳の商品番号（任意入力）。商品ID・メーカー品番・型番とは別項目。 */}
+      <div className="mt-3">
+        <label
+          htmlFor={`auction-item-number-${set.id}`}
+          className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm font-medium text-foreground-700"
+        >
+          仕入台帳の商品番号
+          <span className="rounded border border-background-200 bg-background-50 px-1.5 py-0.5 text-[10px] font-medium text-foreground-500">
+            任意
+          </span>
+        </label>
+        <input
+          id={`auction-item-number-${set.id}`}
+          type="text"
+          inputMode="text"
+          autoComplete="off"
+          className={`${inputClass} mt-1.5 font-mono`}
+          placeholder="例: 00842-01"
+          value={set.auctionItemNumber}
+          disabled={auctionInputDisabled}
+          onChange={(e) => onAuctionItemNumberChange(e.target.value)}
+        />
+        <p className="mt-1 text-[11px] leading-relaxed text-foreground-400">
+          オークション等の仕入台帳にある商品番号を入力します。先頭のゼロやハイフンはそのまま保存されます（商品ID・メーカー品番・型番とは別項目）。空欄のままでも取り込めます。
+        </p>
+      </div>
+
       <div className="mt-3">
         <SetImageEditor
           images={set.images}
           onChange={onImagesChange}
           disabled={editorDisabled}
+          aiSelectedFiles={set.aiSelectedFiles}
+          onToggleAiImage={onToggleAiImage}
+          aiMaxCount={MAX_AI_ANALYSIS_IMAGES}
         />
       </div>
 
@@ -181,6 +248,16 @@ export default function ImportSetCard({
               </span>
             </p>
           )}
+          <p className="mt-1 text-xs text-foreground-600">
+            仕入台帳の商品番号：
+            {set.auctionItemNumber.trim() ? (
+              <span className="font-mono text-foreground-950">
+                {set.auctionItemNumber.trim()}
+              </span>
+            ) : (
+              <span className="text-foreground-400">未設定</span>
+            )}
+          </p>
           <p className="mt-1 text-[11px] text-foreground-500">
             ※ 商品情報（名前・状態・価格など）は未入力です。商品一覧の「一括AI生成」で生成できます。
           </p>
@@ -194,6 +271,95 @@ export default function ImportSetCard({
             </Link>
           )}
         </div>
+      )}
+
+      {/* 仕入台帳の商品番号による自動照合の結果（商品登録の成否とは独立して表示）。 */}
+      {isSuccess && autoLink && (
+        <div className={`mt-3 rounded-md border px-3 py-2.5 ${autoLinkBoxClass}`}>
+          <p
+            className={`flex items-start gap-1.5 text-xs font-medium ${autoLinkTextClass}`}
+          >
+            <i className={`mt-0.5 w-4 h-4 flex items-center justify-center ${autoLinkIcon}`}></i>
+            <span className="min-w-0 flex-1 break-words">
+              {autoLink.message ||
+                (autoLink.linked
+                  ? "仕入明細を自動照合して紐付けました。"
+                  : "仕入明細は自動照合できませんでした。")}
+            </span>
+          </p>
+          {autoLink.needsManualLink && (
+            <p className="mt-1 pl-5 text-[11px] leading-relaxed text-foreground-600">
+              自動で別の明細を選んだり、既存の紐付けを付け替えたりはしていません。商品詳細の「仕入・書類」タブにある「明細を探して紐付け」から手動で紐付けできます。
+            </p>
+          )}
+          {autoLink.linked && set.productId && (
+            <Link
+              to={`/products/${set.productId}`}
+              className="mt-2 ml-5 inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-primary-300 bg-white px-3 py-1.5 text-xs font-bold text-primary-700 transition-colors hover:bg-primary-100"
+            >
+              <i className="ri-links-line w-4 h-4 flex items-center justify-center"></i>
+              仕入・書類を確認
+            </Link>
+          )}
+        </div>
+      )}
+
+      {/* AI解析に使う画像（最大3枚）の保存状況 */}
+      {isSuccess && set.aiSelectionStatus === "saving" && (
+        <p
+          className="mt-3 flex items-center gap-1.5 rounded-md border border-background-200 bg-background-50 px-3 py-2 text-[11px] text-foreground-600"
+          role="status"
+          aria-live="polite"
+        >
+          <i className="ri-loader-4-line w-3.5 h-3.5 animate-spin flex items-center justify-center"></i>
+          AI解析用の画像を保存しています…
+        </p>
+      )}
+
+      {isSuccess && set.aiSelectionStatus === "saved" && (
+        <div className="mt-3 flex items-start gap-1.5 rounded-md border border-accent-200 bg-accent-50/70 px-3 py-2">
+          <i className="ri-sparkling-line mt-0.5 w-3.5 h-3.5 flex items-center justify-center shrink-0 text-accent-600"></i>
+          <p className="min-w-0 flex-1 text-[11px] leading-relaxed text-foreground-600">
+            AI解析に使う画像を
+            <span className="font-bold text-foreground-900">
+              {set.aiSelectedFileIds.length}枚
+            </span>
+            保存しました（保存後に再取得して確認済み）。販売用のメイン画像と画像の並び順は変わっていません。
+          </p>
+        </div>
+      )}
+
+      {isSuccess && set.aiSelectionStatus === "error" && (
+        <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2.5">
+          <p className="flex items-start gap-1.5 text-xs font-medium text-red-800">
+            <i className="ri-error-warning-line mt-0.5 w-4 h-4 flex items-center justify-center"></i>
+            <span className="min-w-0 flex-1 break-words">
+              {set.aiSelectionError ||
+                "AI解析用の画像を保存できませんでした。"}
+            </span>
+          </p>
+          <p className="mt-1 text-[11px] leading-relaxed text-red-700">
+            選択が保存されていないため、この商品は一括AI生成の対象から外しています。保存をやり直すと対象に戻ります（商品はすでに登録済みなので、取り込み直しは行いません）。
+          </p>
+          <button
+            type="button"
+            onClick={onRetryAiSelection}
+            className="mt-2 inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-bold text-red-800 transition-colors hover:bg-red-100"
+          >
+            <i className="ri-refresh-line w-4 h-4 flex items-center justify-center"></i>
+            AI解析用画像の保存を再試行
+          </button>
+        </div>
+      )}
+
+      {isSuccess && set.aiSelectionStatus === "none" && (
+        <p className="mt-3 flex items-start gap-1.5 rounded-md bg-background-50 px-3 py-2 text-[11px] leading-relaxed text-foreground-500">
+          <i className="ri-information-line mt-0.5 w-4 h-4 flex items-center justify-center"></i>
+          <span>
+            AI解析に使う画像を選んでいないため、先頭3枚を使って生成します。特定の画像を使いたい場合は、取り込み前にサムネイルの「AI」で最大
+            {MAX_AI_ANALYSIS_IMAGES}枚まで選べます。
+          </span>
+        </p>
       )}
 
       {isError && (
