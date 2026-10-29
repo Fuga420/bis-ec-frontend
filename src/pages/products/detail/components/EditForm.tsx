@@ -17,6 +17,8 @@ import {
   jewelryBrands,
   otherBrands,
   pokemonBrands,
+  apparelBrands,
+  fashionGoodsBrands,
   sneakerSizes,
   type CategoryId,
 } from "@/mocks/productForm";
@@ -135,12 +137,17 @@ export default function EditForm({
   );
 
   const brandOptions = useMemo(() => {
-    if (category === "sneaker") return sneakerBrands;
-    if (category === "jewelry") return jewelryBrands;
-    if (category === "pokemon_card") return pokemonBrands;
-    if (category === "other") return otherBrands;
-    return [];
-  }, [category]);
+    let base: string[] = [];
+    if (category === "sneaker") base = sneakerBrands;
+    else if (category === "jewelry") base = jewelryBrands;
+    else if (category === "pokemon_card") base = pokemonBrands;
+    else if (category === "apparel") base = apparelBrands;
+    else if (category === "fashion_goods") base = fashionGoodsBrands;
+    else if (category === "other") base = otherBrands;
+    // 保存済みのブランドが選択肢に無い場合も、その値を選択状態のまま表示できるようにする
+    if (brand && !base.includes(brand)) return [...base, brand];
+    return base;
+  }, [category, brand]);
 
   const buildPayload = (): Record<string, unknown> => {
     const conditionLabel =

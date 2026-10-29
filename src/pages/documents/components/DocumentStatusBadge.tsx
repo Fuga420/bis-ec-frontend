@@ -10,7 +10,7 @@ interface DocumentStatusBadgeProps {
 const STATUS_STYLES: Record<DocumentMatchStatus, string> = {
   unmatched: "bg-background-100 text-foreground-600",
   partial: "bg-amber-100 text-amber-800",
-  matched: "bg-primary-100 text-primary-700",
+  matched: "bg-primary-100 text-primary-500",
 };
 
 const STATUS_ICONS: Record<DocumentMatchStatus, string> = {

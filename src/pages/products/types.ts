@@ -433,6 +433,8 @@ export const CATEGORY_LABELS: Record<string, string> = {
   sneaker: "スニーカー",
   jewelry: "ジュエリー",
   pokemon_card: "ポケモンカード",
+  apparel: "アパレル",
+  fashion_goods: "ファッション小物",
   other: "その他",
 };
 

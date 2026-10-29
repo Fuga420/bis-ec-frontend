@@ -1,4 +1,10 @@
-export type CategoryId = "sneaker" | "jewelry" | "pokemon_card" | "other";
+export type CategoryId =
+  | "sneaker"
+  | "jewelry"
+  | "pokemon_card"
+  | "apparel"
+  | "fashion_goods"
+  | "other";
 
 export interface Category {
   id: CategoryId;
@@ -10,6 +16,8 @@ export const categories: Category[] = [
   { id: "sneaker", label: "スニーカー", icon: "ri-footprint-line" },
   { id: "jewelry", label: "ジュエリー", icon: "ri-vip-diamond-line" },
   { id: "pokemon_card", label: "ポケモンカード", icon: "ri-gamepad-line" },
+  { id: "apparel", label: "アパレル", icon: "ri-shirt-line" },
+  { id: "fashion_goods", label: "ファッション小物", icon: "ri-handbag-line" },
   { id: "other", label: "その他", icon: "ri-more-line" },
 ];
 
@@ -61,6 +69,31 @@ export const otherBrands: string[] = [
 ];
 
 export const pokemonBrands: string[] = ["Pokemon Card Game", "その他"];
+
+// アパレル／ファッション小物は既存のブランド欄（セレクト）を使う。
+// 新しいブランド選択UIは追加せず、選択肢だけを用意する。
+export const apparelBrands: string[] = [
+  "Chrome Hearts",
+  "LOUIS VUITTON",
+  "GUCCI",
+  "PRADA",
+  "CHANEL",
+  "HERMÈS",
+  "STÜSSY",
+  "COMME des GARÇONS",
+  "その他",
+];
+
+export const fashionGoodsBrands: string[] = [
+  "Chrome Hearts",
+  "HERMÈS",
+  "LOUIS VUITTON",
+  "GUCCI",
+  "PRADA",
+  "CHANEL",
+  "COACH",
+  "その他",
+];
 
 export const sneakerSizes: string[] = [
   "22.0",

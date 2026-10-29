@@ -38,6 +38,8 @@ import {
   jewelryBrands,
   otherBrands,
   pokemonBrands,
+  apparelBrands,
+  fashionGoodsBrands,
   type CategoryId,
 } from "@/mocks/productForm";
 
@@ -334,6 +336,8 @@ export default function RegisterPage() {
     if (category === "sneaker") base = sneakerBrands;
     else if (category === "jewelry") base = jewelryBrands;
     else if (category === "pokemon_card") base = pokemonBrands;
+    else if (category === "apparel") base = apparelBrands;
+    else if (category === "fashion_goods") base = fashionGoodsBrands;
     else if (category === "other") base = otherBrands;
     // AI候補などで一覧に無いブランドが入った場合も表示できるようにする
     if (brand && !base.includes(brand)) return [...base, brand];
@@ -935,6 +939,30 @@ export default function RegisterPage() {
             <FormSection title="その他詳細" className="py-4">
               <p className="text-sm text-foreground-500">
                 このカテゴリは共通の商品情報のみで登録できます。
+              </p>
+            </FormSection>
+            <div className="border-t border-background-200"></div>
+          </>
+        )}
+
+        {category === "apparel" && (
+          <>
+            <FormSection title="アパレル詳細" className="py-4">
+              <p className="text-sm text-foreground-500">
+                アパレルは共通の商品情報（ブランド・商品名・状態・価格・説明）で登録します。
+                サイズや素材などは商品説明に記載してください。
+              </p>
+            </FormSection>
+            <div className="border-t border-background-200"></div>
+          </>
+        )}
+
+        {category === "fashion_goods" && (
+          <>
+            <FormSection title="ファッション小物詳細" className="py-4">
+              <p className="text-sm text-foreground-500">
+                ファッション小物は共通の商品情報（ブランド・商品名・状態・価格・説明）で登録します。
+                素材や付属品などは商品説明に記載してください。
               </p>
             </FormSection>
             <div className="border-t border-background-200"></div>
