@@ -30,6 +30,7 @@ const ACTIONS = {
   link_product_manual: "link_product_manual",
   unlink_product_manual: "unlink_product_manual",
   get_product_cost: "get_product_cost",
+  auto_link_product_by_item_number: "auto_link_product_by_item_number",
   // --- 自動取込ワーカー専用アクション(x-bis-worker-token 必須) ---
   register_drive_document: "register_drive_document",
   update_document_folder: "update_document_folder",
@@ -476,6 +477,261 @@ async function refreshDocumentStatus(
       .eq("id", documentId);
   }
   return newStatus;
+}
+
+// ---------- Auto-Link by Item Number Helpers ----------
+
+const VALID_AUTO_LINK_NUMBER_TYPES = [
+  "auto",
+  "reception_number",
+  "auction_bid_number",
+] as const;
+type AutoLinkNumberType = typeof VALID_AUTO_LINK_NUMBER_TYPES[number];
+type MatchedNumberField = "reception_number_raw" | "auction_bid_number";
+
+type AutoLinkAmountResult =
+  | {
+      ok: true;
+      allocated_amount: number;
+      net_amount: number;
+      confirmed_tax_amount: number;
+      total_line_amount: number | null;
+      tax_confirmed: boolean;
+    }
+  | {
+      ok: false;
+      reason_code: string;
+      message: string;
+      net_amount: number | null;
+      confirmed_tax_amount: number | null;
+      total_line_amount: number | null;
+    };
+
+/**
+ * 仕入明細1行から自動紐付け時の割当額（allocated_amount）を厳格算出する。
+ * - 商品代金（item_amount）＋落札手数料（fee_amount）＋その他明細経費（other_expense_amount）
+ *   ＋確認済み税額（tax_amount / fee_tax_amount / other_expense_tax_amount）を含める。
+ * - 台帳の税込行合計（total_line_amount）が設定されている明細に対し、税抜額だけを割当額に入れて
+ *   税込総額と食い違わせることを禁止する（内訳と税込総額が矛盾する場合はエラー保留）。
+ * - 行別税額が未確認（total_line_amount === null かつ税額 null）の明細では税額を推測補完せず、
+ *   確認済みの税抜合計（＋確認済み税額があれば加算）を採用し tax_confirmed: false を返す。
+ */
+function computeAutoLinkAllocatedAmount(
+  line: Record<string, unknown>
+): AutoLinkAmountResult {
+  const itemAmount = toNumOrNull(line.item_amount);
+  const feeAmount = toNumOrNull(line.fee_amount);
+  const taxAmount = toNumOrNull(line.tax_amount);
+  const feeTaxAmount = toNumOrNull(line.fee_tax_amount);
+  const otherExpenseAmount = toNumOrNull(line.other_expense_amount);
+  const otherExpenseTaxAmount = toNumOrNull(line.other_expense_tax_amount);
+  const totalLineAmount = toNumOrNull(line.total_line_amount);
+
+  const hasComponentBase =
+    itemAmount !== null || feeAmount !== null || otherExpenseAmount !== null;
+
+  if (totalLineAmount === null && !hasComponentBase) {
+    return {
+      ok: false,
+      reason_code: "LINE_AMOUNT_UNSET",
+      message:
+        "該当する仕入明細の金額が未入力のため、自動紐付けを行いませんでした。",
+      net_amount: null,
+      confirmed_tax_amount: null,
+      total_line_amount: null,
+    };
+  }
+
+  const netAmount =
+    (itemAmount ?? 0) + (feeAmount ?? 0) + (otherExpenseAmount ?? 0);
+  const confirmedTaxAmount =
+    (taxAmount ?? 0) + (feeTaxAmount ?? 0) + (otherExpenseTaxAmount ?? 0);
+  const hasAnyTaxField =
+    taxAmount !== null ||
+    feeTaxAmount !== null ||
+    otherExpenseTaxAmount !== null;
+
+  const itemTaxReady =
+    itemAmount === null || itemAmount === 0 || taxAmount !== null;
+  const feeTaxReady =
+    feeAmount === null || feeAmount === 0 || feeTaxAmount !== null;
+  const otherTaxReady =
+    otherExpenseAmount === null ||
+    otherExpenseAmount === 0 ||
+    otherExpenseTaxAmount !== null;
+  const allComponentTaxesConfirmed = hasComponentBase
+    ? itemTaxReady &&
+      feeTaxReady &&
+      otherTaxReady &&
+      (hasAnyTaxField || netAmount === 0)
+    : false;
+
+  const componentGross = netAmount + confirmedTaxAmount;
+
+  if (totalLineAmount !== null) {
+    if (
+      hasComponentBase &&
+      hasAnyTaxField &&
+      Math.abs(totalLineAmount - componentGross) > 0.01
+    ) {
+      return {
+        ok: false,
+        reason_code: "LINE_TOTAL_DISCREPANCY",
+        message: `明細の内訳合計（¥${componentGross.toLocaleString("ja-JP")}）と台帳の税込行合計（¥${totalLineAmount.toLocaleString("ja-JP")}）が一致しないため、自動紐付けを保留しました。`,
+        net_amount: netAmount,
+        confirmed_tax_amount: confirmedTaxAmount,
+        total_line_amount: totalLineAmount,
+      };
+    }
+    if (
+      hasComponentBase &&
+      !hasAnyTaxField &&
+      totalLineAmount < netAmount - 0.01
+    ) {
+      return {
+        ok: false,
+        reason_code: "LINE_TOTAL_LESS_THAN_NET",
+        message: `台帳の行合計（¥${totalLineAmount.toLocaleString("ja-JP")}）が商品代金・落札手数料の合計（¥${netAmount.toLocaleString("ja-JP")}）を下回るため、自動紐付けを保留しました。`,
+        net_amount: netAmount,
+        confirmed_tax_amount: 0,
+        total_line_amount: totalLineAmount,
+      };
+    }
+
+    return {
+      ok: true,
+      allocated_amount: totalLineAmount,
+      net_amount: hasComponentBase ? netAmount : totalLineAmount,
+      confirmed_tax_amount: hasAnyTaxField
+        ? confirmedTaxAmount
+        : Math.max(0, totalLineAmount - netAmount),
+      total_line_amount: totalLineAmount,
+      tax_confirmed: hasComponentBase
+        ? allComponentTaxesConfirmed || totalLineAmount > netAmount
+        : true,
+    };
+  }
+
+  return {
+    ok: true,
+    allocated_amount: componentGross,
+    net_amount: netAmount,
+    confirmed_tax_amount: confirmedTaxAmount,
+    total_line_amount: null,
+    tax_confirmed: allComponentTaxesConfirmed,
+  };
+}
+
+function formatAutoLinkCandidateSummary(
+  line: Record<string, unknown>,
+  matchedField: MatchedNumberField,
+  activeLinks: Record<string, unknown>[]
+): Record<string, unknown> {
+  const doc = (line.document as Record<string, unknown> | null) ?? {};
+  const amountCalc = computeAutoLinkAllocatedAmount(line);
+  return {
+    document_line_id: line.id,
+    document_id: line.document_id ?? doc.id ?? null,
+    document_number: doc.document_number ?? null,
+    supplier_name: doc.supplier_name ?? null,
+    issue_date: doc.issue_date ?? null,
+    file_name: doc.file_name ?? null,
+    drive_file_url: doc.drive_file_url ?? null,
+    page_number: line.page_number ?? null,
+    line_number: line.line_number ?? null,
+    matched_field: matchedField,
+    matched_number_label:
+      matchedField === "reception_number_raw"
+        ? "落札・受付番号"
+        : "商品番号",
+    reception_number_raw: line.reception_number_raw ?? null,
+    auction_bid_number: line.auction_bid_number ?? null,
+    item_name_raw: line.item_name_raw ?? "",
+    brand_name_raw: line.brand_name_raw ?? null,
+    category_hint: line.category_hint ?? null,
+    transaction_type: line.transaction_type ?? "purchase",
+    is_canceled: Boolean(line.is_canceled),
+    item_amount: toNumOrNull(line.item_amount),
+    fee_amount: toNumOrNull(line.fee_amount),
+    tax_amount: toNumOrNull(line.tax_amount),
+    fee_tax_amount: toNumOrNull(line.fee_tax_amount),
+    other_expense_amount: toNumOrNull(line.other_expense_amount),
+    total_line_amount: toNumOrNull(line.total_line_amount),
+    expected_allocated_amount: amountCalc.ok
+      ? amountCalc.allocated_amount
+      : null,
+    tax_confirmed: amountCalc.ok ? amountCalc.tax_confirmed : false,
+    match_status: line.match_status ?? "unlinked",
+    active_links: activeLinks.map((lk) => ({
+      link_id: lk.id,
+      product_id: lk.product_id,
+      link_type: lk.link_type,
+      allocated_amount: toNumOrNull(lk.allocated_amount),
+      allocation_method: lk.allocation_method,
+      match_method: lk.match_method,
+      confirmed_at: lk.confirmed_at ?? null,
+    })),
+  };
+}
+
+function computeSuggestedNarrowingFields(
+  candidates: Record<string, unknown>[]
+): string[] {
+  if (candidates.length <= 1) return [];
+  const fields: string[] = [];
+  const distinct = (getter: (c: Record<string, unknown>) => unknown) => {
+    const vals = new Set(
+      candidates
+        .map(getter)
+        .filter((v) => v !== null && v !== undefined && String(v).trim() !== "")
+        .map((v) => String(v))
+    );
+    return vals.size > 1;
+  };
+  if (distinct((c) => c.matched_field)) fields.push("number_type");
+  if (distinct((c) => c.supplier_name)) fields.push("supplier_name");
+  if (distinct((c) => c.issue_date)) fields.push("issue_date");
+  if (distinct((c) => c.document_number)) fields.push("document_number");
+  if (distinct((c) => c.reception_number_raw)) fields.push("reception_number_raw");
+  if (distinct((c) => c.auction_bid_number)) fields.push("auction_bid_number");
+  if (distinct((c) => c.document_id)) fields.push("document_id");
+  return fields;
+}
+
+async function fetchGasProductSummarySafe(
+  gasUrl: string,
+  productId: string
+): Promise<Record<string, unknown> | null> {
+  if (!gasUrl || !productId) return null;
+  try {
+    const sep = gasUrl.includes("?") ? "&" : "?";
+    const url = `${gasUrl}${sep}mode=admin&product_id=${encodeURIComponent(productId)}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const res = await fetch(url, {
+        method: "GET",
+        redirect: "follow",
+        signal: controller.signal,
+      });
+      if (!res.ok) return null;
+      const parsed = parseGasResponse(await res.text());
+      const p = parsed.product as Record<string, unknown> | undefined;
+      if (!parsed.success || !p) return null;
+      return {
+        product_id: p.product_id ?? productId,
+        record_status: p.record_status ?? null,
+        publish_status: p.publish_status ?? null,
+        product_name: p.product_name ?? "",
+        category: p.category ?? "",
+        auction_item_number: p.auction_item_number ?? "",
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    return null;
+  }
 }
 
 // ---------- Main Handler ----------
@@ -1453,6 +1709,1029 @@ serve(async (req: Request): Promise<Response> => {
         200,
         cors
       );
+    }
+
+    // ----------------------------------------------------
+    // 8-2. auto_link_product_by_item_number:
+    //      商品の auction_item_number による仕入明細の完全一致検索・自動確定紐付け
+    //      - 番号種別（reception_number_raw: 受付番号 / auction_bid_number: 商品番号）を混同しない
+    //      - 候補1件かつ他商品への有効確定リンクなし・自商品の他明細リンクなしの時のみ確定紐付け
+    //      - 同一要求の再送は二重作成せず既存リンク（is_reused: true）を返却
+    //      - 0件・複数件・既存リンク競合・金額不整合・エラー時はリンクを書かず理由と確認情報を返す
+    //        （商品登録・商品更新の成功は一切取り消さない）
+    // ----------------------------------------------------
+    if (action === ACTIONS.auto_link_product_by_item_number) {
+      const productId = asString(body.product_id);
+      const rawItemVal = body.auction_item_number;
+      const itemNumber =
+        typeof rawItemVal === "string"
+          ? rawItemVal.trim()
+          : asString(rawItemVal);
+
+      if (!productId) {
+        return jsonResponse(
+          {
+            success: false,
+            linked: false,
+            is_reused: false,
+            status: "invalid_request",
+            error_code: "PRODUCT_ID_REQUIRED",
+            reason_code: "PRODUCT_ID_REQUIRED",
+            error: "product_id は必須です。",
+            message: "product_id は必須です。",
+            product_id: null,
+            auction_item_number: itemNumber,
+            product_registration_preserved: true,
+          },
+          400,
+          cors
+        );
+      }
+
+      const rawNumberType = asString(body.number_type).toLowerCase() || "auto";
+      if (
+        !VALID_AUTO_LINK_NUMBER_TYPES.includes(
+          rawNumberType as AutoLinkNumberType
+        )
+      ) {
+        return jsonResponse(
+          {
+            success: false,
+            linked: false,
+            is_reused: false,
+            status: "invalid_request",
+            error_code: "INVALID_NUMBER_TYPE",
+            reason_code: "INVALID_NUMBER_TYPE",
+            error: `未対応の number_type です: ${rawNumberType} (auto / reception_number / auction_bid_number)`,
+            message: `未対応の number_type です: ${rawNumberType}`,
+            product_id: productId,
+            auction_item_number: itemNumber,
+            product_registration_preserved: true,
+          },
+          400,
+          cors
+        );
+      }
+      const numberType = rawNumberType as AutoLinkNumberType;
+
+      if (!itemNumber) {
+        return jsonResponse(
+          {
+            success: true,
+            linked: false,
+            is_reused: false,
+            status: "skipped_empty_item_number",
+            reason_code: "EMPTY_ITEM_NUMBER",
+            message:
+              "商品番号が空欄のため、仕入明細の自動検索・自動紐付けは行いませんでした。",
+            product_id: productId,
+            auction_item_number: "",
+            searched_number_type: numberType,
+            matched_number_type: null,
+            product_registration_preserved: true,
+            candidate_count: 0,
+            candidates: [],
+          },
+          200,
+          cors
+        );
+      }
+
+      const filterDocId = optionalText(body.document_id);
+      const filterSupplier = optionalText(body.supplier_name);
+      const filterIssueDate = optionalText(body.issue_date);
+      const filterDocNumber = optionalText(body.document_number);
+      const confirmedBy = asString(body.confirmed_by) || "auto_item_number";
+      const dryRun = body.dry_run === true;
+
+      try {
+        const lineSelectCols = `
+          id,
+          document_id,
+          page_number,
+          line_number,
+          reception_number_raw,
+          reception_number_normalized,
+          lot_number,
+          branch_number,
+          auction_bid_number,
+          item_name_raw,
+          brand_name_raw,
+          category_hint,
+          transaction_type,
+          item_amount,
+          tax_amount,
+          fee_amount,
+          fee_tax_amount,
+          other_expense_amount,
+          other_expense_tax_amount,
+          total_line_amount,
+          match_status,
+          is_canceled,
+          document:documents(
+            id,
+            document_number,
+            supplier_name,
+            issue_date,
+            file_name,
+            status,
+            drive_file_url,
+            is_deleted
+          )
+        `;
+
+        const applyLineAndDocFilters = (
+          rows: Record<string, unknown>[],
+          expectedField: MatchedNumberField
+        ): Record<string, unknown>[] => {
+          return rows.filter((row) => {
+            if (String(row[expectedField] ?? "") !== itemNumber) return false;
+            const doc = row.document as Record<string, unknown> | null;
+            if (!doc || Boolean(doc.is_deleted)) return false;
+            if (filterDocId && String(row.document_id ?? "") !== filterDocId) {
+              return false;
+            }
+            if (
+              filterSupplier &&
+              String(doc.supplier_name ?? "").trim() !== filterSupplier
+            ) {
+              return false;
+            }
+            if (
+              filterIssueDate &&
+              String(doc.issue_date ?? "").trim() !== filterIssueDate
+            ) {
+              return false;
+            }
+            if (
+              filterDocNumber &&
+              String(doc.document_number ?? "").trim() !== filterDocNumber
+            ) {
+              return false;
+            }
+            return true;
+          });
+        };
+
+        let receptionRows: Record<string, unknown>[] = [];
+        let bidRows: Record<string, unknown>[] = [];
+
+        if (numberType === "auto" || numberType === "reception_number") {
+          let qRec = supabase
+            .from("document_lines")
+            .select(lineSelectCols)
+            .eq("is_deleted", false)
+            .eq("is_active", true)
+            .eq("reception_number_raw", itemNumber);
+          if (filterDocId) qRec = qRec.eq("document_id", filterDocId);
+          const { data: recData, error: recErr } = await qRec;
+          if (recErr) {
+            return jsonResponse(
+              {
+                success: false,
+                linked: false,
+                is_reused: false,
+                status: "error",
+                error_code: "DB_QUERY_ERROR",
+                reason_code: "DB_QUERY_ERROR",
+                error: recErr.message,
+                message: `仕入明細（受付番号）の検索中にエラーが発生しました: ${recErr.message}`,
+                product_id: productId,
+                auction_item_number: itemNumber,
+                product_registration_preserved: true,
+              },
+              500,
+              cors
+            );
+          }
+          receptionRows = applyLineAndDocFilters(
+            (recData || []) as Record<string, unknown>[],
+            "reception_number_raw"
+          );
+        }
+
+        if (numberType === "auto" || numberType === "auction_bid_number") {
+          let qBid = supabase
+            .from("document_lines")
+            .select(lineSelectCols)
+            .eq("is_deleted", false)
+            .eq("is_active", true)
+            .eq("auction_bid_number", itemNumber);
+          if (filterDocId) qBid = qBid.eq("document_id", filterDocId);
+          const { data: bidData, error: bidErr } = await qBid;
+          if (bidErr) {
+            return jsonResponse(
+              {
+                success: false,
+                linked: false,
+                is_reused: false,
+                status: "error",
+                error_code: "DB_QUERY_ERROR",
+                reason_code: "DB_QUERY_ERROR",
+                error: bidErr.message,
+                message: `仕入明細（商品番号）の検索中にエラーが発生しました: ${bidErr.message}`,
+                product_id: productId,
+                auction_item_number: itemNumber,
+                product_registration_preserved: true,
+              },
+              500,
+              cors
+            );
+          }
+          bidRows = applyLineAndDocFilters(
+            (bidData || []) as Record<string, unknown>[],
+            "auction_bid_number"
+          );
+        }
+
+        const allMatchedLineIds = Array.from(
+          new Set(
+            [...receptionRows, ...bidRows].map((r) => String(r.id))
+          )
+        );
+        let allLineLinks: Record<string, unknown>[] = [];
+        if (allMatchedLineIds.length > 0) {
+          const { data: lkRows, error: lkErr } = await supabase
+            .from("document_product_links")
+            .select("*")
+            .in("document_line_id", allMatchedLineIds);
+          if (lkErr) {
+            return jsonResponse(
+              {
+                success: false,
+                linked: false,
+                is_reused: false,
+                status: "error",
+                error_code: "DB_QUERY_ERROR",
+                reason_code: "DB_QUERY_ERROR",
+                error: lkErr.message,
+                message: `既存リンク状態の確認中にエラーが発生しました: ${lkErr.message}`,
+                product_id: productId,
+                auction_item_number: itemNumber,
+                product_registration_preserved: true,
+              },
+              500,
+              cors
+            );
+          }
+          allLineLinks = (lkRows || []) as Record<string, unknown>[];
+        }
+
+        const getActiveConfirmedLinksForLine = (lineId: string) =>
+          allLineLinks.filter(
+            (lk) =>
+              String(lk.document_line_id) === lineId &&
+              !lk.is_deleted &&
+              lk.status === "confirmed"
+          );
+
+        const hasBothTypesAcrossDifferentLines =
+          numberType === "auto" &&
+          receptionRows.length > 0 &&
+          bidRows.length > 0 &&
+          !(
+            receptionRows.length === 1 &&
+            bidRows.length === 1 &&
+            String(receptionRows[0].id) === String(bidRows[0].id)
+          );
+
+        if (hasBothTypesAcrossDifferentLines) {
+          const combinedCandidates = [
+            ...receptionRows.map((r) =>
+              formatAutoLinkCandidateSummary(
+                r,
+                "reception_number_raw",
+                getActiveConfirmedLinksForLine(String(r.id))
+              )
+            ),
+            ...bidRows.map((r) =>
+              formatAutoLinkCandidateSummary(
+                r,
+                "auction_bid_number",
+                getActiveConfirmedLinksForLine(String(r.id))
+              )
+            ),
+          ];
+          return jsonResponse(
+            {
+              success: true,
+              linked: false,
+              is_reused: false,
+              status: "multiple_candidates",
+              reason_code: "AMBIGUOUS_NUMBER_TYPE",
+              message:
+                "入力された番号が仕入台帳の「落札・受付番号」と「商品番号」の両方に存在するため、自動紐付けを保留しました。番号種別（number_type）または書類情報を指定して確認してください。",
+              product_id: productId,
+              auction_item_number: itemNumber,
+              searched_number_type: numberType,
+              matched_number_type: null,
+              product_registration_preserved: true,
+              candidate_count: combinedCandidates.length,
+              suggested_narrowing_fields:
+                computeSuggestedNarrowingFields(combinedCandidates),
+              candidates: combinedCandidates,
+            },
+            200,
+            cors
+          );
+        }
+
+        const matchedField: MatchedNumberField | null =
+          receptionRows.length > 0
+            ? "reception_number_raw"
+            : bidRows.length > 0
+              ? "auction_bid_number"
+              : null;
+        const matchedNumberType =
+          matchedField === "reception_number_raw"
+            ? "reception_number"
+            : matchedField === "auction_bid_number"
+              ? "auction_bid_number"
+              : null;
+        const rawMatchedRows =
+          matchedField === "reception_number_raw"
+            ? receptionRows
+            : matchedField === "auction_bid_number"
+              ? bidRows
+              : [];
+
+        if (!matchedField || rawMatchedRows.length === 0) {
+          return jsonResponse(
+            {
+              success: true,
+              linked: false,
+              is_reused: false,
+              status: "no_match",
+              reason_code: "NO_MATCHING_LINE",
+              message: `番号「${itemNumber}」に完全一致する仕入明細は見つかりませんでした。`,
+              product_id: productId,
+              auction_item_number: itemNumber,
+              searched_number_type: numberType,
+              matched_number_type: null,
+              product_registration_preserved: true,
+              candidate_count: 0,
+              candidates: [],
+            },
+            200,
+            cors
+          );
+        }
+
+        const purchaseRows = rawMatchedRows.filter(
+          (r) =>
+            String(r.transaction_type ?? "purchase") === "purchase" &&
+            !r.is_canceled
+        );
+        const nonPurchaseOrCanceledRows = rawMatchedRows.filter(
+          (r) =>
+            String(r.transaction_type ?? "purchase") !== "purchase" ||
+            Boolean(r.is_canceled)
+        );
+
+        if (purchaseRows.length === 0) {
+          const nonPurchaseSummaries = nonPurchaseOrCanceledRows.map((r) =>
+            formatAutoLinkCandidateSummary(
+              r,
+              matchedField,
+              getActiveConfirmedLinksForLine(String(r.id))
+            )
+          );
+          return jsonResponse(
+            {
+              success: true,
+              linked: false,
+              is_reused: false,
+              status: "no_match",
+              reason_code: "MATCHED_NON_PURCHASE_OR_CANCELED_LINE",
+              message: `番号「${itemNumber}」に一致する明細はありますが、仕入対象外（キャンセルまたは精算行）のため自動紐付けを行いませんでした。`,
+              product_id: productId,
+              auction_item_number: itemNumber,
+              searched_number_type: numberType,
+              matched_number_type: matchedNumberType,
+              product_registration_preserved: true,
+              candidate_count: 0,
+              candidates: [],
+              non_purchase_matches: nonPurchaseSummaries,
+            },
+            200,
+            cors
+          );
+        }
+
+        if (nonPurchaseOrCanceledRows.length > 0) {
+          const allSummaries = rawMatchedRows.map((r) =>
+            formatAutoLinkCandidateSummary(
+              r,
+              matchedField,
+              getActiveConfirmedLinksForLine(String(r.id))
+            )
+          );
+          return jsonResponse(
+            {
+              success: true,
+              linked: false,
+              is_reused: false,
+              status: "multiple_candidates",
+              reason_code: "HAS_RELATED_CANCEL_OR_REFUND_LINE",
+              message: `番号「${itemNumber}」には仕入行のほかにキャンセル・返金・精算等の関連明細が存在するため、自動紐付けを保留しました。`,
+              product_id: productId,
+              auction_item_number: itemNumber,
+              searched_number_type: numberType,
+              matched_number_type: matchedNumberType,
+              product_registration_preserved: true,
+              candidate_count: allSummaries.length,
+              suggested_narrowing_fields:
+                computeSuggestedNarrowingFields(allSummaries),
+              candidates: allSummaries,
+            },
+            200,
+            cors
+          );
+        }
+
+        if (purchaseRows.length > 1) {
+          const candidateSummaries = purchaseRows.map((r) =>
+            formatAutoLinkCandidateSummary(
+              r,
+              matchedField,
+              getActiveConfirmedLinksForLine(String(r.id))
+            )
+          );
+          return jsonResponse(
+            {
+              success: true,
+              linked: false,
+              is_reused: false,
+              status: "multiple_candidates",
+              reason_code: "MULTIPLE_MATCHING_LINES",
+              message: `番号「${itemNumber}」に一致する仕入明細が ${candidateSummaries.length} 件あるため、自動紐付けを保留しました。仕入先・仕入日・書類番号等で確認してください。`,
+              product_id: productId,
+              auction_item_number: itemNumber,
+              searched_number_type: numberType,
+              matched_number_type: matchedNumberType,
+              product_registration_preserved: true,
+              candidate_count: candidateSummaries.length,
+              suggested_narrowing_fields:
+                computeSuggestedNarrowingFields(candidateSummaries),
+              candidates: candidateSummaries,
+            },
+            200,
+            cors
+          );
+        }
+
+        const targetLine = purchaseRows[0];
+        const targetLineId = String(targetLine.id);
+        const lineAllLinks = allLineLinks.filter(
+          (lk) => String(lk.document_line_id) === targetLineId
+        );
+        const activeLineLinks = lineAllLinks.filter(
+          (lk) => !lk.is_deleted && lk.status === "confirmed"
+        );
+        const candidateSummary = formatAutoLinkCandidateSummary(
+          targetLine,
+          matchedField,
+          activeLineLinks
+        );
+
+        const { data: productActiveLinksData, error: prodLkErr } =
+          await supabase
+            .from("document_product_links")
+            .select("*")
+            .eq("product_id", productId)
+            .eq("is_deleted", false)
+            .eq("status", "confirmed");
+        if (prodLkErr) {
+          return jsonResponse(
+            {
+              success: false,
+              linked: false,
+              is_reused: false,
+              status: "error",
+              error_code: "DB_QUERY_ERROR",
+              reason_code: "DB_QUERY_ERROR",
+              error: prodLkErr.message,
+              message: `商品の既存リンク確認中にエラーが発生しました: ${prodLkErr.message}`,
+              product_id: productId,
+              auction_item_number: itemNumber,
+              product_registration_preserved: true,
+            },
+            500,
+            cors
+          );
+        }
+        const productActiveLinks = (productActiveLinksData ||
+          []) as Record<string, unknown>[];
+
+        const otherProductLinksOnLine = activeLineLinks.filter(
+          (lk) => String(lk.product_id) !== productId
+        );
+        const sameProductPrimaryLinks = activeLineLinks.filter(
+          (lk) =>
+            String(lk.product_id) === productId &&
+            lk.link_type === "primary_cost"
+        );
+        const sameProductOtherTypeLinks = activeLineLinks.filter(
+          (lk) =>
+            String(lk.product_id) === productId &&
+            lk.link_type !== "primary_cost"
+        );
+        const productOtherLinePrimaryLinks = productActiveLinks.filter(
+          (lk) =>
+            String(lk.document_line_id) !== targetLineId &&
+            lk.link_type === "primary_cost"
+        );
+
+        const unlinkedHistoryOnLine = lineAllLinks
+          .filter((lk) => Boolean(lk.is_deleted) || lk.status === "unlinked")
+          .map((lk) => ({
+            link_id: lk.id,
+            product_id: lk.product_id,
+            link_type: lk.link_type,
+            allocated_amount: toNumOrNull(lk.allocated_amount),
+            status: lk.status,
+            deleted_at: lk.deleted_at ?? lk.updated_at ?? null,
+          }));
+
+        if (otherProductLinksOnLine.length > 0) {
+          const conflictingProductIds = Array.from(
+            new Set(otherProductLinksOnLine.map((lk) => String(lk.product_id)))
+          );
+          const productSummaries: Record<string, Record<string, unknown>> = {};
+          for (const cPid of conflictingProductIds.slice(0, 5)) {
+            const summary = await fetchGasProductSummarySafe(gasUrl, cPid);
+            if (summary) productSummaries[cPid] = summary;
+          }
+          const enrichedConflicts = otherProductLinksOnLine.map((lk) => ({
+            link_id: lk.id,
+            document_line_id: lk.document_line_id,
+            product_id: lk.product_id,
+            link_type: lk.link_type,
+            allocated_amount: toNumOrNull(lk.allocated_amount),
+            allocation_method: lk.allocation_method,
+            match_method: lk.match_method,
+            confirmed_at: lk.confirmed_at ?? null,
+            product_summary:
+              productSummaries[String(lk.product_id)] ?? null,
+          }));
+
+          return jsonResponse(
+            {
+              success: true,
+              linked: false,
+              is_reused: false,
+              status: "conflict_existing_link",
+              reason_code: "LINE_ALREADY_LINKED_TO_OTHER_PRODUCT",
+              message: `該当する仕入明細は既に別商品（${conflictingProductIds.join(", ")}）に確定紐付けされているため、自動紐付けを行いませんでした。既存リンクは維持されています。`,
+              product_id: productId,
+              auction_item_number: itemNumber,
+              searched_number_type: numberType,
+              matched_number_type: matchedNumberType,
+              product_registration_preserved: true,
+              candidate_count: 1,
+              candidate: candidateSummary,
+              candidates: [candidateSummary],
+              conflicting_links: enrichedConflicts,
+              unlinked_history: unlinkedHistoryOnLine,
+            },
+            200,
+            cors
+          );
+        }
+
+        if (productOtherLinePrimaryLinks.length > 0) {
+          return jsonResponse(
+            {
+              success: true,
+              linked: false,
+              is_reused: false,
+              status: "conflict_existing_link",
+              reason_code: "PRODUCT_ALREADY_LINKED_TO_OTHER_LINE",
+              message: `商品（${productId}）は既に別の仕入明細に確定紐付けされているため、自動切り替えを行いませんでした。既存リンクは維持されています。`,
+              product_id: productId,
+              auction_item_number: itemNumber,
+              searched_number_type: numberType,
+              matched_number_type: matchedNumberType,
+              product_registration_preserved: true,
+              candidate_count: 1,
+              candidate: candidateSummary,
+              candidates: [candidateSummary],
+              conflicting_links: productOtherLinePrimaryLinks.map((lk) => ({
+                link_id: lk.id,
+                document_line_id: lk.document_line_id,
+                product_id: lk.product_id,
+                link_type: lk.link_type,
+                allocated_amount: toNumOrNull(lk.allocated_amount),
+                allocation_method: lk.allocation_method,
+                match_method: lk.match_method,
+                confirmed_at: lk.confirmed_at ?? null,
+              })),
+            },
+            200,
+            cors
+          );
+        }
+
+        const amountResult = computeAutoLinkAllocatedAmount(targetLine);
+        if (!amountResult.ok) {
+          return jsonResponse(
+            {
+              success: true,
+              linked: false,
+              is_reused: false,
+              status: "amount_error",
+              reason_code: amountResult.reason_code,
+              message: amountResult.message,
+              product_id: productId,
+              auction_item_number: itemNumber,
+              searched_number_type: numberType,
+              matched_number_type: matchedNumberType,
+              product_registration_preserved: true,
+              candidate_count: 1,
+              candidate: candidateSummary,
+              candidates: [candidateSummary],
+            },
+            200,
+            cors
+          );
+        }
+
+        if (sameProductPrimaryLinks.length > 0) {
+          const existingPrimary = sameProductPrimaryLinks[0];
+          const existingAllocated = toNumOrNull(
+            existingPrimary.allocated_amount
+          );
+          if (
+            sameProductOtherTypeLinks.length > 0 ||
+            existingAllocated === null ||
+            Math.abs(existingAllocated - amountResult.allocated_amount) > 0.01
+          ) {
+            return jsonResponse(
+              {
+                success: true,
+                linked: false,
+                is_reused: false,
+                status: "conflict_existing_link",
+                reason_code: "EXISTING_LINK_AMOUNT_DISCREPANCY",
+                message: `同一商品への既存リンクが存在しますが、割当額（¥${(existingAllocated ?? 0).toLocaleString("ja-JP")}）が明細の算定額（¥${amountResult.allocated_amount.toLocaleString("ja-JP")}）と異なるため上書きせず維持しました。`,
+                product_id: productId,
+                auction_item_number: itemNumber,
+                searched_number_type: numberType,
+                matched_number_type: matchedNumberType,
+                product_registration_preserved: true,
+                candidate_count: 1,
+                candidate: candidateSummary,
+                candidates: [candidateSummary],
+                conflicting_links: activeLineLinks,
+                expected_allocated_amount: amountResult.allocated_amount,
+              },
+              200,
+              cors
+            );
+          }
+
+          const audit = await computeAuditSummary(
+            supabase,
+            String(targetLine.document_id)
+          );
+          const productCost = await computeProductCostBreakdown(
+            supabase,
+            productId
+          );
+          return jsonResponse(
+            {
+              success: true,
+              linked: true,
+              is_reused: true,
+              status: "already_linked_same_product",
+              reason_code: "ALREADY_LINKED_IDEMPOTENT",
+              message: "既に同じ仕入明細へ確定紐付け済みです（二重作成なし）。",
+              product_id: productId,
+              auction_item_number: itemNumber,
+              searched_number_type: numberType,
+              matched_number_type: matchedNumberType,
+              product_registration_preserved: true,
+              tax_confirmed: amountResult.tax_confirmed,
+              allocated_amount: existingAllocated,
+              candidate_count: 1,
+              candidate: candidateSummary,
+              link: existingPrimary,
+              audit: formatAuditSummary(audit),
+              product_cost: productCost || null,
+            },
+            200,
+            cors
+          );
+        }
+
+        if (activeLineLinks.length > 0) {
+          return jsonResponse(
+            {
+              success: true,
+              linked: false,
+              is_reused: false,
+              status: "conflict_existing_link",
+              reason_code: "EXISTING_NON_PRIMARY_LINK",
+              message:
+                "該当する仕入明細に既存の有効リンクが存在するため、自動紐付けを保留しました。",
+              product_id: productId,
+              auction_item_number: itemNumber,
+              searched_number_type: numberType,
+              matched_number_type: matchedNumberType,
+              product_registration_preserved: true,
+              candidate_count: 1,
+              candidate: candidateSummary,
+              candidates: [candidateSummary],
+              conflicting_links: activeLineLinks,
+            },
+            200,
+            cors
+          );
+        }
+
+        const matchMethod =
+          matchedField === "reception_number_raw"
+            ? "reception_number_exact"
+            : "auction_bid_number_exact";
+
+        if (dryRun) {
+          return jsonResponse(
+            {
+              success: true,
+              dry_run: true,
+              linked: false,
+              would_link: true,
+              is_reused: false,
+              status: "dry_run_ready_to_link",
+              reason_code: "READY_TO_LINK",
+              message:
+                "一意の未紐付け仕入明細が確認されました（dry_run のため未書込）。",
+              product_id: productId,
+              auction_item_number: itemNumber,
+              searched_number_type: numberType,
+              matched_number_type: matchedNumberType,
+              match_method: matchMethod,
+              product_registration_preserved: true,
+              tax_confirmed: amountResult.tax_confirmed,
+              expected_allocated_amount: amountResult.allocated_amount,
+              candidate_count: 1,
+              candidate: candidateSummary,
+              candidates: [candidateSummary],
+            },
+            200,
+            cors
+          );
+        }
+
+        const confirmedAt = new Date().toISOString();
+        const autoNote = `auto_link:${matchedField}=${itemNumber}`;
+        const existingSoftDeleted = lineAllLinks.find(
+          (lk) =>
+            String(lk.product_id) === productId &&
+            lk.link_type === "primary_cost" &&
+            Boolean(lk.is_deleted)
+        );
+
+        let savedLink: Record<string, unknown> | null = null;
+        if (existingSoftDeleted) {
+          const { data: restoredLink, error: restoreErr } = await supabase
+            .from("document_product_links")
+            .update({
+              allocated_amount: amountResult.allocated_amount,
+              allocation_method: "direct",
+              match_method: matchMethod,
+              confidence_score: 1.0,
+              status: "confirmed",
+              confirmed_by: confirmedBy,
+              confirmed_at: confirmedAt,
+              notes: autoNote,
+              is_deleted: false,
+              deleted_at: null,
+              deleted_by: null,
+              updated_at: confirmedAt,
+            })
+            .eq("id", existingSoftDeleted.id)
+            .eq("is_deleted", true)
+            .select()
+            .single();
+          if (restoreErr) {
+            return jsonResponse(
+              {
+                success: false,
+                linked: false,
+                is_reused: false,
+                status: "error",
+                error_code: "LINK_UPDATE_ERROR",
+                reason_code: "LINK_UPDATE_ERROR",
+                error: restoreErr.message,
+                message: `自動紐付けの保存中にエラーが発生しました: ${restoreErr.message}`,
+                product_id: productId,
+                auction_item_number: itemNumber,
+                product_registration_preserved: true,
+              },
+              500,
+              cors
+            );
+          }
+          savedLink = restoredLink;
+        } else {
+          const { data: insertedLink, error: insErr } = await supabase
+            .from("document_product_links")
+            .insert({
+              document_line_id: targetLineId,
+              product_id: productId,
+              link_type: "primary_cost",
+              allocated_amount: amountResult.allocated_amount,
+              allocation_method: "direct",
+              match_method: matchMethod,
+              confidence_score: 1.0,
+              status: "confirmed",
+              confirmed_by: confirmedBy,
+              confirmed_at: confirmedAt,
+              notes: autoNote,
+            })
+            .select()
+            .single();
+
+          if (insErr) {
+            const { data: concurrentSame } = await supabase
+              .from("document_product_links")
+              .select("*")
+              .eq("document_line_id", targetLineId)
+              .eq("product_id", productId)
+              .eq("link_type", "primary_cost")
+              .eq("is_deleted", false)
+              .eq("status", "confirmed")
+              .maybeSingle();
+            if (concurrentSame) {
+              const audit = await computeAuditSummary(
+                supabase,
+                String(targetLine.document_id)
+              );
+              const productCost = await computeProductCostBreakdown(
+                supabase,
+                productId
+              );
+              return jsonResponse(
+                {
+                  success: true,
+                  linked: true,
+                  is_reused: true,
+                  status: "already_linked_same_product",
+                  reason_code: "ALREADY_LINKED_IDEMPOTENT",
+                  message:
+                    "既に同じ仕入明細へ確定紐付け済みです（二重作成なし）。",
+                  product_id: productId,
+                  auction_item_number: itemNumber,
+                  searched_number_type: numberType,
+                  matched_number_type: matchedNumberType,
+                  product_registration_preserved: true,
+                  tax_confirmed: amountResult.tax_confirmed,
+                  allocated_amount: toNumOrNull(
+                    concurrentSame.allocated_amount
+                  ),
+                  candidate_count: 1,
+                  candidate: candidateSummary,
+                  link: concurrentSame,
+                  audit: formatAuditSummary(audit),
+                  product_cost: productCost || null,
+                },
+                200,
+                cors
+              );
+            }
+
+            return jsonResponse(
+              {
+                success: false,
+                linked: false,
+                is_reused: false,
+                status: "error",
+                error_code: "LINK_CREATE_ERROR",
+                reason_code: "LINK_CREATE_ERROR",
+                error: insErr.message,
+                message: `自動紐付けの作成中にエラーが発生しました: ${insErr.message}`,
+                product_id: productId,
+                auction_item_number: itemNumber,
+                product_registration_preserved: true,
+              },
+              500,
+              cors
+            );
+          }
+          savedLink = insertedLink;
+        }
+
+        const { data: postLinks } = await supabase
+          .from("document_product_links")
+          .select("*")
+          .eq("document_line_id", targetLineId)
+          .eq("is_deleted", false)
+          .eq("status", "confirmed");
+        const concurrentOther = ((postLinks || []) as Record<string, unknown>[]).filter(
+          (lk) => String(lk.product_id) !== productId
+        );
+        if (concurrentOther.length > 0 && savedLink?.id) {
+          await supabase
+            .from("document_product_links")
+            .update({
+              is_deleted: true,
+              deleted_at: new Date().toISOString(),
+              deleted_by: "auto_link_conflict_rollback",
+              status: "unlinked",
+            })
+            .eq("id", savedLink.id);
+          return jsonResponse(
+            {
+              success: true,
+              linked: false,
+              is_reused: false,
+              status: "conflict_existing_link",
+              reason_code: "LINE_ALREADY_LINKED_TO_OTHER_PRODUCT",
+              message:
+                "同時更新により別商品への確定リンクが検出されたため、自動紐付けを取り消して既存リンクを保護しました。",
+              product_id: productId,
+              auction_item_number: itemNumber,
+              searched_number_type: numberType,
+              matched_number_type: matchedNumberType,
+              product_registration_preserved: true,
+              candidate_count: 1,
+              candidate: candidateSummary,
+              candidates: [candidateSummary],
+              conflicting_links: concurrentOther,
+            },
+            200,
+            cors
+          );
+        }
+
+        await supabase
+          .from("document_lines")
+          .update({ match_status: "confirmed", updated_at: confirmedAt })
+          .eq("id", targetLineId);
+
+        await refreshDocumentStatus(supabase, String(targetLine.document_id));
+
+        const audit = await computeAuditSummary(
+          supabase,
+          String(targetLine.document_id)
+        );
+        const productCost = await computeProductCostBreakdown(
+          supabase,
+          productId
+        );
+        const updatedCandidate = formatAutoLinkCandidateSummary(
+          { ...targetLine, match_status: "confirmed" },
+          matchedField,
+          savedLink ? [savedLink] : []
+        );
+
+        return jsonResponse(
+          {
+            success: true,
+            linked: true,
+            is_reused: false,
+            status: "linked",
+            reason_code: "AUTO_LINKED_EXACT_UNIQUE",
+            message: "一意の仕入明細を確認し、商品へ自動紐付けしました。",
+            product_id: productId,
+            auction_item_number: itemNumber,
+            searched_number_type: numberType,
+            matched_number_type: matchedNumberType,
+            match_method: matchMethod,
+            product_registration_preserved: true,
+            tax_confirmed: amountResult.tax_confirmed,
+            allocated_amount: amountResult.allocated_amount,
+            candidate_count: 1,
+            candidate: updatedCandidate,
+            link: savedLink,
+            audit: formatAuditSummary(audit),
+            product_cost: productCost || null,
+          },
+          200,
+          cors
+        );
+      } catch (autoErr: unknown) {
+        const msg =
+          autoErr instanceof Error ? autoErr.message : String(autoErr);
+        return jsonResponse(
+          {
+            success: false,
+            linked: false,
+            is_reused: false,
+            status: "error",
+            error_code: "AUTO_LINK_INTERNAL_ERROR",
+            reason_code: "AUTO_LINK_INTERNAL_ERROR",
+            error: msg,
+            message: `自動紐付け処理中にエラーが発生しました: ${msg}`,
+            product_id: productId,
+            auction_item_number: itemNumber,
+            product_registration_preserved: true,
+          },
+          500,
+          cors
+        );
+      }
     }
 
     // ----------------------------------------------------
