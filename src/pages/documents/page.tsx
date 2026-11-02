@@ -44,7 +44,7 @@ export default function DocumentsPage() {
   return (
     <div className="admin-font products-theme min-h-screen bg-background-50">
       <header className="border-b border-background-200 bg-white">
-        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 md:px-6">
+        <div className="mx-auto flex w-full max-w-[1560px] flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 md:px-6 lg:px-8">
           <div className="min-w-0">
             {/* 一覧画面の見出しは商品一覧と同じ型（小さなラベル＋ディスプレイ書体）に揃える。 */}
             <p className="admin-eyebrow text-[10px] font-semibold text-foreground-400">
@@ -64,7 +64,8 @@ export default function DocumentsPage() {
         </div>
       </header>
 
-      <main className="page-fade mx-auto w-full max-w-5xl px-4 py-4 md:px-6">
+      {/* 一覧系の画面はワイド幅（最大1560px・左右32px）。書類詳細などのフォーム系は従来の幅のまま。 */}
+      <main className="page-fade mx-auto w-full max-w-[1560px] px-4 py-4 md:px-6 lg:px-8">
         {/* 画面の主役: 仕入明細を探す（受付番号・ことば） */}
         <SupplyLineSearch />
 

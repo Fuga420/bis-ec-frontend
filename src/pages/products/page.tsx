@@ -678,7 +678,7 @@ export default function ProductsPage() {
   return (
     <div className="admin-font products-theme min-h-screen bg-background-50">
       <header className="border-b border-background-200 bg-white">
-        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 md:px-6">
+        <div className="mx-auto flex w-full max-w-[1560px] flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 md:px-6 lg:px-8">
           <div className="min-w-0">
             {/* 見出しは欧文ディスプレイ書体＋詰めた字間で一段大きく。
                 上に小さなラベルを置いて、ページタイトルとしての格を出す。 */}
@@ -715,7 +715,8 @@ export default function ProductsPage() {
         </div>
       </header>
 
-      <main className="page-fade mx-auto w-full max-w-5xl px-4 py-4 md:px-6">
+      {/* 一覧系の画面はワイド幅（最大1560px・左右32px）。詳細／登録／画像取込のフォーム系は従来の幅のまま。 */}
+      <main className="page-fade mx-auto w-full max-w-[1560px] px-4 py-4 md:px-6 lg:px-8">
         {/* 一覧切り替えタブ */}
         <div className="mb-6 inline-flex items-center gap-1 rounded-lg bg-background-100 p-1">
           <Link
@@ -907,10 +908,10 @@ export default function ProductsPage() {
               >
                 {/* 横幅が不足する場合は重ねずに横スクロールで対応する */}
                 <div className="overflow-x-auto">
-                  <div className="min-w-full lg:min-w-[1004px]">
+                  <div className="min-w-full lg:min-w-[1170px]">
                     {/* ヘッダー行（デスクトップ） */}
                     <div className="hidden items-center border-b border-background-200 bg-background-50 py-2.5 lg:flex">
-                      <div className="flex w-10 shrink-0 items-center justify-center">
+                      <div className="flex w-10 shrink-0 items-center justify-center lg:w-9">
                         <label className="product-checkbox">
                           <input
                             ref={selectAllRef}
@@ -938,22 +939,22 @@ export default function ProductsPage() {
                         <span className="w-28 shrink-0 text-xs font-medium text-foreground-500">
                           画像
                         </span>
-                        <span className="min-w-0 flex-1 text-xs font-medium text-foreground-500">
+                        <span className="min-w-[240px] flex-1 text-xs font-medium text-foreground-500">
                           商品名
                         </span>
-                        <span className="w-[88px] shrink-0 text-xs font-medium text-foreground-500">
+                        <span className="w-[110px] shrink-0 text-xs font-medium text-foreground-500">
                           カテゴリ
                         </span>
-                        <span className="w-[104px] shrink-0 text-right text-xs font-medium text-foreground-500">
+                        <span className="w-[120px] shrink-0 text-right text-xs font-medium text-foreground-500">
                           販売予定価格
                         </span>
-                        <span className="w-[84px] shrink-0 text-xs font-medium text-foreground-500">
+                        <span className="w-[92px] shrink-0 text-xs font-medium text-foreground-500">
                           公開状態
                         </span>
-                        <span className="w-[84px] shrink-0 text-xs font-medium text-foreground-500">
+                        <span className="w-[104px] shrink-0 text-xs font-medium text-foreground-500">
                           在庫状態
                         </span>
-                        <span className="w-[104px] shrink-0 text-xs font-medium text-foreground-500">
+                        <span className="w-[120px] shrink-0 text-xs font-medium text-foreground-500">
                           仕入照合
                         </span>
                       </div>
