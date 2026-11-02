@@ -1,7 +1,5 @@
-import {
-  importProductByImagesViaApi,
-  markDraftProductSyncedInSession,
-} from "@/config/productsApi";
+import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
+import { syncProductToReadDb } from "@/config/productsApi";
 import { fileToBase64 } from "@/pages/register/lib/aiProduct";
 
 // 新API action 名（MULTI_PRODUCT_IMPORT_API_CONTRACT.md に一致させる）。
@@ -87,17 +85,25 @@ export async function importProductByImages(params: {
 }): Promise<ImportSendResult> {
   let response: Response;
   try {
-    response = await importProductByImagesViaApi({
-      action: IMPORT_PRODUCT_BY_IMAGES_ACTION,
-      import_attempt_id: params.importAttemptId,
-      images: params.images,
-      // 仕入台帳の商品番号（そのセットに対する任意入力）。
-      // 型は文字列のまま送る（"00842-01" のような値を保持するため数値にしない）。
-      auction_item_number: (params.auctionItemNumber ?? "").trim(),
-      publish_status: "draft",
+    response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      // action と import_attempt_id、確定済み順序の images を送る。
+      // 属性は送らない（画像のみ取り込み。商品情報は後から一括AI生成で補完する）。
+      // publish_status は GAS 側で "draft" 固定だが、意図を明示するため便宜上送っても良い。
+      // ここではキー名の揺れを避けるため契約どおりの最小構成にする。
+      body: JSON.stringify({
+        action: IMPORT_PRODUCT_BY_IMAGES_ACTION,
+        import_attempt_id: params.importAttemptId,
+        images: params.images,
+        // 仕入台帳の商品番号（そのセットに対する任意入力）。
+        // 型は文字列のまま送る（"00842-01" のような値を保持するため数値にしない）。
+        auction_item_number: (params.auctionItemNumber ?? "").trim(),
+        publish_status: "draft",
+      }),
     });
   } catch {
-    // 通信断・タイムアウト等：サーバーが受付済みか判断できない。
+    // 通信断・タイムアウト等：GAS が受付済みか判断できない。
     return {
       kind: "unknown",
       message:
@@ -122,16 +128,7 @@ export async function importProductByImages(params: {
     data = null;
   }
 
-  // HTTP 5xx や応答本文を解析できない場合は「受付済みか判断できない」ため unknown を返し、
-  // 同一 import_attempt_id・同一ペイロードでの再送（途中失敗からの回復）を可能にする。
-  if (response.status >= 500) {
-    return {
-      kind: "unknown",
-      message:
-        "サーバーエラーが発生しました。受付状況が不明なため、同じ内容で再送できます。",
-    };
-  }
-
+  // 応答本文を解析できない＝受付済みか不明（HTTPステータスだけでは成功にしない）。
   if (!data) {
     return {
       kind: "unknown",
@@ -143,7 +140,7 @@ export async function importProductByImages(params: {
   // is_reused:true（同一 import_attempt_id の再送ヒット）も同じ商品IDの成功として扱う。
   if (data.success === true) {
     const productId = asString(data.product_id);
-    markDraftProductSyncedInSession(productId);
+    await syncProductToReadDb(productId);
     return {
       kind: "success",
       productId,

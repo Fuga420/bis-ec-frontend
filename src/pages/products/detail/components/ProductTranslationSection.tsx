@@ -7,6 +7,8 @@ import type {
   ProductTranslationApproveResponse,
 } from "../../types";
 import SaveStatusMessage from "@/components/base/SaveStatusMessage";
+import SectionHeading from "./SectionHeading";
+import CollapsibleText from "./CollapsibleText";
 
 type SyncState = "idle" | "generating" | "success" | "error";
 type ApproveState = "idle" | "approving";
@@ -189,19 +191,17 @@ export default function ProductTranslationSection({
 
   return (
     <div className="ui-card rounded-lg p-4 md:p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-[15px] font-semibold text-foreground-950">
-            英語翻訳
-          </h2>
-          <p className="mt-1 text-xs text-foreground-500">
-            越境EC向けに英語の商品説明を生成します
-          </p>
-        </div>
-        <span className={`st-badge shrink-0 ${badge.className}`}>
-          {badge.label}
-        </span>
-      </div>
+      <SectionHeading
+        eyebrow="Localization"
+        title="英語翻訳"
+        icon="ri-translate-2"
+        description="越境EC向けに英語の商品説明を生成します"
+        right={
+          <span className={`st-badge shrink-0 ${badge.className}`}>
+            {badge.label}
+          </span>
+        }
+      />
 
       {translationData ? (
         <div className="mt-4 flex flex-col gap-3">
@@ -241,9 +241,18 @@ export default function ProductTranslationSection({
             <p className="text-xs font-medium text-foreground-500">
               英語説明
             </p>
-            <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground-700">
-              {translationData.translated_description || "—"}
-            </p>
+            {translationData.translated_description ? (
+              <CollapsibleText
+                text={translationData.translated_description}
+                collapsedLines={3}
+                threshold={140}
+                className="mt-1"
+              />
+            ) : (
+              <p className="mt-1 text-[13px] leading-relaxed text-foreground-300">
+                —
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-background-100 pt-3 text-xs text-foreground-400">
             <span>ロケール：{translationData.locale || "—"}</span>

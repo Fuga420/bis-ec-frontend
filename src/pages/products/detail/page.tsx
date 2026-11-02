@@ -7,7 +7,6 @@ import {
   markDraftProductSyncedInSession,
   syncProductToReadDb,
   updateDraftProductViaApi,
-  updateProductImagesViaApi,
 } from "@/config/productsApi";
 import type {
   AdminProduct,
@@ -251,7 +250,7 @@ export default function ProductDetailPage() {
   // メイン画像の拡大表示（ライトボックス）の開閉（表示専用・保存はしない）
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
 
-  // 管理タブ（販売管理 / 仕入・書類 / 翻訳・外部連携）の選択状態。
+  // 管理タブ（販売管理 / 仕入・書類 / 英語翻訳 / 外部連携）の選択状態。
   // 基本情報（商品スペック・説明・備考）はタブから独立して常時表示する。
   // 画面内の表示切り替えのみで、URLやデータ取得には影響しない。
   const [activeTab, setActiveTab] = useState<ProductDetailTabKey>("sales");
@@ -765,9 +764,17 @@ export default function ProductDetailPage() {
         }))
       );
 
-      const response = await updateProductImagesViaApi(product.product_id, {
-        image_order: payload.image_order,
-        new_images: newImages,
+      const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8",
+        },
+        body: JSON.stringify({
+          action: "update_product_images",
+          product_id: product.product_id,
+          image_order: payload.image_order,
+          new_images: newImages,
+        }),
       });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
@@ -777,9 +784,9 @@ export default function ProductDetailPage() {
         throw new Error("Invalid response");
       }
 
-      markDraftProductSyncedInSession(product.product_id);
       setIsImageEditing(false);
       setImageMessage({ type: "success", text: "商品画像を更新しました" });
+      await syncProductToReadDb(product.product_id);
 
       try {
         const updated = await loadProduct();
@@ -997,6 +1004,11 @@ export default function ProductDetailPage() {
     product.planned_sale_price <= 0;
   const showAiPriceHint = plannedSalePriceUnset && aiDraftPrice != null;
 
+  // 販売管理のステップ表示用: 価格が確定していれば「確認」まで進んだとみなす。
+  const workflowReviewed = Boolean(
+    product && product.planned_sale_price != null && product.planned_sale_price > 0
+  );
+
   return (
     <div className="admin-font products-theme min-h-screen bg-background-50">
       <header className="border-b border-background-200 bg-white">
@@ -1141,12 +1153,12 @@ export default function ProductDetailPage() {
               </div>
             )}
 
-            {/* 管理タブ（販売管理 / 仕入・書類 / 翻訳・外部連携） */}
+            {/* 管理タブ（販売管理 / 仕入・書類 / 英語翻訳 / 外部連携） */}
             {isEditing ? (
               <p className="mt-4 flex items-start gap-1.5 rounded-lg border border-background-200 bg-background-100 px-3 py-2 text-[12px] leading-relaxed text-foreground-500">
                 <i className="ri-information-line mt-0.5 w-4 h-4 flex items-center justify-center shrink-0"></i>
                 <span className="min-w-0 flex-1">
-                  商品情報を編集中です。保存またはキャンセルすると、商品説明・備考と、販売管理・仕入・書類などの管理タブが表示されます。
+                  商品情報を編集中です。保存またはキャンセルすると、商品説明・備考と、販売管理・仕入・書類・英語翻訳・外部連携の管理タブが表示されます。
                 </span>
               </p>
             ) : (
@@ -1207,6 +1219,12 @@ export default function ProductDetailPage() {
                           setIsDeleteConfirmOpen(true);
                         },
                       }}
+                      workflow={{
+                        imported: true,
+                        aiGenerated: aiDraftPrice != null,
+                        reviewed: workflowReviewed,
+                        published: product.publish_status === "published",
+                      }}
                     />
                   </div>
                 )}
@@ -1233,10 +1251,10 @@ export default function ProductDetailPage() {
                   </div>
                 )}
 
-                {/* 翻訳・外部連携 */}
-                {activeTab === "external" && (
-                  <div className="tab-fade mt-4 flex flex-col gap-4">
-                    {product.category !== "pokemon_card" && (
+                {/* 英語翻訳（翻訳データの取得・表示条件は従来どおり） */}
+                {activeTab === "translation" && (
+                  <div className="tab-fade mt-4">
+                    {product.category !== "pokemon_card" ? (
                       <ProductTranslationSection
                         productId={product.product_id}
                         translation={product.translation}
@@ -1246,7 +1264,19 @@ export default function ProductDetailPage() {
                           );
                         }}
                       />
+                    ) : (
+                      <div className="ui-card rounded-lg px-4 py-6 text-center">
+                        <p className="text-sm text-foreground-500">
+                          このカテゴリの商品は英語翻訳の対象外です
+                        </p>
+                      </div>
                     )}
+                  </div>
+                )}
+
+                {/* 外部連携（現時点ではSquareのみ。サービスごとに1カードで表示） */}
+                {activeTab === "external" && (
+                  <div className="tab-fade mt-4 flex flex-col gap-4">
                     <SquareIntegrationSection
                       product={product}
                       onRefreshed={refreshProduct}

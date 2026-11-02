@@ -1,48 +1,111 @@
 import type { AdminProductDetail } from "@/pages/products/types";
-import { DescriptionBlock } from "./InfoRow";
+import { parseTaggedDescription } from "../lib/descriptionExtract";
 import { hasText } from "../lib/format";
+import SectionHeading from "./SectionHeading";
+import CollapsibleText from "./CollapsibleText";
 
 interface ProductSpecPanelProps {
   product: AdminProductDetail;
 }
 
+/** 本文から抜き出した項目（【状態】など）を、上部スペックと同じ定義リスト形式で表示する */
+function ExtractedFields({
+  fields,
+}: {
+  fields: ReturnType<typeof parseTaggedDescription>["fields"];
+}) {
+  return (
+    <dl className="grid grid-cols-1 gap-x-4 gap-y-2.5 rounded-lg border border-background-200 bg-background-50 px-3 py-2.5 sm:grid-cols-2 md:grid-cols-3">
+      {fields.map((field) => (
+        <div key={field.label} className="min-w-0">
+          <dt className="text-[11px] leading-4 text-foreground-500">
+            {field.label}
+          </dt>
+          <dd className="mt-1 flex flex-wrap gap-1">
+            {field.values.map((value) => (
+              <span
+                key={value}
+                className="inline-flex max-w-full items-center whitespace-normal rounded-md border border-background-200 bg-white px-1.5 py-0.5 text-[12px] font-medium leading-5 text-foreground-800"
+              >
+                {value}
+              </span>
+            ))}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 /**
  * 商品詳細の「商品説明・備考」セクション（表示専用）。
- * 商品スペックは右上の商品情報カードに集約したため、
- * ここでは商品説明・備考のみを表示し、同じ情報を重複表示しない。
+ *
+ * 長文をそのまま並べるのではなく、読み手が拾いやすい形に分解する:
+ *  1. 【状態】【付属品】【サイズ】など本文中の項目は、上部スペックと同じ
+ *     定義リスト／チップ形式で本文より先に置く
+ *  2. 残った文章だけを本文として段落表示し、長い場合は数行で折りたたむ
  *
  * 未入力の項目は「—」を並べず、入力済みの項目だけを表示する。
  * どちらも空のときは、空欄を埋める代わりに一行の案内に置き換える。
  */
 export default function ProductSpecPanel({ product }: ProductSpecPanelProps) {
-  const hasDescription = hasText(product.description ?? "");
+  const description = product.description ?? "";
+  const parsed = parseTaggedDescription(description);
+  const hasExtractedFields = parsed.fields.length > 0;
+  const hasDescriptionBody = hasText(parsed.lead);
+  const hasDescription = hasExtractedFields || hasDescriptionBody;
   const hasNotes = hasText(product.notes ?? "");
   const hasAny = hasDescription || hasNotes;
 
   return (
     <div className="ui-card rounded-lg">
-      <div className="flex items-center justify-between gap-3 border-b border-background-100 px-4 py-3 md:px-5">
-        <h2 className="text-[15px] font-semibold text-foreground-950">
-          商品説明・備考
-        </h2>
-        {!hasAny && (
-          <span className="whitespace-nowrap rounded-md bg-background-100 px-2 py-0.5 text-[10px] font-medium text-foreground-500">
-            未入力
-          </span>
-        )}
+      <div className="border-b border-background-100 px-4 py-3 md:px-5">
+        <SectionHeading
+          eyebrow="Description"
+          title="商品説明・備考"
+          icon="ri-file-text-line"
+          right={
+            !hasAny ? (
+              <span className="whitespace-nowrap rounded-md bg-background-100 px-2 py-0.5 text-[10px] font-medium text-foreground-500">
+                未入力
+              </span>
+            ) : undefined
+          }
+        />
       </div>
 
-      <div className="px-4 py-4 md:px-5">
+      <div className="flex flex-col gap-3 px-4 py-4 md:px-5">
         {hasAny ? (
           <>
-            {hasDescription && (
-              <DescriptionBlock
-                label="商品説明"
-                value={product.description ?? ""}
-              />
+            {hasExtractedFields && <ExtractedFields fields={parsed.fields} />}
+
+            {hasDescriptionBody && (
+              <div>
+                <p className="text-[11px] font-medium text-foreground-500">
+                  商品説明
+                </p>
+                <CollapsibleText
+                  text={parsed.lead}
+                  collapsedLines={4}
+                  threshold={160}
+                  className="mt-1"
+                />
+              </div>
             )}
+
             {hasNotes && (
-              <DescriptionBlock label="備考" value={product.notes ?? ""} />
+              <div className="border-t border-background-100 pt-3">
+                <p className="text-[11px] font-medium text-foreground-500">
+                  備考
+                </p>
+                <CollapsibleText
+                  text={product.notes ?? ""}
+                  collapsedLines={3}
+                  threshold={120}
+                  tone="muted"
+                  className="mt-1"
+                />
+              </div>
             )}
           </>
         ) : (

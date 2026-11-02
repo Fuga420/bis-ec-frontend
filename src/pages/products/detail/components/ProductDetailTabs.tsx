@@ -1,6 +1,10 @@
 import { useRef, type KeyboardEvent } from "react";
 
-export type ProductDetailTabKey = "sales" | "purchase" | "external";
+export type ProductDetailTabKey =
+  | "sales"
+  | "purchase"
+  | "translation"
+  | "external";
 
 interface ProductDetailTabsProps {
   activeTab: ProductDetailTabKey;
@@ -23,15 +27,21 @@ const TABS: Array<{
     icon: "ri-file-text-line",
   },
   {
-    key: "external",
-    label: "翻訳・外部連携",
+    key: "translation",
+    label: "英語翻訳",
     icon: "ri-translate-2",
+  },
+  {
+    key: "external",
+    label: "外部連携",
+    icon: "ri-links-line",
   },
 ];
 
 /**
  * 商品詳細の情報を切り替えるローカルタブ（URLは変えず、画面内の表示だけ切り替える）。
  * 補足説明は持たず、ラベルとアイコンのみのコンパクトな表示にする。
+ * 4タブを横並びにし、画面幅が狭いときはタブ領域だけ横スクロールさせる。
  * キーボード操作: ←→ で移動、Home/End で先頭・末尾へ移動（roving tabindex）。
  */
 export default function ProductDetailTabs({
@@ -75,39 +85,41 @@ export default function ProductDetailTabs({
   };
 
   return (
-    <div
-      role="tablist"
-      aria-label="商品詳細の情報切り替え"
-      className="ui-card inline-flex w-fit max-w-full items-center gap-1 rounded-lg p-1"
-    >
-      {TABS.map((tab, index) => {
-        const active = activeTab === tab.key;
-        return (
-          <button
-            key={tab.key}
-            ref={(el) => {
-              buttonsRef.current[index] = el;
-            }}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            tabIndex={active ? 0 : -1}
-            onClick={() => onChange(tab.key)}
-            onKeyDown={(event) => handleKeyDown(event, index)}
-            className={`inline-flex h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md px-3.5 text-[13px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 ${
-              active
-                ? "bg-primary-600 text-background-50"
-                : "text-foreground-600 hover:bg-background-100 hover:text-foreground-900"
-            }`}
-          >
-            <i
-              className={`${tab.icon} w-4 h-4 flex items-center justify-center shrink-0`}
-              aria-hidden="true"
-            ></i>
-            {tab.label}
-          </button>
-        );
-      })}
+    <div className="w-full max-w-full overflow-x-auto">
+      <div
+        role="tablist"
+        aria-label="商品詳細の情報切り替え"
+        className="ui-card inline-flex w-max min-w-full items-center gap-1 rounded-lg p-1"
+      >
+        {TABS.map((tab, index) => {
+          const active = activeTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              ref={(el) => {
+                buttonsRef.current[index] = el;
+              }}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              tabIndex={active ? 0 : -1}
+              onClick={() => onChange(tab.key)}
+              onKeyDown={(event) => handleKeyDown(event, index)}
+              className={`inline-flex h-9 flex-1 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3.5 text-[13px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 ${
+                active
+                  ? "bg-primary-600 text-background-50"
+                  : "text-foreground-600 hover:bg-background-100 hover:text-foreground-900"
+              }`}
+            >
+              <i
+                className={`${tab.icon} w-4 h-4 flex items-center justify-center shrink-0`}
+                aria-hidden="true"
+              ></i>
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

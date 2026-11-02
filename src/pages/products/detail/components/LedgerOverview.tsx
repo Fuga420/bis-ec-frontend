@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { formatYen } from "@/pages/products/detail/lib/format";
+import SectionHeading from "./SectionHeading";
 
 interface LedgerOverviewProps {
   loading: boolean;
@@ -25,17 +27,37 @@ interface LedgerOverviewProps {
   profitRate: number;
 }
 
+/** 粗利率の細いバー（プラスは緑、マイナスは赤） */
+function RateBar({ percent, positive }: { percent: number; positive: boolean }) {
+  const width = Math.max(0, Math.min(100, Math.abs(percent)));
+  return (
+    <div
+      className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-background-200"
+      aria-hidden="true"
+    >
+      <div
+        className={`h-full rounded-full transition-[width] duration-300 ${
+          positive ? "bg-primary-500" : "bg-red-500"
+        }`}
+        style={{ width: `${width}%` }}
+      />
+    </div>
+  );
+}
+
 /** 上段の主要指標1つ分（ラベルは左、数値は右揃えで比較しやすく） */
 function PrimaryMetric({
   label,
   value,
   sub,
   valueClass,
+  bar,
 }: {
   label: string;
   value: string;
   sub?: string;
   valueClass?: string;
+  bar?: { percent: number; positive: boolean } | null;
 }) {
   return (
     <div className="min-w-0 px-3.5 py-3">
@@ -50,6 +72,7 @@ function PrimaryMetric({
       >
         {value}
       </dd>
+      {bar && <RateBar percent={bar.percent} positive={bar.positive} />}
       {sub && (
         <dd className="mt-1 truncate text-right text-[10px] leading-tight tabular-nums text-foreground-400">
           {sub}
@@ -94,6 +117,9 @@ function BreakdownRow({
 /**
  * 仕入れ概要: 主要指標（仕入原価・想定粗利・想定粗利率）を上段に、
  * その計算根拠となる内訳（商品代金・落札手数料・税額）を下段に分けて表示する。
+ *
+ * - 0円・空の内訳は表に出さず、「詳細・技術情報」の折りたたみへ送る
+ * - 想定粗利はプラスなら緑、マイナスなら赤。粗利率には細いバーを添える
  * 金額計算は呼び出し元が持つ値をそのまま表示するだけ（丸め・加工はしない）。
  */
 export default function LedgerOverview({
@@ -116,29 +142,50 @@ export default function LedgerOverview({
   profit,
   profitRate,
 }: LedgerOverviewProps) {
+  const [detailOpen, setDetailOpen] = useState(false);
+
   // 紐付けが無い（または読み込み中）ときは「¥0」と断定せず「—」で表示する
   const show = hasLinks && !loading;
   const dash = (value: string) => (show ? value : "—");
 
+  const profitPositive = profit >= 0;
+  const showProfitValue = show && canShowProfit;
+
+  // 表に出す内訳（値が0の行は出さない）
+  const visibleBreakdown: Array<{ label: string; value: string }> = [];
+  if (show && hasItemBreakdown && itemTotal !== 0) {
+    visibleBreakdown.push({ label: "商品代金", value: formatYen(itemTotal) });
+  }
+  if (show && hasFeeBreakdown && feeTotal !== 0) {
+    visibleBreakdown.push({ label: "落札手数料", value: formatYen(feeTotal) });
+  }
+  if (show && hasTaxBreakdown && taxTotal !== 0) {
+    visibleBreakdown.push({ label: "税額", value: formatYen(taxTotal) });
+  }
+  if (show && otherTotal > 0) {
+    visibleBreakdown.push({ label: "送料・その他", value: formatYen(otherTotal) });
+  }
+
   return (
     <section className="ui-card rounded-lg p-4 md:p-5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="flex items-center gap-1.5 text-[15px] font-semibold text-foreground-950">
-          <i className="ri-pie-chart-2-line w-4 h-4 flex items-center justify-center text-primary-600"></i>
-          仕入れ概要
-        </h2>
-        <div className="flex items-center gap-2">
-          {loading && (
-            <span className="inline-flex items-center gap-1 text-[11px] text-foreground-400">
-              <i className="ri-loader-4-line animate-spin w-3.5 h-3.5 flex items-center justify-center"></i>
-              読み込み中
+      <SectionHeading
+        eyebrow="Purchase"
+        title="仕入れ概要"
+        icon="ri-pie-chart-2-line"
+        right={
+          <>
+            {loading && (
+              <span className="inline-flex items-center gap-1 text-[11px] text-foreground-400">
+                <i className="ri-loader-4-line animate-spin w-3.5 h-3.5 flex items-center justify-center"></i>
+                読み込み中
+              </span>
+            )}
+            <span className="inline-flex h-[20px] items-center whitespace-nowrap rounded-md bg-background-100 px-2 text-[10px] font-medium leading-none text-foreground-600">
+              概算
             </span>
-          )}
-          <span className="inline-flex h-[20px] items-center whitespace-nowrap rounded-md bg-background-100 px-2 text-[10px] font-medium leading-none text-foreground-600">
-            概算
-          </span>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* 上段: 主要指標（3カラム / 狭い画面は折り返し） */}
       <dl className="mt-3 grid grid-cols-1 divide-y divide-background-200 rounded-lg border border-background-200 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
@@ -148,75 +195,143 @@ export default function LedgerOverview({
         />
         <PrimaryMetric
           label="想定粗利"
-          value={dash(canShowProfit ? formatYen(profit) : "—")}
+          value={dash(showProfitValue ? formatYen(profit) : "—")}
           valueClass={
-            show && canShowProfit && profit < 0
-              ? "text-red-600"
+            showProfitValue
+              ? profitPositive
+                ? "text-primary-700"
+                : "text-red-600"
               : "text-foreground-950"
           }
         />
         <PrimaryMetric
           label="想定粗利率"
-          value={dash(canShowProfit ? `${profitRate.toFixed(1)}%` : "—")}
-          sub={show && canShowProfit ? "販売予定価格比" : undefined}
+          value={dash(showProfitValue ? `${profitRate.toFixed(1)}%` : "—")}
+          valueClass={
+            showProfitValue
+              ? profitPositive
+                ? "text-primary-700"
+                : "text-red-600"
+              : "text-foreground-950"
+          }
+          bar={
+            showProfitValue
+              ? { percent: profitRate, positive: profitPositive }
+              : null
+          }
+          sub={showProfitValue ? "販売予定価格比" : undefined}
         />
       </dl>
 
-      {/* 下段: 主要指標の内訳 */}
-      <div className="mt-3 border-t border-background-200 pt-3">
-        <p className="text-[10px] font-medium tracking-wide text-foreground-400">
-          内訳
-        </p>
-        <dl className="mt-1.5 grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-3">
-          <BreakdownRow
-            label="商品代金"
-            value={dash(hasItemBreakdown ? formatYen(itemTotal) : "—")}
-          />
-          <BreakdownRow
-            label="落札手数料"
-            value={dash(hasFeeBreakdown ? formatYen(feeTotal) : "—")}
-          />
-          <BreakdownRow
-            label="税額"
-            value={dash(hasTaxBreakdown ? formatYen(taxTotal) : "—")}
-            sub={
-              show && hasTaxBreakdown
-                ? `商品税 ${formatYen(itemTaxTotal)} / 手数料税 ${formatYen(feeTaxTotal)}`
-                : undefined
-            }
-          />
-        </dl>
-      </div>
+      {/* 中段: 主要指標の内訳（0円・空の行は出さない） */}
+      {show && visibleBreakdown.length > 0 && (
+        <div className="mt-3 border-t border-background-200 pt-3">
+          <p className="text-[10px] font-medium tracking-wide text-foreground-400">
+            内訳
+          </p>
+          <dl
+            className={`mt-1.5 grid grid-cols-1 gap-x-6 gap-y-2 ${
+              visibleBreakdown.length >= 3 ? "sm:grid-cols-3" : "sm:grid-cols-2"
+            }`}
+          >
+            {visibleBreakdown.map((row) => (
+              <BreakdownRow
+                key={row.label}
+                label={row.label}
+                value={row.value}
+              />
+            ))}
+          </dl>
+        </div>
+      )}
 
-      {/* 補助情報は概要の下に控えめに置く */}
-      <div className="mt-2 flex flex-col gap-1 text-[11px] leading-relaxed text-foreground-400">
-        {!show && !loading && (
-          <p className="text-foreground-500">
-            紐付いた書類がないため、金額はまだ集計されていません。
-          </p>
-        )}
-        {show && !canShowProfit && (
-          <p className="text-foreground-500">
-            販売予定価格が未設定のため、想定粗利・想定粗利率は算出していません。
-          </p>
-        )}
-        {show && otherTotal > 0 && (
-          <p className="tabular-nums">
-            送料・その他経費 {formatYen(otherTotal)} を仕入原価に含めています。
-          </p>
-        )}
-        {show && hasUnknownBreakdown && (
-          <p className="tabular-nums text-amber-800">
-            内訳（商品代金・落札手数料）が未取得の明細が{" "}
-            {formatYen(unknownBreakdownTotal)} あります。この金額は商品代金には含めず、仕入原価にのみ算入しています。
-          </p>
-        )}
-        {show && (
-          <p>
-            税額の確認が取れていない明細がある場合、金額は税込・税抜の厳密な配分を行わない概算です。
-          </p>
-        )}
-      </div>
+      {/* 状態の案内（紐付けなし / 価格未設定） */}
+      {(!show || !canShowProfit) && (
+        <div className="mt-2 text-[11px] leading-relaxed text-foreground-500">
+          {!show && !loading && (
+            <p>紐付いた書類がないため、金額はまだ集計されていません。</p>
+          )}
+          {show && !canShowProfit && (
+            <p>販売予定価格が未設定のため、想定粗利・想定粗利率は算出していません。</p>
+          )}
+        </div>
+      )}
+
+      {/* めったに見ない情報（税額の注記・0円の内訳・空の内訳）は折りたたむ */}
+      {show && (
+        <div className="mt-2 border-t border-background-100 pt-1">
+          <button
+            type="button"
+            onClick={() => setDetailOpen((open) => !open)}
+            aria-expanded={detailOpen}
+            className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-md py-1.5 text-left text-[11px] font-medium text-foreground-400 transition-colors hover:text-foreground-700"
+          >
+            <span className="inline-flex items-center gap-1 whitespace-nowrap">
+              <i
+                className={`${
+                  detailOpen ? "ri-subtract-line" : "ri-add-line"
+                } w-3 h-3 flex items-center justify-center text-xs`}
+                aria-hidden="true"
+              ></i>
+              詳細・技術情報
+            </span>
+            <span className="admin-eyebrow text-[9px] text-foreground-300">
+              Breakdown
+            </span>
+          </button>
+
+          {detailOpen && (
+            <div className="tab-fade pb-1">
+              <dl className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+                <BreakdownRow
+                  label="商品代金"
+                  value={hasItemBreakdown ? formatYen(itemTotal) : "—"}
+                />
+                <BreakdownRow
+                  label="落札手数料"
+                  value={hasFeeBreakdown ? formatYen(feeTotal) : "—"}
+                />
+                <BreakdownRow
+                  label="税額"
+                  value={hasTaxBreakdown ? formatYen(taxTotal) : "—"}
+                  sub={
+                    hasTaxBreakdown
+                      ? `商品税 ${formatYen(itemTaxTotal)} / 手数料税 ${formatYen(feeTaxTotal)}`
+                      : undefined
+                  }
+                />
+                <BreakdownRow
+                  label="送料・その他"
+                  value={otherTotal > 0 ? formatYen(otherTotal) : "—"}
+                />
+                {hasUnknownBreakdown && (
+                  <BreakdownRow
+                    label="内訳未取得"
+                    value={formatYen(unknownBreakdownTotal)}
+                  />
+                )}
+              </dl>
+
+              <div className="mt-2 flex flex-col gap-1 text-[11px] leading-relaxed text-foreground-400">
+                {otherTotal > 0 && (
+                  <p className="tabular-nums">
+                    送料・その他経費を仕入原価に含めています。
+                  </p>
+                )}
+                {hasUnknownBreakdown && (
+                  <p className="tabular-nums text-amber-800">
+                    内訳（商品代金・落札手数料）が未取得の明細が{" "}
+                    {formatYen(unknownBreakdownTotal)} あります。この金額は商品代金には含めず、仕入原価にのみ算入しています。
+                  </p>
+                )}
+                <p>
+                  税額の確認が取れていない明細がある場合、金額は税込・税抜の厳密な配分を行わない概算です。
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }

@@ -321,8 +321,25 @@ export default function SquareIntegrationSection({
   };
 
   return (
-    <div className="mt-4 ui-card rounded-lg p-4 md:p-5">
-      <h2 className="text-[15px] font-semibold text-foreground-950">Square連携</h2>
+    <div className="ui-card rounded-lg p-4 md:p-5">
+      {/* サービス単位のカード: 上部にサービス名と現在の連携状態を表示する
+          （将来メルカリShops・スニダン等を追加する場合も同じカードを縦に並べる） */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-[15px] font-semibold text-foreground-950">
+            Square
+          </h2>
+          <p className="mt-1 text-xs text-foreground-500">
+            本番環境の商品情報・在庫・決済リンクを連携します
+          </p>
+        </div>
+        <span
+          className={`st-badge shrink-0 ${isProdLinked ? "st-link" : "st-muted"}`}
+        >
+          <i className="ri-link w-3 h-3 flex items-center justify-center text-xs"></i>
+          {isProdLinked ? "連携済み" : "未連携"}
+        </span>
+      </div>
 
       {/*
         Sandbox（MVPでは無効化）
@@ -343,50 +360,14 @@ export default function SquareIntegrationSection({
       </div>
       */}
 
-      {/* 本番環境（Production） */}
-      <div className="mt-3 rounded-lg border border-background-200 bg-background-50 p-3 md:p-4">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-xs font-bold text-foreground-700">本番環境</p>
-            {/* 連携ドメインはグレーで固定（緑は公開状態、黄は照合の専用色） */}
-            {isProdLinked && (
-              <span className="st-badge st-link">
-                <i className="ri-link w-3 h-3 flex items-center justify-center text-xs"></i>
-                本番連携済み
-              </span>
-            )}
-            {hasProdCheckoutUrl && (
-              <span className="st-badge st-link">
-                <i className="ri-secure-payment-line w-3 h-3 flex items-center justify-center text-xs"></i>
-                決済リンク生成済み
-              </span>
-            )}
-          </div>
-          <p className="mt-1 text-xs text-foreground-500">
-            状態：
-            <span className="font-medium text-foreground-900">
-              {isProdLinked ? "連携済み" : "未連携"}
-            </span>
-          </p>
-          <p className="mt-1 text-xs text-foreground-500">
-            Production Item ID：{" "}
-            <span className="break-all font-mono text-foreground-900">
-              {product.square_item_id || "—"}
-            </span>
-          </p>
-          <p className="mt-1 text-xs text-foreground-500">
-            Production Variation ID：{" "}
-            <span className="break-all font-mono text-foreground-900">
-              {product.square_variation_id || "—"}
-            </span>
-          </p>
-          <p className="mt-1 text-xs text-foreground-500">
-            Payment Link ID：{" "}
-            <span className="break-all font-mono text-foreground-900">
-              {product.square_payment_link_id || "—"}
-            </span>
-          </p>
+      {hasProdCheckoutUrl && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="st-badge st-link">
+            <i className="ri-secure-payment-line w-3 h-3 flex items-center justify-center text-xs"></i>
+            決済リンク生成済み
+          </span>
         </div>
+      )}
 
         {/* 復元後は Square が停止したままである旨の注意（自動再開はされない） */}
         {product.record_status === "active" && isProdLinked && (
@@ -396,46 +377,6 @@ export default function SquareIntegrationSection({
               アーカイブから復元した商品は、Square側が停止したままです（復元では自動再開されません）。Squareで再開・再連携してください。
             </span>
           </p>
-        )}
-
-        {/* Checkout URL */}
-        {hasProdCheckoutUrl && (
-          <div className="mt-3">
-            <p className="text-xs text-foreground-500">Checkout URL：</p>
-            <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center">
-              <input
-                readOnly
-                value={product.square_checkout_url}
-                className="min-w-0 flex-1 rounded-lg border border-background-300 bg-background-50 px-3 py-2 font-mono text-xs text-foreground-900"
-              />
-              <div className="flex shrink-0 gap-2">
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleCopyCheckoutUrl(product.square_checkout_url)
-                  }
-                  className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-background-300 bg-background-50 px-3 py-2 text-xs font-medium text-foreground-700 transition-colors hover:bg-background-100"
-                >
-                  <i className="ri-file-copy-line w-4 h-4 flex items-center justify-center"></i>
-                  コピー
-                </button>
-                <a
-                  href={product.square_checkout_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-3 py-2 text-xs font-bold text-background-50 transition-colors hover:bg-primary-600"
-                >
-                  <i className="ri-external-link-line w-4 h-4 flex items-center justify-center"></i>
-                  新しいタブで開く
-                </a>
-              </div>
-            </div>
-            {checkoutCopyFeedback && (
-              <p className="mt-1 text-xs font-medium text-primary-700">
-                {checkoutCopyFeedback}
-              </p>
-            )}
-          </div>
         )}
 
         {/* アクション */}
@@ -518,7 +459,73 @@ export default function SquareIntegrationSection({
             className="mt-3"
           />
         )}
-      </div>
+
+      {/* 技術的なIDと決済リンクは折りたたみ（通常は状態と操作だけを見せる） */}
+      <details className="mt-3 rounded-lg border border-background-200 bg-background-50">
+        <summary className="flex cursor-pointer select-none list-none items-center justify-between gap-2 px-3 py-2 text-xs font-medium text-foreground-600 [&::-webkit-details-marker]:hidden">
+          連携ID・決済リンクを表示
+          <i className="ri-arrow-down-s-line w-4 h-4 flex items-center justify-center text-foreground-400"></i>
+        </summary>
+        <div className="border-t border-background-200 px-3 py-3">
+          <p className="text-xs text-foreground-500">
+            Production Item ID：{" "}
+            <span className="break-all font-mono text-foreground-900">
+              {product.square_item_id || "—"}
+            </span>
+          </p>
+          <p className="mt-1 text-xs text-foreground-500">
+            Production Variation ID：{" "}
+            <span className="break-all font-mono text-foreground-900">
+              {product.square_variation_id || "—"}
+            </span>
+          </p>
+          <p className="mt-1 text-xs text-foreground-500">
+            Payment Link ID：{" "}
+            <span className="break-all font-mono text-foreground-900">
+              {product.square_payment_link_id || "—"}
+            </span>
+          </p>
+
+          {hasProdCheckoutUrl && (
+            <div className="mt-3">
+              <p className="text-xs text-foreground-500">Checkout URL：</p>
+              <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center">
+                <input
+                  readOnly
+                  value={product.square_checkout_url}
+                  className="min-w-0 flex-1 rounded-lg border border-background-300 bg-white px-3 py-2 font-mono text-xs text-foreground-900"
+                />
+                <div className="flex shrink-0 gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleCopyCheckoutUrl(product.square_checkout_url)
+                    }
+                    className="inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-background-300 bg-white px-3 py-2 text-xs font-medium text-foreground-700 transition-colors hover:bg-background-100"
+                  >
+                    <i className="ri-file-copy-line w-4 h-4 flex items-center justify-center"></i>
+                    コピー
+                  </button>
+                  <a
+                    href={product.square_checkout_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-3 py-2 text-xs font-bold text-background-50 transition-colors hover:bg-primary-600"
+                  >
+                    <i className="ri-external-link-line w-4 h-4 flex items-center justify-center"></i>
+                    新しいタブで開く
+                  </a>
+                </div>
+              </div>
+              {checkoutCopyFeedback && (
+                <p className="mt-1 text-xs font-medium text-primary-700">
+                  {checkoutCopyFeedback}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </details>
 
       {/* Square本番反映確認ダイアログ */}
       {isProdConfirmOpen && (

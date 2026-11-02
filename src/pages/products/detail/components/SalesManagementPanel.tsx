@@ -1,12 +1,25 @@
 import type { ReactNode } from "react";
 import SaveStatusMessage from "@/components/base/SaveStatusMessage";
 import { RECORD_STATUS_LABELS } from "@/pages/products/types";
+import SectionHeading from "./SectionHeading";
 
 type SaveMessage = { type: "success" | "error"; text: string } | null;
 
 interface SegmentOption {
   value: string;
   label: string;
+}
+
+/** 商品がどこまで進んだか（販売管理の先頭に出すステップ表示用） */
+export interface SalesWorkflow {
+  // 取込済み（商品レコードが存在する）
+  imported: boolean;
+  // AIによる下書き生成（価格案など）がある
+  aiGenerated: boolean;
+  // スタッフが内容・価格を確認済み
+  reviewed: boolean;
+  // 公開中
+  published: boolean;
 }
 
 interface SalesManagementPanelProps {
@@ -36,6 +49,7 @@ interface SalesManagementPanelProps {
     onSelectActive: () => void;
     onRequestDelete: () => void;
   };
+  workflow: SalesWorkflow;
 }
 
 const PUBLISH_STATUS_OPTIONS: SegmentOption[] = [
@@ -50,12 +64,8 @@ const INVENTORY_STATUS_OPTIONS: SegmentOption[] = [
   { value: "sold", label: "売却済み" },
 ];
 
-const RECORD_STATUS_OPTIONS: SegmentOption[] = [
-  { value: "active", label: RECORD_STATUS_LABELS.active },
-  { value: "archived", label: RECORD_STATUS_LABELS.archived },
-];
-
-const SEGMENT_WRAP = "inline-flex flex-wrap items-center gap-0.5 rounded-lg bg-background-100 p-0.5";
+const SEGMENT_WRAP =
+  "inline-flex flex-wrap items-center gap-0.5 rounded-lg bg-background-100 p-0.5";
 const SEGMENT_BUTTON =
   "cursor-pointer whitespace-nowrap rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors";
 const SEGMENT_ACTIVE = "bg-white text-foreground-950 shadow-sm";
@@ -179,42 +189,131 @@ function StatusChip({
   return <span className={`st-badge ${CHIP_TONES[tone]}`}>{label}</span>;
 }
 
+const WORKFLOW_STEPS = [
+  { key: "imported", label: "取込", icon: "ri-inbox-archive-line" },
+  { key: "aiGenerated", label: "AI生成", icon: "ri-sparkling-line" },
+  { key: "reviewed", label: "確認", icon: "ri-checkbox-circle-line" },
+  { key: "published", label: "公開", icon: "ri-global-line" },
+] as const;
+
 /**
- * 販売管理タブ: 公開状態 / 在庫状態 / レコード状態を1つのカードにまとめた設定ブロック。
+ * 取込 → AI生成 → 確認 → 公開 のステップ表示。
+ * ボタンの羅列ではなく「今どこにいるか」が分かるようにする（表示専用）。
+ */
+function WorkflowSteps({ workflow }: { workflow: SalesWorkflow }) {
+  const doneList = WORKFLOW_STEPS.map((step, index) => {
+    if (step.key === "imported") return workflow.imported;
+    if (step.key === "aiGenerated") return workflow.aiGenerated;
+    if (step.key === "reviewed") return workflow.reviewed;
+    return workflow.published;
+  });
+  const currentIndex = doneList.findIndex((done) => !done);
+
+  return (
+    <div className="border-b border-background-100 bg-background-50 px-4 py-2.5 md:px-5">
+      <ol className="flex flex-wrap items-center gap-x-1.5 gap-y-1.5">
+        {WORKFLOW_STEPS.map((step, index) => {
+          const done = doneList[index];
+          const current = index === currentIndex;
+          return (
+            <li key={step.key} className="flex items-center gap-1.5">
+              <span
+                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold leading-none ${
+                  done
+                    ? "bg-primary-500 text-background-50"
+                    : current
+                      ? "bg-white text-primary-700 ring-1 ring-primary-400"
+                      : "bg-background-200 text-foreground-400"
+                }`}
+                aria-hidden="true"
+              >
+                {done ? (
+                  <i className="ri-check-line text-[11px] leading-none"></i>
+                ) : (
+                  index + 1
+                )}
+              </span>
+              <span
+                className={`inline-flex items-center gap-1 whitespace-nowrap text-[11.5px] ${
+                  current
+                    ? "font-semibold text-foreground-950"
+                    : done
+                      ? "font-medium text-foreground-700"
+                      : "text-foreground-400"
+                }`}
+              >
+                {step.label}
+                {current && (
+                  <span className="rounded bg-primary-50 px-1 py-0.5 text-[9px] font-bold text-primary-700">
+                    現在
+                  </span>
+                )}
+              </span>
+              {index < WORKFLOW_STEPS.length - 1 && (
+                <span
+                  className={`mx-0.5 h-px w-4 sm:w-6 ${
+                    done ? "bg-primary-300" : "bg-background-300"
+                  }`}
+                  aria-hidden="true"
+                ></span>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+/**
+ * 販売管理タブ: 公開状態 / 在庫状態を1つのカードにまとめた設定ブロック。
+ * カード先頭に進行ステップ、最下部に「管理操作」（アーカイブ・完全削除）を分離して置く。
  * 表示と入力の受け渡しのみを担当し、保存処理は呼び出し元（商品詳細ページ）が持つ。
  */
 export default function SalesManagementPanel({
   publish,
   inventory,
   record,
+  workflow,
 }: SalesManagementPanelProps) {
   const publishDirty = publish.selectedStatus !== publish.currentStatus;
   const inventoryDirty = inventory.selectedStatus !== inventory.currentStatus;
   const recordLabel =
     RECORD_STATUS_LABELS[record.recordStatus] ?? record.recordStatus ?? "—";
+  const isArchived = record.recordStatus !== "active";
 
   return (
     <div className="ui-card rounded-lg">
       {/* 見出し + 現在の状態バッジ */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-background-100 px-4 py-3 md:px-5">
-        <div className="flex min-w-0 items-center gap-2">
-          <h2 className="text-[15px] font-semibold text-foreground-950">
-            販売管理
-          </h2>
-          <span className="text-[11px] text-foreground-400">
-            変更は保存ボタンで反映されます
-          </span>
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {/* 並び順は全画面で統一: 公開 → 在庫 → レコード */}
-          <StatusChip
-            label={`公開: ${publish.statusLabel}`}
-            tone={publish.currentStatus === "published" ? "publish" : "publish-off"}
-          />
-          <StatusChip label={`在庫: ${inventory.inventoryLabel}`} tone="inventory" />
-          <StatusChip label={`レコード: ${recordLabel}`} tone="link" />
-        </div>
+      <div className="border-b border-background-100 px-4 py-3 md:px-5">
+        <SectionHeading
+          eyebrow="Sales Control"
+          title="販売管理"
+          icon="ri-store-3-line"
+          description="変更は保存ボタンで反映されます"
+          right={
+            <div className="flex flex-wrap items-center gap-1.5">
+              {/* 並び順は全画面で統一: 公開 → 在庫 → レコード */}
+              <StatusChip
+                label={`公開: ${publish.statusLabel}`}
+                tone={
+                  publish.currentStatus === "published"
+                    ? "publish"
+                    : "publish-off"
+                }
+              />
+              <StatusChip
+                label={`在庫: ${inventory.inventoryLabel}`}
+                tone="inventory"
+              />
+              <StatusChip label={`レコード: ${recordLabel}`} tone="link" />
+            </div>
+          }
+        />
       </div>
+
+      {/* 進行ステップ（取込 → AI生成 → 確認 → 公開） */}
+      <WorkflowSteps workflow={workflow} />
 
       <div className="divide-y divide-background-100">
         {/* 公開状態 */}
@@ -282,53 +381,81 @@ export default function SalesManagementPanel({
             )}
           </div>
         </SettingRow>
+      </div>
 
-        {/* レコード状態（通常管理 / アーカイブ済み + 完全削除の導線） */}
-        <SettingRow
-          label="レコード状態"
-          message={
-            <>
-              {record.saving && (
-                <p className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-medium text-foreground-400">
-                  <i className="ri-loader-4-line animate-spin w-3.5 h-3.5 flex items-center justify-center"></i>
-                  処理中...
-                </p>
-              )}
-              {record.message && (
-                <SaveStatusMessage
-                  tone={record.message.type}
-                  text={record.message.text}
-                  className="mt-2"
-                />
-              )}
-            </>
-          }
-        >
-          <SegmentGroup
-            options={RECORD_STATUS_OPTIONS}
-            value={record.recordStatus}
-            disabled={record.saving}
-            onChange={(value) => {
-              if (value === record.recordStatus) return;
-              if (value === "archived") {
-                record.onSelectArchived();
-              } else {
-                record.onSelectActive();
-              }
-            }}
-          />
-          {record.recordStatus !== "active" && (
-            <button
-              type="button"
-              onClick={record.onRequestDelete}
-              disabled={record.saving}
-              className="inline-flex cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-background-200 px-2.5 py-1.5 text-[12px] font-medium text-red-600 transition-colors hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <i className="ri-delete-bin-6-line w-3.5 h-3.5 flex items-center justify-center"></i>
-              完全削除
-            </button>
-          )}
-        </SettingRow>
+      {/* 管理操作: 通常の設定と同列に置かず、カード最下部に控えめに隔離する */}
+      <div className="border-t border-background-200 bg-background-50 px-4 py-3 md:px-5">
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <div className="min-w-0">
+            <p className="admin-eyebrow text-[9px] font-semibold text-foreground-400">
+              Manage
+            </p>
+            <p className="mt-0.5 text-[12px] font-medium text-foreground-800">
+              管理操作
+              <span className="ml-1.5 text-[11px] font-normal text-foreground-500">
+                レコード: {recordLabel}
+              </span>
+            </p>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-foreground-500">
+              {isArchived
+                ? "アーカイブ済みです。復元すると通常の商品一覧に戻ります（データは残ります）。"
+                : "アーカイブすると通常の商品一覧から外れます。削除はアーカイブ後にのみ行えます。"}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            {isArchived ? (
+              <button
+                type="button"
+                onClick={record.onSelectActive}
+                disabled={record.saving}
+                className="inline-flex cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-background-300 bg-white px-2.5 py-1.5 text-[12px] font-medium text-foreground-700 transition-colors hover:bg-background-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <i className="ri-arrow-go-back-line w-3.5 h-3.5 flex items-center justify-center"></i>
+                復元する
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={record.onSelectArchived}
+                disabled={record.saving}
+                className="inline-flex cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-background-300 bg-white px-2.5 py-1.5 text-[12px] font-medium text-foreground-600 transition-colors hover:border-background-400 hover:bg-background-100 hover:text-foreground-900 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <i className="ri-archive-2-line w-3.5 h-3.5 flex items-center justify-center"></i>
+                アーカイブ
+              </button>
+            )}
+
+            {isArchived && (
+              <button
+                type="button"
+                onClick={record.onRequestDelete}
+                disabled={record.saving}
+                className="inline-flex cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-transparent px-2.5 py-1.5 text-[12px] font-medium text-red-600 transition-colors hover:border-red-200 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <i className="ri-delete-bin-6-line w-3.5 h-3.5 flex items-center justify-center"></i>
+                完全削除
+              </button>
+            )}
+          </div>
+        </div>
+
+        {(record.saving || record.message) && (
+          <div className="mt-2">
+            {record.saving && (
+              <p className="inline-flex items-center gap-1.5 text-[11px] font-medium text-foreground-400">
+                <i className="ri-loader-4-line animate-spin w-3.5 h-3.5 flex items-center justify-center"></i>
+                処理中...
+              </p>
+            )}
+            {record.message && (
+              <SaveStatusMessage
+                tone={record.message.type}
+                text={record.message.text}
+              />
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

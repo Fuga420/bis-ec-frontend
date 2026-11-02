@@ -6,9 +6,6 @@ import { getBackendWriteAuthHeaders } from "@/lib/supabaseClient";
  * - 一覧・検索・詳細のGET読取はこちらを優先利用する（ログイン不要・ブラウザへの秘密鍵埋め込みなし）。
  * - Phase 2 Unit 1: Square連携を伴わない下書き商品の新規登録（POST /products）および
  *   下書き商品の編集（POST /products/:productId/update）は Cloud Run + Supabase を書込正本とする。
- * - Phase 2 Unit 2: 複数画像からの商品取込（POST /products/import）および
- *   商品画像の追加・並べ替え・削除（POST /products/:productId/images）は Cloud Run + Supabase を書込正本とする
- *   （画像ファイル本体の保存先は既存の Google Drive フォルダを維持）。
  * - 公開登録・Square連携済み商品の編集・公開状態変更・AI生成等は引き続き GOOGLE_SHEETS_WEBHOOK_URL（GAS）を利用し、
  *   書込成功後に syncProductToReadDb() で該当1商品をSupabaseへ即時反映する。
  * - 画面を閉じている間のGAS定期処理による変更は Cloud Scheduler -> POST /reconcile（5分周期）が差分同期する。
@@ -326,66 +323,6 @@ export async function updateDraftProductViaApi(
   const authHeaders = await getBackendWriteAuthHeaders();
   return fetch(
     `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/update`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json; charset=utf-8",
-        ...authHeaders,
-      },
-      body: JSON.stringify(payload),
-    }
-  );
-}
-
-/**
- * Phase 2 Unit 2: 複数画像からの商品取込（Cloud Run -> Supabase 冪等管理・正本保存 + Google Drive 画像保存）。
- */
-export async function importProductByImagesViaApi(
-  payload: Record<string, unknown>
-): Promise<Response> {
-  if (!PRODUCTS_READ_API_URL) {
-    return fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({
-        action: "import_product_by_images",
-        ...payload,
-      }),
-    });
-  }
-  const authHeaders = await getBackendWriteAuthHeaders();
-  return fetch(`${PRODUCTS_READ_API_URL}/products/import`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      ...authHeaders,
-    },
-    body: JSON.stringify(payload),
-  });
-}
-
-/**
- * Phase 2 Unit 2: 商品画像の追加・並べ替え・削除（Cloud Run -> Google Drive 更新 + Supabase 正本更新）。
- */
-export async function updateProductImagesViaApi(
-  productId: string,
-  payload: Record<string, unknown>
-): Promise<Response> {
-  const id = productId.trim();
-  if (!PRODUCTS_READ_API_URL) {
-    return fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({
-        ...payload,
-        action: "update_product_images",
-        product_id: id,
-      }),
-    });
-  }
-  const authHeaders = await getBackendWriteAuthHeaders();
-  return fetch(
-    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/images`,
     {
       method: "POST",
       headers: {
