@@ -1,9 +1,8 @@
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "./googleSheets";
-import { getStaffAccessToken } from "./productsAuth";
 
 /**
  * 商品マスター読取API（Cloud Run + Supabase）のエンドポイント。
- * - 一覧・検索・詳細のGET読取はこちらを優先利用する。
+ * - 一覧・検索・詳細のGET読取はこちらを優先利用する（ログイン不要・ブラウザへの秘密鍵埋め込みなし）。
  * - 商品登録・更新・削除・Square同期等のPOST書込は引き続き GOOGLE_SHEETS_WEBHOOK_URL（GAS）を正本とし、
  *   書込成功後に syncProductToReadDb() で該当1商品をSupabaseへ即時反映する。
  * - 画面を閉じている間のGAS定期処理による変更は Cloud Scheduler -> POST /reconcile（5分周期）が差分同期する。
@@ -102,20 +101,13 @@ function emitSyncWarning(detail: ProductSyncWarningDetail): void {
 
 async function performSingleSyncRequest(
   productId: string,
-  accessToken: string | null,
   allowDelete?: boolean
 ): Promise<ProductSyncResult> {
   const suffix = allowDelete ? "?allow_delete=1" : "";
-  const headers: Record<string, string> = {};
-  if (accessToken) {
-    headers.Authorization = `Bearer ${accessToken}`;
-  }
-
   const response = await fetch(
     `${PRODUCTS_READ_API_URL}/sync/${encodeURIComponent(productId)}${suffix}`,
     {
       method: "POST",
-      headers,
     }
   );
 
@@ -145,11 +137,9 @@ async function performSingleSyncRequest(
 
 /**
  * Cloud Run 商品読取APIへGETリクエストを送る。
- * - `mode=admin` の場合はスタッフセッションの `Authorization: Bearer <jwt>` を付与する。
- * - 401/403（未認証・権限不足）の場合は GAS への無認証フォールバックを絶対に行わずそのまま返す。
  * - 直前の書込後に即時同期が失敗した商品が残っている場合は、再同期を1回試み、
  *   それでも未同期なら正本（GAS / Google Sheets）から直接読み取って古いキャッシュ表示を防ぐ。
- * - Cloud Run のネットワーク障害・5xx 時のみ保持中の Google Sheets（GAS）へフォールバックする。
+ * - Cloud Run のネットワーク障害・5xx 時は保持中の Google Sheets（GAS）へ自動フォールバックする。
  */
 export async function fetchProductsReadApi(queryString: string): Promise<Response> {
   const cleanQuery = queryString.replace(/^\?+/, "");
@@ -157,10 +147,7 @@ export async function fetchProductsReadApi(queryString: string): Promise<Respons
   const isAdmin = (searchParams.get("mode") || "").trim().toLowerCase() === "admin";
   const requestedProductId = (searchParams.get("product_id") || "").trim();
 
-  const accessToken = isAdmin ? await getStaffAccessToken() : null;
-
-  // 直前の保存で同期失敗した商品がある場合、再同期を試行し、解消しなければ正本(GAS)から読む
-  if (isAdmin && accessToken && PRODUCTS_READ_API_URL) {
+  if (isAdmin && PRODUCTS_READ_API_URL) {
     const unsynced = readUnsyncedProducts();
     const relevantIds = requestedProductId
       ? unsynced[requestedProductId]
@@ -172,11 +159,7 @@ export async function fetchProductsReadApi(queryString: string): Promise<Respons
       let stillDirty = false;
       for (const pid of relevantIds.slice(0, 3)) {
         try {
-          const retry = await performSingleSyncRequest(
-            pid,
-            accessToken,
-            unsynced[pid]?.allowDelete
-          );
+          const retry = await performSingleSyncRequest(pid, unsynced[pid]?.allowDelete);
           if (retry.ok) {
             clearProductUnsynced(pid);
           } else {
@@ -196,30 +179,17 @@ export async function fetchProductsReadApi(queryString: string): Promise<Respons
 
   if (PRODUCTS_READ_API_URL) {
     try {
-      const headers: Record<string, string> = {};
-      if (accessToken) {
-        headers.Authorization = `Bearer ${accessToken}`;
-      }
       const response = await fetch(`${PRODUCTS_READ_API_URL}/?${cleanQuery}`, {
         method: "GET",
-        headers,
       });
       if (response.ok) {
         return response;
       }
-      if (response.status === 401 && isAdmin && typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("bis:staff-auth-expired"));
-      }
-      // 4xx（401/403含む）はフォールバックせずそのまま返却する
       if (response.status < 500) {
         return response;
       }
     } catch {
-      // 未ログイン状態での通信失敗時は GAS へバイパスさせない
-      if (isAdmin && !accessToken) {
-        throw new Error("Staff authentication required");
-      }
-      // ログイン済みで Cloud Run 側が一時障害の場合のみ下の GAS フォールバックへ進む
+      // Cloud Run 側の一時障害時は下の GAS フォールバックへ進む
     }
   }
 
@@ -245,8 +215,7 @@ export async function syncProductToReadDb(
   }
 
   try {
-    const accessToken = await getStaffAccessToken();
-    const result = await performSingleSyncRequest(id, accessToken, options?.allowDelete);
+    const result = await performSingleSyncRequest(id, options?.allowDelete);
     if (!result.ok) {
       const errMsg = result.error || "Unknown sync failure";
       console.warn(
