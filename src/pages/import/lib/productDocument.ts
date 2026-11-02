@@ -1,4 +1,5 @@
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
+import { syncProductToReadDb } from "@/config/productsApi";
 import { fileToBase64 } from "@/pages/register/lib/aiProduct";
 
 // 画像取込（import_product_by_images）とは別リクエストになる、書類添付の action 名。
@@ -211,6 +212,7 @@ export async function attachProductDocument(params: {
   }
 
   if (data.success === true) {
+    await syncProductToReadDb(params.productId);
     return {
       kind: "success",
       document: parseProductDocument(data.document ?? data.attached_document),

@@ -1,4 +1,5 @@
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
+import { fetchProductsReadApi } from "@/config/productsApi";
 import type {
   AdminProduct,
   AdminProductListResponse,
@@ -40,10 +41,7 @@ export async function searchProductsById(
     params.set("page_size", String(SEARCH_PAGE_SIZE));
     params.set("search", q);
 
-    const response = await fetch(
-      `${GOOGLE_SHEETS_WEBHOOK_URL}?${params.toString()}`,
-      { method: "GET" }
-    );
+    const response = await fetchProductsReadApi(params.toString());
     if (response.ok) {
       const data = (await response.json()) as AdminProductListResponse;
       if (data?.success === true && Array.isArray(data.products)) {

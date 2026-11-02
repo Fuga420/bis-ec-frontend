@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
+import { syncProductToReadDb } from "@/config/productsApi";
 import type {
   AdminProductDetail,
   SquarePaymentLinkResponse,
@@ -214,6 +215,7 @@ export default function SquareIntegrationSection({
             "square production payment link failed:",
             linkRes.data?.error
           );
+          await syncProductToReadDb(product.product_id);
           await onRefreshed();
           return;
         }
@@ -242,6 +244,7 @@ export default function SquareIntegrationSection({
       }
       setProdMessage({ type: "success", text: successText });
 
+      await syncProductToReadDb(product.product_id);
       await onRefreshed();
     } catch (err) {
       setProdMessage({
@@ -293,6 +296,7 @@ export default function SquareIntegrationSection({
         text: "決済リンクを生成しました",
       });
 
+      await syncProductToReadDb(product.product_id);
       await onRefreshed();
     } catch (err) {
       setPaymentLinkMessage({

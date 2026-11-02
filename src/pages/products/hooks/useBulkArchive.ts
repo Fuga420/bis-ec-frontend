@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
+import { syncProductToReadDb } from "@/config/productsApi";
 import type {
   AdminProductDetailResponse,
   RecordStatusUpdateResponse,
@@ -168,12 +169,16 @@ export function useBulkArchive() {
       } else {
         const res = await requestArchive(target.product_id);
         if (res.kind === "success") {
+          await syncProductToReadDb(target.product_id);
           out.push({ ...base, status: "success" });
         } else if (res.kind === "failed") {
           out.push({ ...base, status: "failed", reason: res.reason });
         } else {
           // 通信断・タイムアウト等で結果不明 → 既存APIで現在の状態を再取得して判定する
           const resolved = await resolveUnknown(target.product_id);
+          if (resolved.status === "success") {
+            await syncProductToReadDb(target.product_id);
+          }
           out.push({ ...base, status: resolved.status, reason: resolved.reason });
         }
       }

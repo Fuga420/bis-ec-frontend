@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
+import {
+  fetchProductsReadApi,
+  syncProductToReadDb,
+} from "@/config/productsApi";
 import type {
   AdminProduct,
   AdminProductDetail,
@@ -246,10 +250,9 @@ export default function ProductDetailPage() {
   const [activeTab, setActiveTab] = useState<ProductDetailTabKey>("sales");
 
   const loadProduct = useCallback(async (): Promise<AdminProductDetail> => {
-    const url = `${GOOGLE_SHEETS_WEBHOOK_URL}?mode=admin&product_id=${encodeURIComponent(
-      id ?? ""
-    )}`;
-    const response = await fetch(url, { method: "GET" });
+    const response = await fetchProductsReadApi(
+      `mode=admin&product_id=${encodeURIComponent(id ?? "")}`
+    );
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -271,10 +274,7 @@ export default function ProductDetailPage() {
         params.set("page", "1");
         params.set("page_size", "100");
         params.set("search", id ?? "");
-        const response = await fetch(
-          `${GOOGLE_SHEETS_WEBHOOK_URL}?${params.toString()}`,
-          { method: "GET" }
-        );
+        const response = await fetchProductsReadApi(params.toString());
         if (!response.ok) return null;
         const data = (await response.json()) as AdminProductListResponse;
         if (!data || data.success !== true || !Array.isArray(data.products)) {
@@ -445,6 +445,7 @@ export default function ProductDetailPage() {
           extractBackendError(data, "公開状態の更新に失敗しました")
         );
       }
+      await syncProductToReadDb(product.product_id);
       setProduct({ ...product, publish_status: data.publish_status ?? selectedStatus });
       setSelectedStatus(data.publish_status ?? selectedStatus);
       setMessage({ type: "success", text: "公開状態を更新しました" });
@@ -492,6 +493,7 @@ export default function ProductDetailPage() {
         data.inventory_status ?? selectedInventoryStatus
       );
       setInventoryMessage({ type: "success", text: "在庫状態を更新しました" });
+      await syncProductToReadDb(product.product_id);
 
       try {
         const updated = await loadProduct();
@@ -599,6 +601,7 @@ export default function ProductDetailPage() {
         });
       }
 
+      await syncProductToReadDb(product.product_id);
       try {
         const updated = await loadProduct();
         setProduct(updated);
@@ -644,6 +647,7 @@ export default function ProductDetailPage() {
         throw new Error(data?.error ?? "Invalid response");
       }
 
+      await syncProductToReadDb(product.product_id, { allowDelete: true });
       setIsDeleteConfirmOpen(false);
       setDeleteMessage({ type: "success", text: "商品を完全に削除しました" });
 
@@ -776,6 +780,7 @@ export default function ProductDetailPage() {
 
       setIsImageEditing(false);
       setImageMessage({ type: "success", text: "商品画像を更新しました" });
+      await syncProductToReadDb(product.product_id);
 
       try {
         const updated = await loadProduct();
@@ -922,6 +927,7 @@ export default function ProductDetailPage() {
         });
       }
 
+      await syncProductToReadDb(product.product_id);
       try {
         const updated = await loadProduct();
         setProduct(updated);

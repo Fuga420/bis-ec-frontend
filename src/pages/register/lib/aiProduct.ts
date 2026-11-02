@@ -1,4 +1,8 @@
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
+import {
+  fetchProductsReadApi,
+  syncProductToReadDb,
+} from "@/config/productsApi";
 import { getSupabaseClient } from "@/lib/supabaseClient";
 import { categories, conditions } from "@/mocks/productForm";
 
@@ -104,11 +108,8 @@ export interface ProductImageSelectionSnapshot {
 export async function fetchProductImageSelection(
   productId: string
 ): Promise<ProductImageSelectionSnapshot> {
-  const response = await fetch(
-    `${GOOGLE_SHEETS_WEBHOOK_URL}?mode=admin&product_id=${encodeURIComponent(
-      productId
-    )}`,
-    { method: "GET" }
+  const response = await fetchProductsReadApi(
+    `mode=admin&product_id=${encodeURIComponent(productId)}`
   );
   if (!response.ok) {
     throw new Error(`商品画像の取得に失敗しました (HTTP ${response.status})`);
@@ -536,6 +537,7 @@ export async function createTempProductDraft(images: File[]): Promise<string> {
         `画像保存または仮draftの作成に失敗しました (HTTP ${response.status})`
     );
   }
+  await syncProductToReadDb(data.product_id);
   return data.product_id;
 }
 
@@ -578,6 +580,7 @@ export async function updateProductImages(
       data?.error || `商品画像の更新に失敗しました (HTTP ${response.status})`
     );
   }
+  await syncProductToReadDb(productId);
 }
 
 function createClientId(index: number): string {

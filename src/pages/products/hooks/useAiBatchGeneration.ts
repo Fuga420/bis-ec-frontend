@@ -4,6 +4,7 @@ import type {
   AiBatchOverallStatus,
   AiBatchTarget,
 } from "@/pages/products/types";
+import { syncProductToReadDb } from "@/config/productsApi";
 import { AiRelayError } from "@/pages/register/lib/aiProduct";
 import {
   AI_BATCH_POLL_INTERVAL_MS,
@@ -176,6 +177,8 @@ export function useAiBatchGeneration() {
   const itemsRef = useRef<AiBatchDisplayItem[] | null>(null);
   // 契約外応答（completed + error_code）を一度だけ記録するための既出管理。
   const contractViolationSeenRef = useRef<Set<string>>(new Set());
+  // 完了済み商品のSupabase読取DB同期を一度だけ走らせる既出管理。
+  const syncedBatchCompletedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     itemsRef.current = items;
@@ -283,6 +286,16 @@ export function useAiBatchGeneration() {
           contractViolationSeenRef.current
         );
         setItems(displayItems);
+        displayItems.forEach((item) => {
+          if (
+            item.status === "completed" &&
+            !item.error_code &&
+            !syncedBatchCompletedRef.current.has(item.product_id)
+          ) {
+            syncedBatchCompletedRef.current.add(item.product_id);
+            void syncProductToReadDb(item.product_id);
+          }
+        });
         if (isTerminalBatchStatus(data.status)) {
           return; // 完了後は定期取得を停止する
         }
@@ -419,6 +432,7 @@ export function useAiBatchGeneration() {
     nameMapRef.current = {};
     itemsRef.current = null;
     contractViolationSeenRef.current = new Set();
+    syncedBatchCompletedRef.current = new Set();
     setItems(null);
     setBatchStatus(null);
     setBatchId(null);

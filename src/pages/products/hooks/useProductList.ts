@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
+import { fetchProductsReadApi } from "@/config/productsApi";
 import type { ProductFilterValue } from "@/pages/products/components/ProductFilterBar";
 import type { ProductSortKey } from "@/pages/products/lib/sort";
 import type {
@@ -117,10 +118,7 @@ export function useProductList({
         params.set("record_status", isArchived ? "archived" : "active");
         params.set("sort", sortKey);
 
-        const response = await fetch(
-          `${GOOGLE_SHEETS_WEBHOOK_URL}?${params.toString()}`,
-          { method: "GET" }
-        );
+        const response = await fetchProductsReadApi(params.toString());
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }

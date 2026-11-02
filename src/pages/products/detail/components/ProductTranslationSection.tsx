@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
+import { syncProductToReadDb } from "@/config/productsApi";
 import type {
   ProductTranslation,
   ProductTranslationGenerateResponse,
@@ -109,6 +110,7 @@ export default function ProductTranslationSection({
       if (onTranslationChange) {
         onTranslationChange(next);
       }
+      void syncProductToReadDb(productId);
       setMessage({
         type: "success",
         text: "英語説明を生成しました",
@@ -159,6 +161,7 @@ export default function ProductTranslationSection({
       if (onTranslationChange) {
         onTranslationChange(next);
       }
+      void syncProductToReadDb(productId);
       setMessage({
         type: "success",
         text: "英語翻訳を承認しました",

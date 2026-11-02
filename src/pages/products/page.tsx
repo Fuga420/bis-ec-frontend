@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
+import { syncProductToReadDb } from "@/config/productsApi";
 import ProductRow, {
   ACTION_COLUMN_WIDTH,
 } from "./components/ProductRow";
@@ -221,6 +222,7 @@ async function processOneProduct(
     }
     // Variation IDが取得できたことを確認する（取れなければ後続へ進めない）
     if (!createResult.variationId) {
+      await syncProductToReadDb(product.product_id);
       return {
         ...base,
         status: "failed",
@@ -235,6 +237,9 @@ async function processOneProduct(
   if (needsPublish) {
     const publishResult = await callUpdatePublishStatus(product.product_id);
     if (!publishResult.ok) {
+      if (needsSquareLink) {
+        await syncProductToReadDb(product.product_id);
+      }
       // Square商品は作成済みだが公開に失敗したため、決済リンクへは進まない
       return {
         ...base,
@@ -255,6 +260,7 @@ async function processOneProduct(
       };
     }
     const linkOk = await callCreateSquarePaymentLink(product.product_id);
+    await syncProductToReadDb(product.product_id);
     if (linkOk) {
       return { ...base, status: "success" };
     }
@@ -267,6 +273,7 @@ async function processOneProduct(
   }
 
   // 決済リンク不要：Square作成・公開までが成功
+  await syncProductToReadDb(product.product_id);
   return { ...base, status: "success" };
 }
 

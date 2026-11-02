@@ -1,4 +1,5 @@
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
+import { syncProductToReadDb } from "@/config/productsApi";
 import { fileToBase64 } from "@/pages/register/lib/aiProduct";
 
 // 新API action 名（MULTI_PRODUCT_IMPORT_API_CONTRACT.md に一致させる）。
@@ -138,9 +139,11 @@ export async function importProductByImages(params: {
   // 成功判定は応答本文の success===true で行う。
   // is_reused:true（同一 import_attempt_id の再送ヒット）も同じ商品IDの成功として扱う。
   if (data.success === true) {
+    const productId = asString(data.product_id);
+    await syncProductToReadDb(productId);
     return {
       kind: "success",
-      productId: asString(data.product_id),
+      productId,
       isReused: data.is_reused === true,
     };
   }

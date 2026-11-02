@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
+import { syncProductToReadDb } from "@/config/productsApi";
 import type { AdminProduct, ProductUpdateResponse } from "../types";
 import {
   buildInlineEditInitialDraft,
@@ -108,7 +109,8 @@ export function useProductInlineEdit({ onSaved }: UseProductInlineEditParams) {
           throw new Error(extractError(data, "商品情報の更新に失敗しました"));
         }
 
-        // 成功: 該当行のエラーを消し、編集モードを閉じ、一覧を再取得する。
+        // 成功: 読取DBへ即時同期し、該当行のエラーを消し、編集モードを閉じ、一覧を再取得する。
+        await syncProductToReadDb(product.product_id);
         clearError(product.product_id);
         setEditingId(null);
         onSaved();

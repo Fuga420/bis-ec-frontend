@@ -15,6 +15,7 @@ import PokemonCardFields, {
   type PokemonCardValues,
 } from "./components/PokemonCardFields";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
+import { syncProductToReadDb } from "@/config/productsApi";
 import PublishSquareOptions from "./components/PublishSquareOptions";
 import RegisterProgress from "./components/RegisterProgress";
 import SaveStatusMessage from "@/components/base/SaveStatusMessage";
@@ -651,6 +652,8 @@ export default function RegisterPage() {
       const newProductId = data.product_id ?? existingDraftId ?? "";
       setProductId(newProductId);
 
+      await syncProductToReadDb(newProductId);
+
       // Square連携なし → BIS登録のみで完了
       if (!willSyncSquare) {
         setCompletion({
@@ -674,6 +677,7 @@ export default function RegisterPage() {
       const result = await runSquareProductionSync(newProductId, (step) => {
         setProgressIndex(stepIndexMap[step]);
       });
+      await syncProductToReadDb(newProductId);
 
       if (result.status === "success") {
         setCompletion({

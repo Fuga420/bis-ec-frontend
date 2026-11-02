@@ -4,6 +4,7 @@ import {
   extractRelayError,
   invokeAiRelay,
 } from "@/pages/register/lib/aiProduct";
+import { syncProductToReadDb } from "@/config/productsApi";
 import type {
   AiBatchCreateResponse,
   AiBatchDisplayItem,
@@ -377,6 +378,7 @@ export async function saveProductAiSelectedImages(params: {
     );
     throw new AiRelayError(info.message, info.code);
   }
+  await syncProductToReadDb(params.productId);
 }
 
 function asNumberOrNull(value: unknown): number | null {
