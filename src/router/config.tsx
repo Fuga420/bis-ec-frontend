@@ -6,6 +6,7 @@ import ProductsPage from "@/pages/products/page";
 import ProductDetailPage from "@/pages/products/detail/page";
 import DocumentsPage from "@/pages/documents/page";
 import DocumentDetailPage from "@/pages/documents/detail/page";
+import RelayCheckPage from "@/pages/dev/relay-check/page";
 
 const routes: RouteObject[] = [
   {
@@ -36,6 +37,11 @@ const routes: RouteObject[] = [
   {
     path: "/documents/:id",
     element: <DocumentDetailPage />,
+  },
+  {
+    // documents-relay の配信内容を実リクエストで確認する一時的な検証画面
+    path: "/dev/relay-check",
+    element: <RelayCheckPage />,
   },
   {
     path: "*",
