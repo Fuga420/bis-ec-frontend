@@ -78,7 +78,7 @@ export default function ProductDetailTabs({
     <div
       role="tablist"
       aria-label="商品詳細の情報切り替え"
-      className="inline-flex w-fit max-w-full items-center gap-1 rounded-lg border border-background-200 bg-white p-1"
+      className="ui-card inline-flex w-fit max-w-full items-center gap-1 rounded-lg p-1"
     >
       {TABS.map((tab, index) => {
         const active = activeTab === tab.key;

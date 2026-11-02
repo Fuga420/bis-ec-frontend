@@ -218,16 +218,16 @@ export default function ProductRow({
 
   // ブランドは 12px のグレー文字。未設定なら要素自体を出さず、空行を作らない。
   const brandText = (product.brand ?? "").toString().trim();
-  const brandNode = brandText ? (
-    <span className="block min-w-0 max-w-full truncate text-xs leading-none text-foreground-500">
-      {brandText}
-    </span>
-  ) : null;
+  const hasBrand = brandText !== "";
 
-  // 商品名の下に置く補助情報（サイズ・Square連携・アーカイブ状態・ブランド）。
-  // すべて無い場合は行そのものを描画しない。
-  const hasMetaRow = Boolean(
-    sneakerSizeBadge || squareBadge || recordStatusBadge || brandNode
+  // 商品の状態（コンディション）。独立した列ではなくメタ情報行に出すので、
+  // 未設定のときは「—」ではなく何も表示しない。
+  const conditionText = (product.condition ?? "").toString().trim();
+
+  // 商品名の下に置く補助情報バッジ（サイズ・Square連携・アーカイブ状態）。
+  // すべて無い場合はバッジ行そのものを描画しない。
+  const hasBadges = Boolean(
+    sneakerSizeBadge || squareBadge || recordStatusBadge
   );
 
   // 一覧行の編集（インライン編集）を開くボタン。
@@ -288,39 +288,55 @@ export default function ProductRow({
           onClick={handleNavigateToDetail}
           className="block min-w-0 flex-1 cursor-pointer rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-400"
         >
-          {/* デスクトップ（一覧表） */}
-          <div className="hidden items-center gap-4 px-4 py-2.5 lg:flex lg:min-h-[80px]">
+          {/* デスクトップ（一覧表）
+              画像を主役にするためサムネイルを112pxに拡大し、行の最小高さも画像に合わせる。
+              画面幅を1024pxに統一したので、商品ID・商品の状態・登録日時は独立した列をやめ、
+              商品名の下の1行（薄いメタ情報）にまとめた。
+              視線は「画像 → 商品名 → 価格」の順に流れる。 */}
+          <div className="hidden items-center gap-4 px-4 py-4 lg:flex lg:min-h-[152px]">
             <ProductThumbnail
               src={product.main_image_display_url}
               alt={name}
+              size="lg"
             />
-            <span className="w-[96px] shrink-0 truncate text-xs font-normal tabular-nums text-foreground-500">
-              {product.product_id}
-            </span>
-            {/* 商品情報セル: 商品名 → 補助情報バッジ → ブランド の3段階で整理する。
+            {/* 商品情報セル: 商品名 → ブランド → 補助バッジ → メタ情報 の順で整理する。
                 幅が足りない場合はセル内で折り返し、隣の列にはみ出さない。 */}
             <div className="min-w-0 flex-1">
-              {/* 商品名は最大2行まで表示し、超過分は末尾を省略する */}
-              <p className="line-clamp-2 text-sm font-semibold leading-snug text-foreground-950 group-hover/row:text-primary-600">
+              {/* 商品名は最大2行まで表示し、超過分は末尾を省略する。
+                  欧文書体（Archivo→Inter）を当てて字間を詰め、見出しとしての密度を出す。 */}
+              <p className="admin-title line-clamp-2 text-[16px] font-semibold leading-snug text-foreground-950 group-hover/row:text-primary-600">
                 {name}
               </p>
-              {hasMetaRow && (
-                <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+              {hasBrand && (
+                <p className="admin-eyebrow mt-1.5 truncate text-[10px] font-semibold leading-none text-foreground-400">
+                  {brandText}
+                </p>
+              )}
+              {hasBadges && (
+                <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
                   {sneakerSizeBadge}
                   {squareBadge}
                   {recordStatusBadge}
-                  {brandNode}
                 </div>
               )}
+              {/* 商品ID・商品の状態・登録日時は、視線の主役ではないため一段弱いトーンに落とす */}
+              <p className="mt-2 flex min-w-0 items-center gap-2 truncate text-[11px] text-foreground-400">
+                <span className="shrink-0 font-mono tabular-nums">
+                  {product.product_id}
+                </span>
+                {conditionText && (
+                  <span className="shrink-0 truncate">{conditionText}</span>
+                )}
+                <span className="shrink-0 tabular-nums">
+                  {formatDate(product.created_at)}
+                </span>
+              </p>
             </div>
             <span className="w-[88px] shrink-0 truncate text-xs text-foreground-500">
               {categoryLabel}
             </span>
-            <span className="w-[100px] shrink-0 whitespace-nowrap text-right text-sm font-semibold tabular-nums text-foreground-950">
+            <span className="admin-numeric w-[104px] shrink-0 whitespace-nowrap text-right text-[17px] font-bold tracking-tight text-foreground-950">
               {priceText}
-            </span>
-            <span className="w-20 shrink-0 truncate text-xs text-foreground-500">
-              {product.condition || "—"}
             </span>
             <span className="flex w-[84px] shrink-0 overflow-hidden">
               {statusBadge}
@@ -328,29 +344,26 @@ export default function ProductRow({
             <span className="flex w-[84px] shrink-0 overflow-hidden">
               {inventoryBadge}
             </span>
-            <span className="w-[110px] shrink-0 whitespace-nowrap text-xs text-foreground-500">
-              {formatDate(product.created_at)}
-            </span>
           </div>
 
-          {/* モバイル */}
+          {/* モバイル（画像88pxで、デスクトップと同じ階層感を保つ） */}
           <div className="flex items-center gap-3 px-4 py-3 lg:hidden">
             <ProductThumbnail
               src={product.main_image_display_url}
               alt={name}
+              size="md"
             />
-            {/* モバイルも同じ階層（商品名 → ブランド → バッジ）で並べる */}
             <div className="min-w-0 flex-1">
-              <p className="line-clamp-2 text-sm font-semibold leading-snug text-foreground-950">
+              <p className="admin-title line-clamp-2 text-[15px] font-semibold leading-snug text-foreground-950">
                 {name}
               </p>
-              {brandText && (
-                <p className="mt-1 truncate text-xs leading-none text-foreground-500">
+              {hasBrand && (
+                <p className="admin-eyebrow mt-1.5 truncate text-[10px] font-semibold leading-none text-foreground-400">
                   {brandText}
                 </p>
               )}
               <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
-                <span className="whitespace-nowrap text-xs font-normal tabular-nums text-foreground-500">
+                <span className="whitespace-nowrap font-mono text-[11px] tabular-nums text-foreground-400">
                   {product.product_id}
                 </span>
                 {sneakerSizeBadge}
@@ -361,10 +374,10 @@ export default function ProductRow({
               </div>
             </div>
             <div className="shrink-0 text-right">
-              <p className="whitespace-nowrap text-sm font-semibold tabular-nums text-foreground-950">
+              <p className="admin-numeric whitespace-nowrap text-base font-bold tracking-tight text-foreground-950">
                 {priceText}
               </p>
-              <p className="mt-0.5 text-xs text-foreground-500">{categoryLabel}</p>
+              <p className="mt-1 text-xs text-foreground-500">{categoryLabel}</p>
             </div>
           </div>
         </Link>

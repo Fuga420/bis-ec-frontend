@@ -746,7 +746,7 @@ export default function RegisterPage() {
   return (
     <div className="admin-font products-theme min-h-screen bg-background-50">
       <header className="border-b border-background-200 bg-white">
-        <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-4 py-3 md:px-6">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-3 md:px-6">
           <Link
             to="/products"
             className="flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-foreground-600 transition-colors hover:text-primary-600"
@@ -757,12 +757,12 @@ export default function RegisterPage() {
           <span className="text-sm font-semibold text-foreground-950">商品登録</span>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-3xl px-4 py-4 md:px-6">
+      <main className="page-fade mx-auto w-full max-w-5xl px-4 py-4 md:px-6">
         {/* 商品画像 */}
         <FormSection
           title="商品画像"
           errorCount={sectionErrors.images}
-          className="py-4"
+          className="ui-card mb-4 rounded-lg p-4 md:p-5"
         >
           <ImageUpload
             files={images}
@@ -813,15 +813,14 @@ export default function RegisterPage() {
           </div>
         </FormSection>
 
-        <div className="border-t border-background-200"></div>
-
         {/* 商品の詳細 */}
         <FormSection
           title="商品の詳細"
           errorCount={sectionErrors.basic}
-          className="py-4"
+          className="ui-card mb-4 rounded-lg p-4 md:p-5"
         >
-          <div className="flex flex-col gap-4">
+        <div className="mb-4 flex flex-col gap-4 md:flex-row">
+          <div className="min-w-0 flex-1">
             <FormField label="カテゴリー" error={errors.category}>
               <select
                 className={inputClass}
@@ -845,7 +844,9 @@ export default function RegisterPage() {
                 ))}
               </select>
             </FormField>
+          </div>
 
+          <div className="min-w-0 flex-1">
             <FormField label="ブランド" error={errors.brand}>
               <select
                 className={inputClass}
@@ -863,7 +864,11 @@ export default function RegisterPage() {
                 ))}
               </select>
             </FormField>
+          </div>
+        </div>
 
+        <div className="mb-4 flex flex-col gap-4 md:flex-row">
+          <div className="min-w-0 flex-1">
             <FormField label="商品名" error={errors.name}>
               <input
                 className={inputClass}
@@ -873,7 +878,9 @@ export default function RegisterPage() {
                 onChange={(e) => setName(e.target.value)}
               />
             </FormField>
+          </div>
 
+          <div className="min-w-0 flex-1">
             <FormField label="商品の状態" error={errors.condition}>
               <select
                 className={inputClass}
@@ -889,9 +896,8 @@ export default function RegisterPage() {
               </select>
             </FormField>
           </div>
+        </div>
         </FormSection>
-
-        <div className="border-t border-background-200"></div>
 
         {/* カテゴリ固有情報 */}
         {category === "sneaker" && (
@@ -899,7 +905,7 @@ export default function RegisterPage() {
             <FormSection
               title="スニーカー詳細"
               errorCount={sectionErrors.sneaker}
-              className="py-4"
+              className="ui-card mb-4 rounded-lg p-4 md:p-5"
             >
               <SneakerFields
                 values={sneaker}
@@ -909,8 +915,7 @@ export default function RegisterPage() {
                 onAccessoriesChange={setSneakerAccessories}
               />
             </FormSection>
-            <div className="border-t border-background-200"></div>
-          </>
+              </>
         )}
 
         {category === "jewelry" && (
@@ -918,7 +923,7 @@ export default function RegisterPage() {
             <FormSection
               title="ジュエリー詳細"
               errorCount={sectionErrors.jewelry}
-              className="py-4"
+              className="ui-card mb-4 rounded-lg p-4 md:p-5"
             >
               <JewelryFields
                 values={jewelry}
@@ -927,8 +932,7 @@ export default function RegisterPage() {
                 onChange={updateJewelry}
               />
             </FormSection>
-            <div className="border-t border-background-200"></div>
-          </>
+              </>
         )}
 
         {category === "pokemon_card" && (
@@ -936,7 +940,7 @@ export default function RegisterPage() {
             <FormSection
               title="ポケモンカード詳細"
               errorCount={sectionErrors.pokemon}
-              className="py-4"
+              className="ui-card mb-4 rounded-lg p-4 md:p-5"
             >
               <PokemonCardFields
                 values={pokemonCard}
@@ -959,47 +963,43 @@ export default function RegisterPage() {
                 }}
               />
             </FormSection>
-            <div className="border-t border-background-200"></div>
-          </>
+              </>
         )}
 
         {category === "other" && (
           <>
-            <FormSection title="その他詳細" className="py-4">
+            <FormSection title="その他詳細" className="ui-card mb-4 rounded-lg p-4 md:p-5">
               <p className="text-sm text-foreground-500">
                 このカテゴリは共通の商品情報のみで登録できます。
               </p>
             </FormSection>
-            <div className="border-t border-background-200"></div>
-          </>
+              </>
         )}
 
         {category === "apparel" && (
           <>
-            <FormSection title="アパレル詳細" className="py-4">
+            <FormSection title="アパレル詳細" className="ui-card mb-4 rounded-lg p-4 md:p-5">
               <p className="text-sm text-foreground-500">
                 アパレルは共通の商品情報（ブランド・商品名・状態・価格・説明）で登録します。
                 サイズや素材などは商品説明に記載してください。
               </p>
             </FormSection>
-            <div className="border-t border-background-200"></div>
-          </>
+              </>
         )}
 
         {category === "fashion_goods" && (
           <>
-            <FormSection title="ファッション小物詳細" className="py-4">
+            <FormSection title="ファッション小物詳細" className="ui-card mb-4 rounded-lg p-4 md:p-5">
               <p className="text-sm text-foreground-500">
                 ファッション小物は共通の商品情報（ブランド・商品名・状態・価格・説明）で登録します。
                 素材や付属品などは商品説明に記載してください。
               </p>
             </FormSection>
-            <div className="border-t border-background-200"></div>
-          </>
+              </>
         )}
 
         {/* 価格・在庫情報 */}
-        <FormSection title="価格・在庫情報" className="py-4">
+        <FormSection title="価格・在庫情報" className="ui-card mb-4 rounded-lg p-4 md:p-5">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <FormField label="仕入価格 (円)">
               <div className="relative">
@@ -1048,10 +1048,8 @@ export default function RegisterPage() {
           </div>
         </FormSection>
 
-        <div className="border-t border-background-200"></div>
-
         {/* 商品説明・備考 */}
-        <FormSection title="商品説明・備考" className="py-4">
+        <FormSection title="商品説明・備考" className="ui-card mb-4 rounded-lg p-4 md:p-5">
           <div className="flex flex-col gap-4">
             <FormField
               label="商品説明"
@@ -1087,10 +1085,8 @@ export default function RegisterPage() {
           </div>
         </FormSection>
 
-        <div className="border-t border-background-200"></div>
-
         {/* 公開・Square連携 */}
-        <FormSection title="公開・Square連携" className="py-4">
+        <FormSection title="公開・Square連携" className="ui-card mb-4 rounded-lg p-4 md:p-5">
           <PublishSquareOptions
             publishChecked={publishOn}
             squareChecked={squareOn}

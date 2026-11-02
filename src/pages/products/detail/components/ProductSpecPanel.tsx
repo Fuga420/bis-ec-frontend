@@ -12,7 +12,7 @@ interface ProductSpecPanelProps {
  */
 export default function ProductSpecPanel({ product }: ProductSpecPanelProps) {
   return (
-    <div className="rounded-[10px] border border-background-200 bg-white">
+    <div className="ui-card rounded-[10px]">
       <div className="border-b border-background-100 px-4 py-3 md:px-5">
         <h2 className="text-[15px] font-semibold text-foreground-950">
           商品説明・備考

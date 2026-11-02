@@ -263,7 +263,7 @@ export default function DocumentDetailPage() {
   return (
     <div className="admin-font products-theme min-h-screen bg-background-50">
       <header className="border-b border-background-200 bg-white">
-        <div className="mx-auto flex w-full max-w-4xl items-center justify-between px-4 py-3 md:px-6">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-3 md:px-6">
           <Link
             to="/documents"
             className="flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-foreground-600 transition-colors hover:text-primary-600"
@@ -277,7 +277,7 @@ export default function DocumentDetailPage() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-4xl px-4 py-6 md:px-6">
+      <main className="page-fade mx-auto w-full max-w-5xl px-4 py-6 md:px-6">
         {loadState === "loading" && (
           <div className="flex flex-col items-center justify-center gap-3 py-24">
             <i className="ri-loader-4-line animate-spin text-2xl text-foreground-400"></i>

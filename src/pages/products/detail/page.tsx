@@ -995,11 +995,13 @@ export default function ProductDetailPage() {
             <i className="ri-arrow-left-line w-4 h-4 flex items-center justify-center"></i>
             商品一覧に戻る
           </Link>
-          <span className="text-sm font-semibold text-foreground-950">商品詳細</span>
+          <span className="admin-eyebrow text-[10px] font-semibold text-foreground-400">
+            Product Detail
+          </span>
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-5xl px-4 py-6 md:px-6">
+      <main className="page-fade mx-auto w-full max-w-5xl px-4 py-6 md:px-6">
         {loadState === "loading" && <ProductDetailSkeleton />}
 
         {loadState === "error" && (
@@ -1143,7 +1145,7 @@ export default function ProductDetailPage() {
 
                 {/* 販売管理 */}
                 {activeTab === "sales" && (
-                  <div className="mt-4">
+                  <div className="tab-fade mt-4">
                     <SalesManagementPanel
                       publish={{
                         statusLabel,
@@ -1198,7 +1200,7 @@ export default function ProductDetailPage() {
 
                 {/* 仕入・書類 */}
                 {activeTab === "purchase" && (
-                  <div className="mt-4 flex flex-col gap-4">
+                  <div className="tab-fade mt-4 flex flex-col gap-4">
                     <ProductLedgerSection
                       productId={product.product_id}
                       productName={product.product_name}
@@ -1220,7 +1222,7 @@ export default function ProductDetailPage() {
 
                 {/* 翻訳・外部連携 */}
                 {activeTab === "external" && (
-                  <div className="mt-4 flex flex-col gap-4">
+                  <div className="tab-fade mt-4 flex flex-col gap-4">
                     {product.category !== "pokemon_card" && (
                       <ProductTranslationSection
                         productId={product.product_id}

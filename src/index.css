@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&family=Shippori+Mincho:wght@500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&family=Shippori+Mincho:wght@500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -86,6 +86,33 @@ body {
   letter-spacing: -0.011em;
 }
 
+/* 管理画面のタイポグラフィ階層。
+   ・admin-display : ページ見出し。Archivo を先頭に当てて字間を詰め、見出しとしての密度を出す
+   ・admin-title   : 商品名など中見出し。字間だけ少し詰め、本文との差を作る
+   ・admin-eyebrow : ブランド名・補助ラベル。小さい大文字＋広い字間のグレー
+   ・admin-numeric : 価格・件数などの数字を等幅（tabular）に揃える */
+.admin-display {
+  font-family: 'Archivo', 'Inter', 'Noto Sans JP', system-ui, sans-serif;
+  letter-spacing: -0.022em;
+}
+
+.admin-title {
+  font-family: 'Archivo', 'Inter', 'Noto Sans JP', system-ui, sans-serif;
+  letter-spacing: -0.014em;
+}
+
+.admin-eyebrow {
+  font-family: 'Inter', 'Noto Sans JP', system-ui, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-feature-settings: 'case' 1;
+}
+
+.admin-numeric {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: 'tnum' 1, 'lnum' 1;
+}
+
 /* 商品管理画面だけで使うニュートラル＋落ち着いたグリーンのテーマ。
    グローバルの :root は変更せず、このサブツリーだけトークン値を差し替える。 */
 .products-theme {
@@ -154,26 +181,90 @@ body {
   animation: mainImageFade 150ms ease-in-out;
 }
 
-/* 商品一覧の読み込み中スケルトン。背景は #F3F4F6（ごく薄いグレー）、
-   アニメーションは opacity をわずかに揺らすだけの控えめな表現にする。 */
-@keyframes productSkeletonFade {
-  0%,
-  100% {
-    opacity: 1;
+/* カードの質感。
+   フラットなまま安っぽく見えないよう「ごく薄い影＋細い枠線」だけを足す。
+   影は前景色の低い不透明度で作るので、パレットを差し替えても破綻しない。
+   深くしないのが、この管理画面のトーンを守るコツ。 */
+.ui-card {
+  background-color: #ffffff;
+  border: 1px solid oklch(var(--background-200));
+  box-shadow:
+    0 1px 1px oklch(var(--foreground-950) / 0.03),
+    0 2px 6px oklch(var(--foreground-950) / 0.04);
+}
+
+/* クリックできるカードだけ、ホバーでほんの少し浮かせる（1pxだけ）。 */
+.ui-card-hover {
+  transition:
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+.ui-card-hover:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 1px 1px oklch(var(--foreground-950) / 0.04),
+    0 6px 16px oklch(var(--foreground-950) / 0.07);
+}
+
+/* ページ表示・タブ切り替えの短いフェード。
+   opacity と 2px の移動だけなので、レイアウトは動かない。 */
+@keyframes uiFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
   }
-  50% {
-    opacity: 0.7;
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.page-fade {
+  animation: uiFadeIn 180ms ease-out both;
+}
+
+.tab-fade {
+  animation: uiFadeIn 140ms ease-out both;
+}
+
+/* 商品一覧の読み込み中スケルトン。背景は #F3F4F6（ごく薄いグレー）に、
+   光がゆっくり流れるシマーを重ねる。 */
+@keyframes uiShimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -100% 0;
   }
 }
 
 .product-skeleton-block {
   background-color: #f3f4f6;
-  animation: productSkeletonFade 1.8s ease-in-out infinite;
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.9) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: uiShimmer 1.7s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .product-skeleton-block {
     animation: none;
+    background-image: none;
+  }
+
+  .page-fade,
+  .tab-fade {
+    animation: none;
+  }
+
+  .ui-card-hover:hover {
+    transform: none;
   }
 }
 

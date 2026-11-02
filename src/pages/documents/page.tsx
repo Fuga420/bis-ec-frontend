@@ -44,7 +44,7 @@ export default function DocumentsPage() {
   return (
     <div className="admin-font products-theme min-h-screen bg-background-50">
       <header className="border-b border-background-200 bg-white">
-        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 md:px-6">
+        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 md:px-6">
           <h1 className="min-w-0 text-xl font-semibold text-foreground-950">
             書類管理
           </h1>
@@ -58,7 +58,7 @@ export default function DocumentsPage() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-7xl px-4 py-4 md:px-6">
+      <main className="page-fade mx-auto w-full max-w-5xl px-4 py-4 md:px-6">
         {/* 画面の主役: 仕入明細を探す（受付番号・ことば） */}
         <SupplyLineSearch />
 
@@ -93,7 +93,7 @@ export default function DocumentsPage() {
           </div>
 
           {/* 書類一覧の絞り込み（ファイル名・書類IDのみ） */}
-          <div className="mt-2.5 flex flex-col gap-2 rounded-lg border border-background-200 bg-white p-2.5 lg:flex-row lg:flex-wrap lg:items-center">
+          <div className="ui-card mt-2.5 flex flex-col gap-2 rounded-lg p-2.5 lg:flex-row lg:flex-wrap lg:items-center">
             <div className="relative min-w-0 w-full lg:min-w-[240px] lg:flex-1">
               <i className="ri-search-line pointer-events-none absolute left-3 top-1/2 w-4 h-4 -translate-y-1/2 flex items-center justify-center text-sm text-foreground-400"></i>
               <input
@@ -198,9 +198,9 @@ export default function DocumentsPage() {
                   </button>
                 </div>
               ) : (
-                <div className="mt-3 overflow-hidden rounded-lg border border-background-200 bg-white">
+                <div className="ui-card mt-3 overflow-hidden rounded-lg">
                   <div className="overflow-x-auto">
-                    <div className="min-w-full lg:min-w-[1020px]">
+                    <div className="min-w-full lg:min-w-[900px]">
                       {/* ヘッダー行（デスクトップ） */}
                       <div className="hidden items-center gap-4 border-b border-background-200 bg-white px-4 py-2 lg:flex">
                         <span className="w-9 shrink-0"></span>
@@ -240,7 +240,7 @@ export default function DocumentsPage() {
         </section>
 
         {/* 書類の追加・管理（通常は閉じておき、開いたときだけ取込UIを表示） */}
-        <section className="mt-5 rounded-lg border border-background-200 bg-white">
+        <section className="ui-card mt-5 rounded-lg">
           <button
             type="button"
             onClick={() => setAddPanelOpen((prev) => !prev)}

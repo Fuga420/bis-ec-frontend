@@ -41,11 +41,16 @@ export default function ImportPage() {
   const processingIndex = sets.findIndex((s) => s.status === "processing");
   const doneCount = summary.success;
   const showProgress = summary.total > 0 && (isImporting || anyDone);
+  // サマリー用：登録されている画像の総枚数（セット横断）
+  const totalImageCount = sets.reduce(
+    (total, s) => total + s.images.length,
+    0
+  );
 
   return (
     <div className="admin-font products-theme min-h-screen bg-background-50">
       <header className="border-b border-background-200 bg-white">
-        <div className="mx-auto flex w-full max-w-4xl items-center justify-between px-4 py-3 md:px-6">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-3 md:px-6">
           <Link
             to="/products"
             className="flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-foreground-600 transition-colors hover:text-primary-600"
@@ -59,9 +64,13 @@ export default function ImportPage() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-4xl px-4 py-4 md:px-6">
+      <main className="page-fade mx-auto w-full max-w-5xl px-4 py-4 md:px-6">
+        {/* 左：作業（説明・セット一覧）／右：固定サマリーの2カラム。
+            右カラムは追従し、実行ボタンを常に押せる位置に置く。 */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="min-w-0">
         {/* 説明（コンパクト） */}
-        <div className="rounded-[10px] border border-background-200 bg-white px-4 py-3.5 md:px-5">
+        <div className="ui-card rounded-[10px] px-4 py-3.5 md:px-5">
           <div className="flex items-center gap-2">
             <i className="ri-stack-line w-5 h-5 flex items-center justify-center text-primary-600"></i>
             <h1 className="text-[15px] font-semibold text-foreground-950">
@@ -153,54 +162,96 @@ export default function ImportPage() {
           商品セットを追加
         </button>
 
+          </div>
+
+          {/* 右：固定サマリー（セット数・画像枚数・実行ボタン） */}
+          <aside className="min-w-0 lg:col-start-2 lg:row-start-1 lg:sticky lg:top-4 lg:self-start">
         {/* サマリー＋まとめて取り込む */}
-        <div className="mt-4 rounded-lg border border-background-200 bg-white p-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-background-100 px-3 py-1 text-xs font-medium text-foreground-700">
-                セット {summary.total}
+        <div className="ui-card rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <h2 className="admin-eyebrow text-[10px] font-semibold text-foreground-400">
+              Summary
+            </h2>
+            {isImporting && (
+              <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] font-bold text-primary-600">
+                <i className="ri-loader-4-line w-3.5 h-3.5 animate-spin flex items-center justify-center"></i>
+                実行中
               </span>
-              {showProgress && (
-                <span
-                  className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-primary-50 px-3 py-1 text-xs font-bold text-primary-700 tabular-nums"
-                  aria-live="polite"
-                >
-                  {isImporting && (
-                    <i className="ri-loader-4-line w-3.5 h-3.5 animate-spin flex items-center justify-center"></i>
-                  )}
-                  {doneCount} / {summary.total}セット完了
+            )}
+          </div>
+
+          {/* セット数・画像枚数は、この画面で一番見たい数字。大きく2分割で置く。 */}
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <div className="rounded-md bg-background-100 px-2.5 py-2">
+              <p className="text-[10px] leading-none text-foreground-500">
+                セット数
+              </p>
+              <p className="admin-numeric mt-1.5 text-lg font-bold leading-none text-foreground-950">
+                {summary.total}
+              </p>
+            </div>
+            <div className="rounded-md bg-background-100 px-2.5 py-2">
+              <p className="text-[10px] leading-none text-foreground-500">
+                画像枚数
+              </p>
+              <p className="admin-numeric mt-1.5 text-lg font-bold leading-none text-foreground-950">
+                {totalImageCount}
+                <span className="ml-0.5 text-[11px] font-medium text-foreground-500">
+                  枚
                 </span>
-              )}
+              </p>
+            </div>
+          </div>
+
+          {/* 状態の内訳（存在する状態だけ表示） */}
+          {(summary.success > 0 ||
+            summary.error > 0 ||
+            summary.unknown > 0) && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
               {summary.success > 0 && (
-                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-primary-100 px-3 py-1 text-xs font-bold text-primary-700">
+                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-primary-100 px-2.5 py-1 text-[11px] font-bold text-primary-700">
                   <i className="ri-checkbox-circle-line w-3.5 h-3.5 flex items-center justify-center"></i>
                   成功 {summary.success}
                 </span>
               )}
               {summary.error > 0 && (
-                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700">
+                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-red-100 px-2.5 py-1 text-[11px] font-bold text-red-700">
                   <i className="ri-error-warning-line w-3.5 h-3.5 flex items-center justify-center"></i>
                   失敗 {summary.error}
                 </span>
               )}
               {summary.unknown > 0 && (
-                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">
+                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800">
                   <i className="ri-question-line w-3.5 h-3.5 flex items-center justify-center"></i>
                   受付不明 {summary.unknown}
                 </span>
               )}
             </div>
-          </div>
+          )}
+
+          {showProgress && (
+            <div className="mt-2 rounded-md bg-primary-50 px-2.5 py-2">
+              <p className="admin-numeric text-xs font-bold text-primary-700">
+                {doneCount} / {summary.total} セット完了
+              </p>
+              {isImporting && (
+                <IndeterminateProgressBar
+                  label="セットを取り込み中"
+                  className="mt-1.5"
+                />
+              )}
+            </div>
+          )}
 
           {/* 書類（請求書・領収書）の商品への直接添付は撤去済み。
               仕入書類は独立した書類台帳で取り込む。 */}
 
-          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="mt-3 flex flex-col gap-2">
             <button
               type="button"
               onClick={importer.importAll}
               disabled={isImporting || !importer.hasImportableSet}
-              className="inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary-500 px-5 py-2.5 text-sm font-bold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex w-full cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary-500 px-5 py-2.5 text-sm font-bold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isImporting ? (
                 <>
@@ -218,14 +269,14 @@ export default function ImportPage() {
               <button
                 type="button"
                 onClick={importer.resetAll}
-                className="inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-background-300 bg-background-50 px-4 py-2.5 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100"
+                className="inline-flex w-full cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-background-300 bg-background-50 px-4 py-2.5 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100"
               >
                 <i className="ri-refresh-line w-4 h-4 flex items-center justify-center"></i>
                 リセットして最初から
               </button>
             )}
             {isImporting && (
-              <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <span className="flex min-w-0 flex-col gap-1.5 rounded-md bg-background-50 px-2.5 py-2">
                 <span className="text-xs text-foreground-600">
                   {processingIndex >= 0
                     ? `商品セット${processingIndex + 1}を送信中です（1セットずつ順番に送信しています）。`
@@ -252,6 +303,8 @@ export default function ImportPage() {
               </span>
             </p>
           )}
+        </div>
+          </aside>
         </div>
 
         {/* 取り込み済み商品の一覧＋一括AI生成への導線（既存バッチ生成を再利用） */}

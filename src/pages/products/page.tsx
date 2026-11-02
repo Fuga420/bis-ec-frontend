@@ -663,8 +663,17 @@ export default function ProductsPage() {
   return (
     <div className="admin-font products-theme min-h-screen bg-background-50">
       <header className="border-b border-background-200 bg-white">
-        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 md:px-6">
-          <h1 className="min-w-0 text-xl font-semibold text-foreground-950">商品管理</h1>
+        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 md:px-6">
+          <div className="min-w-0">
+            {/* 見出しは欧文ディスプレイ書体＋詰めた字間で一段大きく。
+                上に小さなラベルを置いて、ページタイトルとしての格を出す。 */}
+            <p className="admin-eyebrow text-[10px] font-semibold text-foreground-400">
+              Catalog
+            </p>
+            <h1 className="admin-display mt-1 text-[26px] font-semibold leading-none text-foreground-950 md:text-[28px]">
+              商品管理
+            </h1>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link
               to="/import"
@@ -691,7 +700,7 @@ export default function ProductsPage() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-7xl px-4 py-4 md:px-6">
+      <main className="page-fade mx-auto w-full max-w-5xl px-4 py-4 md:px-6">
         {/* 一覧切り替えタブ */}
         <div className="mb-6 inline-flex items-center gap-1 rounded-lg bg-background-100 p-1">
           <Link
@@ -874,13 +883,13 @@ export default function ProductsPage() {
             ) : (
               <div
                 aria-busy={isRefreshing}
-                className={`overflow-hidden rounded-lg border border-background-200 bg-white transition-opacity duration-150 ${
+                className={`ui-card overflow-hidden rounded-lg transition-opacity duration-150 ${
                   isRefreshing ? "opacity-60" : "opacity-100"
                 }`}
               >
                 {/* 横幅が不足する場合は重ねずに横スクロールで対応する */}
                 <div className="overflow-x-auto">
-                  <div className="min-w-full lg:min-w-[1240px]">
+                  <div className="min-w-full lg:min-w-[900px]">
                     {/* ヘッダー行（デスクトップ） */}
                     <div className="hidden items-center border-b border-background-200 bg-background-50 py-2.5 lg:flex">
                       <div className="flex w-10 shrink-0 items-center justify-center">
@@ -898,11 +907,8 @@ export default function ProductsPage() {
                         />
                       </div>
                       <div className="flex min-w-0 flex-1 items-center gap-4 px-4">
-                        <span className="w-14 shrink-0 text-xs font-medium text-foreground-500">
+                        <span className="w-28 shrink-0 text-xs font-medium text-foreground-500">
                           画像
-                        </span>
-                        <span className="w-[96px] shrink-0 text-xs font-medium text-foreground-500">
-                          商品ID
                         </span>
                         <span className="min-w-0 flex-1 text-xs font-medium text-foreground-500">
                           商品名
@@ -910,20 +916,14 @@ export default function ProductsPage() {
                         <span className="w-[88px] shrink-0 text-xs font-medium text-foreground-500">
                           カテゴリ
                         </span>
-                        <span className="w-[100px] shrink-0 text-right text-xs font-medium text-foreground-500">
+                        <span className="w-[104px] shrink-0 text-right text-xs font-medium text-foreground-500">
                           販売予定価格
-                        </span>
-                        <span className="w-20 shrink-0 text-xs font-medium text-foreground-500">
-                          状態
                         </span>
                         <span className="w-[84px] shrink-0 text-xs font-medium text-foreground-500">
                           公開状態
                         </span>
                         <span className="w-[84px] shrink-0 text-xs font-medium text-foreground-500">
                           在庫状態
-                        </span>
-                        <span className="w-[110px] shrink-0 text-xs font-medium text-foreground-500">
-                          登録日時
                         </span>
                       </div>
                       {/* 行の右端操作列（詳細・別タブ・編集）と同じ幅を確保して桁を揃える */}
