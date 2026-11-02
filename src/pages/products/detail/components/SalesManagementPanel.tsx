@@ -20,6 +20,8 @@ export interface SalesWorkflow {
   reviewed: boolean;
   // 公開中
   published: boolean;
+  // Square（販売チャネル）へ連携済み
+  squareLinked: boolean;
 }
 
 interface SalesManagementPanelProps {
@@ -194,6 +196,7 @@ const WORKFLOW_STEPS = [
   { key: "aiGenerated", label: "AI生成", icon: "ri-sparkling-line" },
   { key: "reviewed", label: "確認", icon: "ri-checkbox-circle-line" },
   { key: "published", label: "公開", icon: "ri-global-line" },
+  { key: "squareLinked", label: "Square連携", icon: "ri-links-line" },
 ] as const;
 
 /**
@@ -205,7 +208,8 @@ function WorkflowSteps({ workflow }: { workflow: SalesWorkflow }) {
     if (step.key === "imported") return workflow.imported;
     if (step.key === "aiGenerated") return workflow.aiGenerated;
     if (step.key === "reviewed") return workflow.reviewed;
-    return workflow.published;
+    if (step.key === "published") return workflow.published;
+    return workflow.squareLinked;
   });
   const currentIndex = doneList.findIndex((done) => !done);
 
@@ -383,11 +387,11 @@ export default function SalesManagementPanel({
         </SettingRow>
       </div>
 
-      {/* 管理操作: 通常の設定と同列に置かず、カード最下部に控えめに隔離する */}
-      <div className="border-t border-background-200 bg-background-50 px-4 py-3 md:px-5">
+      {/* 管理操作: 通常の設定と同列に置かず、カード最下部の危険ゾーンに隔離する */}
+      <div className="border-t border-red-200 bg-red-50/60 px-4 py-3 md:px-5">
         <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
           <div className="min-w-0">
-            <p className="admin-eyebrow text-[9px] font-semibold text-foreground-400">
+            <p className="admin-eyebrow text-[9px] font-semibold text-red-400">
               Manage
             </p>
             <p className="mt-0.5 text-[12px] font-medium text-foreground-800">
@@ -419,10 +423,10 @@ export default function SalesManagementPanel({
                 type="button"
                 onClick={record.onSelectArchived}
                 disabled={record.saving}
-                className="inline-flex cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-background-300 bg-white px-2.5 py-1.5 text-[12px] font-medium text-foreground-600 transition-colors hover:border-background-400 hover:bg-background-100 hover:text-foreground-900 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-red-300 bg-white px-2.5 py-1.5 text-[12px] font-medium text-red-700 transition-colors hover:border-red-400 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <i className="ri-archive-2-line w-3.5 h-3.5 flex items-center justify-center"></i>
-                アーカイブ
+                アーカイブする
               </button>
             )}
 

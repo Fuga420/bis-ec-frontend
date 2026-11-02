@@ -66,7 +66,7 @@ export default function CollapsibleText({
             className="ri-arrow-down-s-line w-3.5 h-3.5 flex items-center justify-center"
             aria-hidden="true"
           ></i>
-          続きを読む
+          全文を表示
         </button>
       </div>
     );

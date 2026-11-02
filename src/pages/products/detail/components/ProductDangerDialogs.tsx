@@ -2,6 +2,8 @@ import SaveStatusMessage from "@/components/base/SaveStatusMessage";
 
 interface ProductDangerDialogsProps {
   productId: string;
+  // 確認モーダルで「どの商品か」を必ず示すための商品名
+  productName?: string;
   squareLinked: boolean;
 
   // アーカイブ
@@ -33,6 +35,7 @@ interface ProductDangerDialogsProps {
 /** アーカイブ / 復元 / 完全削除の確認ダイアログ（表示のみ・実行は呼び出し元） */
 export default function ProductDangerDialogs({
   productId,
+  productName = "",
   squareLinked,
   isArchiveOpen,
   archiveSaving,
@@ -73,6 +76,11 @@ export default function ProductDangerDialogs({
               <br />
               商品データと画像は削除されません。
             </p>
+            {productName && (
+              <p className="mt-3 rounded-lg border border-background-200 bg-background-50 px-3 py-2 text-sm font-semibold text-foreground-900">
+                {productName}
+              </p>
+            )}
             {squareLinked && (
               <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm leading-relaxed font-medium text-amber-800">
                 Square連携済み商品のため、Square側でも在庫停止・決済リンク無効化・商品アーカイブが実行されます。
@@ -125,6 +133,11 @@ export default function ProductDangerDialogs({
               <br />
               復元すると通常の商品一覧と公開サイトに表示されます。
             </p>
+            {productName && (
+              <p className="mt-3 rounded-lg border border-background-200 bg-background-50 px-3 py-2 text-sm font-semibold text-foreground-900">
+                {productName}
+              </p>
+            )}
             <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm leading-relaxed font-medium text-amber-800">
               Square連携済み商品ですが、復元してもSquare側は停止したままです（自動では再開されません）。Squareでの再開・再連携が必要です。決済リンクは下のチェックで再生成できます。
             </p>
@@ -211,6 +224,11 @@ export default function ProductDangerDialogs({
               <p className="mt-1 font-mono text-sm font-bold text-foreground-950">
                 {productId}
               </p>
+              {productName && (
+                <p className="mt-1 text-xs text-foreground-500">
+                  商品名：{productName}
+                </p>
+              )}
               <input
                 type="text"
                 value={deleteConfirmInput}

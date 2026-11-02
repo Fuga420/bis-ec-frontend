@@ -12,7 +12,7 @@ import { getSupabaseClient } from "@/lib/supabaseClient";
  * AUTO_LINK_BY_ITEM_NUMBER_ENABLED が false のときはリクエスト自体を送らない。
  * 配信後に実URLで疎通を確認できたら true に切り替える。
  */
-export const AUTO_LINK_BY_ITEM_NUMBER_ENABLED = true;
+export const AUTO_LINK_BY_ITEM_NUMBER_ENABLED = false;
 
 export const AUTO_LINK_ACTION = "auto_link_product_by_item_number";
 

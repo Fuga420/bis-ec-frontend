@@ -8,6 +8,8 @@ export interface ParsedDescription {
   lead: string;
   // 【状態】【付属品】【サイズ】など、本文から抜き出した項目
   fields: TaggedDescriptionField[];
+  // 本文中の #タグ（文章ではなくラベルとして扱うため、本文からは取り除く）
+  hashtags: string[];
 }
 
 // 【ラベル】形式の見出しを拾う。長すぎる括弧は本文の装飾とみなして拾わない。
@@ -31,6 +33,36 @@ const KNOWN_LABELS = [
 const LINE_FIELD_PATTERN = new RegExp(
   `^(${KNOWN_LABELS.join("|")})\\s*[:：]\\s*(.+)$`
 );
+
+// #タグ / ＃タグ（全角）を拾う。URL の # 断片は拾わない（直前が英数字の場合を除外）。
+const HASHTAG_PATTERN = /[#＃][^\s#＃、,，。."'’”]+/gu;
+
+/**
+ * 本文からハッシュタグを取り除き、タグだけを配列で返す。
+ * タグだけの行は本文から丸ごと落とし、文章の途中のタグは語ごとに削除する。
+ */
+function extractHashtags(text: string): { rest: string; tags: string[] } {
+  const tags: string[] = [];
+  const restLines: string[] = [];
+
+  text.split("\n").forEach((line) => {
+    const found = line.match(HASHTAG_PATTERN) ?? [];
+    found.forEach((tag) => {
+      const normalized = tag.replace(/^[＃]/, "#").trim();
+      if (normalized.length > 1 && !tags.includes(normalized)) {
+        tags.push(normalized);
+      }
+    });
+    // タグを除いた残りが空の行は、本文に残さない
+    const cleaned = line
+      .replace(HASHTAG_PATTERN, " ")
+      .replace(/[ \t]{2,}/g, " ")
+      .trim();
+    if (cleaned) restLines.push(cleaned);
+  });
+
+  return { rest: restLines.join("\n"), tags };
+}
 
 function splitValues(block: string): string[] {
   return block
@@ -65,7 +97,7 @@ function mergeFields(
  */
 export function parseTaggedDescription(text: string): ParsedDescription {
   const raw = (text ?? "").trim();
-  if (!raw) return { lead: "", fields: [] };
+  if (!raw) return { lead: "", fields: [], hashtags: [] };
 
   const merged = new Map<string, string[]>();
   const matches = Array.from(raw.matchAll(TAG_PATTERN));
@@ -100,5 +132,10 @@ export function parseTaggedDescription(text: string): ParsedDescription {
     ([label, values]) => ({ label, values })
   );
 
-  return { lead: rest.join("\n").trim(), fields };
+  // 残った本文からハッシュタグを抜き出し、本文には文章だけを残す
+  const { rest: bodyWithoutTags, tags: hashtags } = extractHashtags(
+    rest.join("\n")
+  );
+
+  return { lead: bodyWithoutTags.trim(), fields, hashtags };
 }

@@ -1217,6 +1217,7 @@ export default function ProductDetailPage() {
                         aiGenerated: aiDraftPrice != null,
                         reviewed: workflowReviewed,
                         published: product.publish_status === "published",
+                        squareLinked: isSquareLinked,
                       }}
                     />
                   </div>
@@ -1282,6 +1283,7 @@ export default function ProductDetailPage() {
             {/* アーカイブ / 復元 / 完全削除の確認ダイアログ */}
             <ProductDangerDialogs
               productId={product.product_id}
+              productName={product.product_name}
               squareLinked={isSquareLinked}
               isArchiveOpen={isArchiveConfirmOpen}
               archiveSaving={recordSaveState === "saving"}

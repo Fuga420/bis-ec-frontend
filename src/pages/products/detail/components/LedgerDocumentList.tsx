@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { ProductCostLinkDetail } from "@/pages/documents/lib/documentLedgerApi";
 import { formatYen } from "@/pages/products/detail/lib/format";
@@ -93,8 +93,10 @@ function MetaItem({
 }
 
 /**
- * 紐付け書類: この商品に紐付いた書類明細を、識別情報・仕入情報・金額・操作の
- * 2行構成でコンパクトに一覧表示する。
+ * 紐付け書類: 1件を2段構成でコンパクトに表示する。
+ *  1段目 = ファイルアイコン・ファイル名・照合チップ（区分）・金額・「明細を表示」
+ *  2段目 = 書類番号・受付番号・仕入先・請求日・明細内訳・操作（折りたたみ）
+ * 空の識別情報は描画しない（「—」を並べて情報量を増やさない）。
  * 取得・解除の実行は呼び出し元（ProductLedgerSection）が持つ。
  */
 export default function LedgerDocumentList({
@@ -113,15 +115,25 @@ export default function LedgerDocumentList({
   onToggleLinker,
   linker,
 }: LedgerDocumentListProps) {
+  // 2段目（明細）を開いている書類の link_id
+  const [expandedIds, setExpandedIds] = useState<string[]>([]);
+  const isExpanded = (linkId: string) => expandedIds.includes(linkId);
+  const toggleExpanded = (linkId: string) =>
+    setExpandedIds((prev) =>
+      prev.includes(linkId)
+        ? prev.filter((id) => id !== linkId)
+        : [...prev, linkId]
+    );
+
   return (
     <section className="ui-card rounded-lg">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-background-200 px-4 py-2.5 md:px-5">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <div className="min-w-0">
-            <p className="admin-eyebrow text-[9px] font-semibold text-foreground-400">
+            <p className="admin-eyebrow text-[10px] font-semibold tracking-[0.14em] text-foreground-400">
               Ledger
             </p>
-            <h2 className="mt-0.5 flex items-center gap-1.5 whitespace-nowrap text-[15px] font-semibold leading-tight text-foreground-950">
+            <h2 className="mt-0.5 flex items-center gap-1.5 whitespace-nowrap text-[15px] font-bold leading-tight text-foreground-950">
               <i className="ri-file-list-3-line w-4 h-4 flex items-center justify-center text-primary-600"></i>
               紐付け書類
             </h2>
@@ -230,66 +242,128 @@ export default function LedgerDocumentList({
           {links.map((link) => {
             const confirming = unlinkTargetId === link.link_id;
             const busy = unlinkingId === link.link_id;
+            const expanded = isExpanded(link.link_id);
             const fileName = link.document_file_name?.trim() ?? "";
             const itemName = link.item_name?.trim() ?? "";
-            // 主要情報はファイル名を優先し、なければ品目名
+            // 1段目の主役はファイル名。無ければ品目名。
             const primaryTitle = fileName || itemName || "（品目なし）";
             const secondaryTitle = fileName && itemName ? itemName : "";
+            const typeLabel = LINK_TYPE_LABELS[link.link_type] ?? link.link_type;
+            const hasMeta =
+              Boolean(link.document_number) ||
+              Boolean(link.reception_number) ||
+              Boolean(link.supplier_name) ||
+              Boolean(link.issue_date);
 
             return (
               <li key={link.link_id} className="px-4 py-2.5 md:px-5">
-                <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-                  <div className="min-w-0 flex-1">
-                    {/* 1行目: 主要情報（ファイル名/品目名）と区分 */}
-                    <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
-                      <span
-                        className="min-w-0 max-w-full truncate text-[12.5px] font-semibold leading-snug text-foreground-950"
+                {/* 1段目: ファイル名・照合チップ・金額・明細トグル */}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 flex-1 items-start gap-2">
+                    <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-background-100 text-foreground-500">
+                      <i
+                        className={`${
+                          link.drive_url ? "ri-file-pdf-2-line" : "ri-file-list-3-line"
+                        } text-[13px] leading-none`}
+                        aria-hidden="true"
+                      ></i>
+                    </span>
+                    <div className="min-w-0">
+                      <p
+                        className="min-w-0 truncate text-[12.5px] font-semibold leading-snug text-foreground-950"
                         title={primaryTitle}
                       >
                         {primaryTitle}
-                      </span>
+                      </p>
                       {secondaryTitle && (
-                        <span
-                          className="hidden min-w-0 max-w-[220px] truncate text-[11px] text-foreground-400 sm:inline"
+                        <p
+                          className="mt-0.5 truncate text-[11px] leading-tight text-foreground-400"
                           title={secondaryTitle}
                         >
                           {secondaryTitle}
-                        </span>
+                        </p>
                       )}
-                      <span className="inline-flex h-[18px] items-center whitespace-nowrap rounded border border-background-300 bg-white px-1.5 text-[10px] font-medium leading-none text-foreground-600">
-                        {LINK_TYPE_LABELS[link.link_type] ?? link.link_type}
-                      </span>
-                    </div>
-
-                    {/* 2行目: 識別情報（書類番号/受付番号）と仕入情報 */}
-                    <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-                      <MetaItem
-                        label="書類番号"
-                        value={link.document_number || "—"}
-                        mono
-                      />
-                      <span className="whitespace-nowrap text-[10px] text-foreground-300">
-                        /
-                      </span>
-                      <MetaItem
-                        label="受付番号"
-                        value={link.reception_number || "—"}
-                        mono
-                      />
-                      <MetaItem label="仕入先" value={link.supplier_name || "—"} truncate />
-                      <MetaItem label="請求日" value={link.issue_date || "—"} />
                     </div>
                   </div>
 
-                  {/* 金額と操作（狭い画面では下に回り込む） */}
-                  <div className="flex shrink-0 flex-col items-start gap-1 sm:items-end">
-                    <dl className="flex flex-wrap items-baseline gap-x-3 gap-y-1 sm:justify-end">
-                      <Amount label="商品代金" value={formatYen(link.item_amount)} strong />
-                      <Amount label="落札手数料" value={formatYen(link.fee_amount)} strong />
-                      <Amount label="明細（税込）" value={formatYen(link.total_line_amount)} />
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
+                    <span className="inline-flex h-[18px] items-center whitespace-nowrap rounded-full border border-background-300 bg-white px-1.5 text-[10px] font-medium leading-none text-foreground-600">
+                      {typeLabel}
+                    </span>
+                    <span className="whitespace-nowrap text-[13px] font-semibold leading-none tabular-nums text-foreground-950">
+                      {formatYen(link.total_line_amount)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => toggleExpanded(link.link_id)}
+                      aria-expanded={expanded}
+                      className="inline-flex cursor-pointer items-center gap-0.5 whitespace-nowrap rounded px-1 py-0.5 text-[11px] font-medium text-foreground-500 transition-colors hover:bg-background-100 hover:text-foreground-900"
+                    >
+                      <i
+                        className={`${
+                          expanded ? "ri-subtract-line" : "ri-add-line"
+                        } w-3 h-3 flex items-center justify-center text-xs`}
+                        aria-hidden="true"
+                      ></i>
+                      {expanded ? "閉じる" : "明細を表示"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2段目: 識別情報・内訳・操作（必要なときだけ開く） */}
+                {expanded && (
+                  <div className="tab-fade mt-2 rounded-md border border-background-100 bg-background-50 px-2.5 py-2">
+                    {hasMeta ? (
+                      <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+                        {link.document_number && (
+                          <MetaItem
+                            label="書類番号"
+                            value={link.document_number}
+                            mono
+                          />
+                        )}
+                        {link.reception_number && (
+                          <MetaItem
+                            label="受付番号"
+                            value={link.reception_number}
+                            mono
+                          />
+                        )}
+                        {link.supplier_name && (
+                          <MetaItem
+                            label="仕入先"
+                            value={link.supplier_name}
+                            truncate
+                          />
+                        )}
+                        {link.issue_date && (
+                          <MetaItem label="請求日" value={link.issue_date} />
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-foreground-400">
+                        書類番号などの識別情報は未登録です。
+                      </p>
+                    )}
+
+                    <dl className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                      <Amount
+                        label="商品代金"
+                        value={formatYen(link.item_amount)}
+                        strong
+                      />
+                      <Amount
+                        label="落札手数料"
+                        value={formatYen(link.fee_amount)}
+                        strong
+                      />
+                      <Amount
+                        label="明細（税込）"
+                        value={formatYen(link.total_line_amount)}
+                      />
                     </dl>
 
-                    <div className="flex flex-wrap items-center gap-0.5 sm:justify-end">
+                    <div className="mt-1.5 flex flex-wrap items-center gap-0.5 border-t border-background-200 pt-1.5">
                       {link.drive_url ? (
                         <a
                           href={link.drive_url}
@@ -321,42 +395,42 @@ export default function LedgerDocumentList({
                             className={ACTION_UNLINK}
                           >
                             <i className="ri-link-unlink w-3.5 h-3.5 flex items-center justify-center"></i>
-                            解除
+                            紐付けを解除
                           </button>
                         </>
                       )}
                     </div>
-                  </div>
-                </div>
 
-                {/* 紐付け解除の確認（誤操作防止のため2段階） */}
-                {confirming && (
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded border border-red-200 bg-red-50 px-2.5 py-2">
-                    <span className="whitespace-nowrap text-[11px] font-medium text-red-700">
-                      この書類の紐付けを解除しますか？
-                    </span>
-                    <span className="min-w-0 flex-1" />
-                    <button
-                      type="button"
-                      onClick={() => onConfirmUnlink(link.link_id)}
-                      disabled={busy}
-                      className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap rounded bg-red-600 px-2 py-1 text-[10px] font-bold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {busy ? (
-                        <i className="ri-loader-4-line animate-spin w-3 h-3 flex items-center justify-center"></i>
-                      ) : (
-                        <i className="ri-link-unlink w-3 h-3 flex items-center justify-center"></i>
-                      )}
-                      解除する
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onCancelUnlink}
-                      disabled={busy}
-                      className="inline-flex cursor-pointer items-center whitespace-nowrap rounded border border-background-300 bg-white px-2 py-1 text-[10px] font-medium text-foreground-600 transition-colors hover:bg-background-100 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      やめる
-                    </button>
+                    {/* 紐付け解除の確認（誤操作防止のため2段階） */}
+                    {confirming && (
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded border border-red-200 bg-red-50 px-2.5 py-2">
+                        <span className="whitespace-nowrap text-[11px] font-medium text-red-700">
+                          この書類の紐付けを解除しますか？
+                        </span>
+                        <span className="min-w-0 flex-1" />
+                        <button
+                          type="button"
+                          onClick={() => onConfirmUnlink(link.link_id)}
+                          disabled={busy}
+                          className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap rounded bg-red-600 px-2 py-1 text-[10px] font-bold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {busy ? (
+                            <i className="ri-loader-4-line animate-spin w-3 h-3 flex items-center justify-center"></i>
+                          ) : (
+                            <i className="ri-link-unlink w-3 h-3 flex items-center justify-center"></i>
+                          )}
+                          解除する
+                        </button>
+                        <button
+                          type="button"
+                          onClick={onCancelUnlink}
+                          disabled={busy}
+                          className="inline-flex cursor-pointer items-center whitespace-nowrap rounded border border-background-300 bg-white px-2 py-1 text-[10px] font-medium text-foreground-600 transition-colors hover:bg-background-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          やめる
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </li>

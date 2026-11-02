@@ -216,26 +216,38 @@ export default function ProductTranslationSection({
           {(translationData.translated_condition ||
             translationData.translated_box ||
             translationData.translated_accessories) && (
-            <div className="flex flex-wrap gap-2">
+            <dl className="grid grid-cols-1 gap-x-4 gap-y-2 rounded-lg border border-background-200 bg-background-50 px-3 py-2.5 sm:grid-cols-3">
               {translationData.translated_condition && (
-                <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-background-200 bg-background-50 px-2.5 py-1 text-xs text-foreground-700">
-                  <span className="font-medium text-foreground-400">Condition:</span>
-                  {translationData.translated_condition}
-                </span>
+                <div className="min-w-0">
+                  <dt className="text-[11px] leading-4 text-foreground-500">
+                    Condition（状態）
+                  </dt>
+                  <dd className="mt-0.5 text-[13px] font-medium leading-relaxed text-foreground-900">
+                    {translationData.translated_condition}
+                  </dd>
+                </div>
               )}
               {translationData.translated_box && (
-                <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-background-200 bg-background-50 px-2.5 py-1 text-xs text-foreground-700">
-                  <span className="font-medium text-foreground-400">Box:</span>
-                  {translationData.translated_box}
-                </span>
+                <div className="min-w-0">
+                  <dt className="text-[11px] leading-4 text-foreground-500">
+                    Box（箱）
+                  </dt>
+                  <dd className="mt-0.5 text-[13px] font-medium leading-relaxed text-foreground-900">
+                    {translationData.translated_box}
+                  </dd>
+                </div>
               )}
               {translationData.translated_accessories && (
-                <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-background-200 bg-background-50 px-2.5 py-1 text-xs text-foreground-700">
-                  <span className="font-medium text-foreground-400">Accessories:</span>
-                  {translationData.translated_accessories}
-                </span>
+                <div className="min-w-0">
+                  <dt className="text-[11px] leading-4 text-foreground-500">
+                    Accessories（付属品）
+                  </dt>
+                  <dd className="mt-0.5 text-[13px] font-medium leading-relaxed text-foreground-900">
+                    {translationData.translated_accessories}
+                  </dd>
+                </div>
               )}
-            </div>
+            </dl>
           )}
           <div>
             <p className="text-xs font-medium text-foreground-500">
@@ -244,8 +256,8 @@ export default function ProductTranslationSection({
             {translationData.translated_description ? (
               <CollapsibleText
                 text={translationData.translated_description}
-                collapsedLines={3}
-                threshold={140}
+                collapsedLines={5}
+                threshold={160}
                 className="mt-1"
               />
             ) : (

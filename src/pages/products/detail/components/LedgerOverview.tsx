@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { formatYen } from "@/pages/products/detail/lib/format";
 import SectionHeading from "./SectionHeading";
+import DetailDisclosure from "./DetailDisclosure";
 
 interface LedgerOverviewProps {
   loading: boolean;
@@ -27,20 +28,38 @@ interface LedgerOverviewProps {
   profitRate: number;
 }
 
-/** 粗利率の細いバー（プラスは緑、マイナスは赤） */
-function RateBar({ percent, positive }: { percent: number; positive: boolean }) {
+/** 粗利率の細いバー（プラスは緑、マイナスは赤）＋目標粗利率の目安線 */
+function RateBar({
+  percent,
+  positive,
+  target,
+}: {
+  percent: number;
+  positive: boolean;
+  target: number;
+}) {
   const width = Math.max(0, Math.min(100, Math.abs(percent)));
   return (
-    <div
-      className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-background-200"
-      aria-hidden="true"
-    >
+    <div className="mt-1.5">
       <div
-        className={`h-full rounded-full transition-[width] duration-300 ${
-          positive ? "bg-primary-500" : "bg-red-500"
-        }`}
-        style={{ width: `${width}%` }}
-      />
+        className="relative h-1 w-full overflow-hidden rounded-full bg-background-200"
+        aria-hidden="true"
+      >
+        <div
+          className={`h-full rounded-full transition-[width] duration-300 ${
+            positive ? "bg-primary-500" : "bg-red-500"
+          }`}
+          style={{ width: `${width}%` }}
+        />
+        {/* 目標粗利率の目安線（この線より右にあれば目標達成） */}
+        <span
+          className="absolute top-0 h-full w-px bg-foreground-400/70"
+          style={{ left: `${Math.min(100, Math.max(0, target))}%` }}
+        />
+      </div>
+      <p className="mt-1 truncate text-right text-[9px] leading-none text-foreground-400">
+        目標 {target}%
+      </p>
     </div>
   );
 }
@@ -57,7 +76,7 @@ function PrimaryMetric({
   value: string;
   sub?: string;
   valueClass?: string;
-  bar?: { percent: number; positive: boolean } | null;
+  bar?: { percent: number; positive: boolean; target: number } | null;
 }) {
   return (
     <div className="min-w-0 px-3.5 py-3">
@@ -72,7 +91,7 @@ function PrimaryMetric({
       >
         {value}
       </dd>
-      {bar && <RateBar percent={bar.percent} positive={bar.positive} />}
+      {bar && <RateBar percent={bar.percent} positive={bar.positive} target={bar.target} />}
       {sub && (
         <dd className="mt-1 truncate text-right text-[10px] leading-tight tabular-nums text-foreground-400">
           {sub}
@@ -143,6 +162,8 @@ export default function LedgerOverview({
   profitRate,
 }: LedgerOverviewProps) {
   const [detailOpen, setDetailOpen] = useState(false);
+  // 目標粗利率（バーの目安線）。数値の意味づけとして常に同じ値を使う。
+  const TARGET_PROFIT_RATE = 30;
 
   // 紐付けが無い（または読み込み中）ときは「¥0」と断定せず「—」で表示する
   const show = hasLinks && !loading;
@@ -216,7 +237,11 @@ export default function LedgerOverview({
           }
           bar={
             showProfitValue
-              ? { percent: profitRate, positive: profitPositive }
+              ? {
+                  percent: profitRate,
+                  positive: profitPositive,
+                  target: TARGET_PROFIT_RATE,
+                }
               : null
           }
           sub={showProfitValue ? "販売予定価格比" : undefined}
@@ -259,78 +284,67 @@ export default function LedgerOverview({
 
       {/* めったに見ない情報（税額の注記・0円の内訳・空の内訳）は折りたたむ */}
       {show && (
-        <div className="mt-2 border-t border-background-100 pt-1">
-          <button
-            type="button"
-            onClick={() => setDetailOpen((open) => !open)}
-            aria-expanded={detailOpen}
-            className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-md py-1.5 text-left text-[11px] font-medium text-foreground-400 transition-colors hover:text-foreground-700"
-          >
-            <span className="inline-flex items-center gap-1 whitespace-nowrap">
-              <i
-                className={`${
-                  detailOpen ? "ri-subtract-line" : "ri-add-line"
-                } w-3 h-3 flex items-center justify-center text-xs`}
-                aria-hidden="true"
-              ></i>
-              詳細・技術情報
-            </span>
-            <span className="admin-eyebrow text-[9px] text-foreground-300">
-              Breakdown
-            </span>
-          </button>
-
-          {detailOpen && (
-            <div className="tab-fade pb-1">
-              <dl className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
-                <BreakdownRow
-                  label="商品代金"
-                  value={hasItemBreakdown ? formatYen(itemTotal) : "—"}
-                />
-                <BreakdownRow
-                  label="落札手数料"
-                  value={hasFeeBreakdown ? formatYen(feeTotal) : "—"}
-                />
+        <DetailDisclosure
+          open={detailOpen}
+          onToggle={() => setDetailOpen((open) => !open)}
+          label="詳細・技術情報"
+          hint="Breakdown"
+          className="mt-2"
+        >
+          <div>
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+              {hasItemBreakdown && (
+                <BreakdownRow label="商品代金" value={formatYen(itemTotal)} />
+              )}
+              {hasFeeBreakdown && (
+                <BreakdownRow label="落札手数料" value={formatYen(feeTotal)} />
+              )}
+              {hasTaxBreakdown && (
                 <BreakdownRow
                   label="税額"
-                  value={hasTaxBreakdown ? formatYen(taxTotal) : "—"}
-                  sub={
-                    hasTaxBreakdown
-                      ? `商品税 ${formatYen(itemTaxTotal)} / 手数料税 ${formatYen(feeTaxTotal)}`
-                      : undefined
-                  }
+                  value={formatYen(taxTotal)}
+                  sub={`商品税 ${formatYen(itemTaxTotal)} / 手数料税 ${formatYen(feeTaxTotal)}`}
                 />
+              )}
+              {otherTotal > 0 && (
+                <BreakdownRow label="送料・その他" value={formatYen(otherTotal)} />
+              )}
+              {hasUnknownBreakdown && (
                 <BreakdownRow
-                  label="送料・その他"
-                  value={otherTotal > 0 ? formatYen(otherTotal) : "—"}
+                  label="内訳未取得"
+                  value={formatYen(unknownBreakdownTotal)}
                 />
-                {hasUnknownBreakdown && (
-                  <BreakdownRow
-                    label="内訳未取得"
-                    value={formatYen(unknownBreakdownTotal)}
-                  />
-                )}
-              </dl>
+              )}
+            </dl>
 
-              <div className="mt-2 flex flex-col gap-1 text-[11px] leading-relaxed text-foreground-400">
-                {otherTotal > 0 && (
-                  <p className="tabular-nums">
-                    送料・その他経費を仕入原価に含めています。
-                  </p>
-                )}
-                {hasUnknownBreakdown && (
-                  <p className="tabular-nums text-amber-800">
-                    内訳（商品代金・落札手数料）が未取得の明細が{" "}
-                    {formatYen(unknownBreakdownTotal)} あります。この金額は商品代金には含めず、仕入原価にのみ算入しています。
-                  </p>
-                )}
-                <p>
-                  税額の確認が取れていない明細がある場合、金額は税込・税抜の厳密な配分を行わない概算です。
+            {!hasItemBreakdown &&
+              !hasFeeBreakdown &&
+              !hasTaxBreakdown &&
+              otherTotal <= 0 &&
+              !hasUnknownBreakdown && (
+                <p className="text-[11px] text-foreground-400">
+                  追加で表示できる内訳はありません。
                 </p>
-              </div>
+              )}
+
+            <div className="mt-2 flex flex-col gap-1 text-[11px] leading-relaxed text-foreground-400">
+              {otherTotal > 0 && (
+                <p className="tabular-nums">
+                  送料・その他経費を仕入原価に含めています。
+                </p>
+              )}
+              {hasUnknownBreakdown && (
+                <p className="tabular-nums text-amber-800">
+                  内訳（商品代金・落札手数料）が未取得の明細が{" "}
+                  {formatYen(unknownBreakdownTotal)} あります。この金額は商品代金には含めず、仕入原価にのみ算入しています。
+                </p>
+              )}
+              <p>
+                税額の確認が取れていない明細がある場合、金額は税込・税抜の厳密な配分を行わない概算です。
+              </p>
             </div>
-          )}
-        </div>
+          </div>
+        </DetailDisclosure>
       )}
     </section>
   );

@@ -21,19 +21,29 @@ function ExtractedFields({
           <dt className="text-[11px] leading-4 text-foreground-500">
             {field.label}
           </dt>
-          <dd className="mt-1 flex flex-wrap gap-1">
-            {field.values.map((value) => (
-              <span
-                key={value}
-                className="inline-flex max-w-full items-center whitespace-normal rounded-md border border-background-200 bg-white px-1.5 py-0.5 text-[12px] font-medium leading-5 text-foreground-800"
-              >
-                {value}
-              </span>
-            ))}
+          <dd className="mt-0.5 text-[13px] font-medium leading-relaxed text-foreground-900">
+            {field.values.join(" / ")}
           </dd>
         </div>
       ))}
     </dl>
+  );
+}
+
+/** ハッシュタグは淡いグレーのピルにして「文章ではない」と見た目で分かるようにする */
+function HashtagChips({ tags }: { tags: string[] }) {
+  if (tags.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {tags.map((tag) => (
+        <span
+          key={tag}
+          className="inline-flex max-w-full items-center rounded-full bg-background-100 px-2 py-0.5 text-[11px] font-medium leading-5 text-foreground-600"
+        >
+          {tag}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -42,18 +52,21 @@ function ExtractedFields({
  *
  * 長文をそのまま並べるのではなく、読み手が拾いやすい形に分解する:
  *  1. 【状態】【付属品】【サイズ】など本文中の項目は、上部スペックと同じ
- *     定義リスト／チップ形式で本文より先に置く
- *  2. 残った文章だけを本文として段落表示し、長い場合は数行で折りたたむ
+ *     定義リスト形式で本文より先に「要点」として置く
+ *  2. 残った文章だけを本文として段落表示し、長い場合は5行で折りたたむ
+ *  3. ハッシュタグは本文から外してチップにする
+ *  4. 注意事項（※書き）は本文と分け、アンバーの縦線を引いた注記ブロックにする
  *
  * 未入力の項目は「—」を並べず、入力済みの項目だけを表示する。
- * どちらも空のときは、空欄を埋める代わりに一行の案内に置き換える。
  */
 export default function ProductSpecPanel({ product }: ProductSpecPanelProps) {
   const description = product.description ?? "";
   const parsed = parseTaggedDescription(description);
   const hasExtractedFields = parsed.fields.length > 0;
   const hasDescriptionBody = hasText(parsed.lead);
-  const hasDescription = hasExtractedFields || hasDescriptionBody;
+  const hasTags = parsed.hashtags.length > 0;
+  const hasDescription =
+    hasExtractedFields || hasDescriptionBody || hasTags;
   const hasNotes = hasText(product.notes ?? "");
   const hasAny = hasDescription || hasNotes;
 
@@ -86,25 +99,29 @@ export default function ProductSpecPanel({ product }: ProductSpecPanelProps) {
                 </p>
                 <CollapsibleText
                   text={parsed.lead}
-                  collapsedLines={4}
+                  collapsedLines={5}
                   threshold={160}
                   className="mt-1"
                 />
               </div>
             )}
 
+            <HashtagChips tags={parsed.hashtags} />
+
             {hasNotes && (
-              <div className="border-t border-background-100 pt-3">
-                <p className="text-[11px] font-medium text-foreground-500">
-                  備考
+              <div>
+                <p className="mb-1 text-[11px] font-medium text-foreground-500">
+                  注意事項・備考
                 </p>
-                <CollapsibleText
-                  text={product.notes ?? ""}
-                  collapsedLines={3}
-                  threshold={120}
-                  tone="muted"
-                  className="mt-1"
-                />
+                {/* ※書きは本文と混ぜず、アンバーの縦線を引いた注記ブロックに分離する */}
+                <div className="rounded-r-md border-l-2 border-amber-400 bg-amber-50/50 py-2 pl-3 pr-2">
+                  <CollapsibleText
+                    text={product.notes ?? ""}
+                    collapsedLines={3}
+                    threshold={120}
+                    tone="muted"
+                  />
+                </div>
               </div>
             )}
           </>
