@@ -1,4 +1,5 @@
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "./googleSheets";
+import { getBackendWriteAuthHeaders } from "@/lib/supabaseClient";
 
 /**
  * 商品マスターAPI（Cloud Run + Supabase）のエンドポイント。
@@ -289,9 +290,13 @@ export async function createDraftProductViaApi(
       body: JSON.stringify(payload),
     });
   }
+  const authHeaders = await getBackendWriteAuthHeaders();
   return fetch(`${PRODUCTS_READ_API_URL}/products`, {
     method: "POST",
-    headers: { "Content-Type": "application/json; charset=utf-8" },
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      ...authHeaders,
+    },
     body: JSON.stringify(payload),
   });
 }
@@ -315,11 +320,15 @@ export async function updateDraftProductViaApi(
       }),
     });
   }
+  const authHeaders = await getBackendWriteAuthHeaders();
   return fetch(
     `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/update`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json; charset=utf-8" },
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...authHeaders,
+      },
       body: JSON.stringify(payload),
     }
   );
