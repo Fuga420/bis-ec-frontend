@@ -810,7 +810,9 @@ export default function RegisterPage() {
             <i className="ri-arrow-left-line w-4 h-4 flex items-center justify-center"></i>
             商品一覧
           </Link>
-          <span className="text-sm font-semibold text-foreground-950">商品登録</span>
+          <span className="admin-eyebrow text-[10px] font-semibold text-foreground-400">
+            New Product
+          </span>
         </div>
       </header>
       <main className="page-fade mx-auto w-full max-w-5xl px-4 py-4 md:px-6">
@@ -1152,8 +1154,8 @@ export default function RegisterPage() {
           />
         </FormSection>
 
-        {/* 登録ボタン */}
-        <div className="pt-6 pb-4">
+        {/* 登録ボタン。取込画面のサマリーと同じ「実行ボタンも白カードの中」の型に揃える。 */}
+        <div className="ui-card rounded-lg p-4 md:p-5">
           <button
             type="button"
             onClick={handleSubmit}

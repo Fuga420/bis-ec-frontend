@@ -67,10 +67,12 @@ const INVENTORY_STATUS_LABELS: Record<string, string> = {
   sold: "売却済み",
 };
 
+// 公開状態は「公開ドメイン」の緑で固定（index.css の .st-*）。
+// 公開中だけ塗り、下書き・非公開は枠線のみで表す。
 const statusStyles: Record<string, string> = {
-  draft: "tone-neutral",
-  published: "tone-success",
-  hidden: "tone-neutral",
+  draft: "st-publish-off",
+  published: "st-publish",
+  hidden: "st-publish-off",
 };
 
 // 一覧API（mode=admin）の商品情報から、詳細画面表示に必要な最小限の情報を組み立てる。
@@ -980,8 +982,8 @@ export default function ProductDetailPage() {
       (product.publish_status || "—")
     : "—";
   const statusClass = product
-    ? statusStyles[product.publish_status] ?? "tone-neutral"
-    : "tone-neutral";
+    ? statusStyles[product.publish_status] ?? "st-publish-off"
+    : "st-publish-off";
   const inventoryLabel = product
     ? INVENTORY_STATUS_LABELS[product.inventory_status] ??
       (product.inventory_status || "—")
@@ -1019,7 +1021,7 @@ export default function ProductDetailPage() {
         </div>
       </header>
 
-      <main className="page-fade mx-auto w-full max-w-5xl px-4 py-6 md:px-6">
+      <main className="page-fade mx-auto w-full max-w-5xl px-4 py-4 md:px-6">
         {loadState === "loading" && <ProductDetailSkeleton />}
 
         {loadState === "error" && (
@@ -1148,7 +1150,7 @@ export default function ProductDetailPage() {
 
             {/* 管理タブ（販売管理 / 仕入・書類 / 翻訳・外部連携） */}
             {isEditing ? (
-              <p className="mt-4 flex items-start gap-1.5 rounded-lg border border-background-200 bg-white px-3 py-2 text-[12px] leading-relaxed text-foreground-500">
+              <p className="mt-4 flex items-start gap-1.5 rounded-lg border border-background-200 bg-background-100 px-3 py-2 text-[12px] leading-relaxed text-foreground-500">
                 <i className="ri-information-line mt-0.5 w-4 h-4 flex items-center justify-center shrink-0"></i>
                 <span className="min-w-0 flex-1">
                   商品情報を編集中です。保存またはキャンセルすると、商品説明・備考と、販売管理・仕入・書類などの管理タブが表示されます。
@@ -1231,7 +1233,7 @@ export default function ProductDetailPage() {
                       onDismissAutoLinkNotice={() => setAutoLinkNotice(null)}
                     />
                     {hasAttachedDocument(product.document) && (
-                      <div className="rounded-[10px] border border-background-200 bg-white px-4 py-4 md:px-5">
+                      <div className="ui-card rounded-lg px-4 py-4 md:px-5">
                         <ProductDocumentSection doc={product.document} />
                       </div>
                     )}

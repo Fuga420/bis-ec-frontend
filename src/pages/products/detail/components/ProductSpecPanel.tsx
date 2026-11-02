@@ -20,7 +20,7 @@ export default function ProductSpecPanel({ product }: ProductSpecPanelProps) {
   const hasAny = hasDescription || hasNotes;
 
   return (
-    <div className="ui-card rounded-[10px]">
+    <div className="ui-card rounded-lg">
       <div className="flex items-center justify-between gap-3 border-b border-background-100 px-4 py-3 md:px-5">
         <h2 className="text-[15px] font-semibold text-foreground-950">
           商品説明・備考

@@ -35,7 +35,7 @@ export default function AiGenerateSection({
   const busyHint = saving ? "画像を保存し、生成用の仮データを準備しています。": "画像を解析しています。完了すると候補が下に表示されます。";
 
   return (
-    <div className="rounded-lg border border-background-200 bg-white p-3 md:p-4">
+    <div className="ui-card rounded-lg p-3 md:p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <p className="flex items-center gap-1.5 text-sm font-semibold text-foreground-950">

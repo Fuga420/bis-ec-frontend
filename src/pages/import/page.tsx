@@ -58,8 +58,8 @@ export default function ImportPage() {
             <i className="ri-arrow-left-line w-4 h-4 flex items-center justify-center"></i>
             商品一覧
           </Link>
-          <span className="text-sm font-semibold text-foreground-950">
-            画像セットで一括取込
+          <span className="admin-eyebrow text-[10px] font-semibold text-foreground-400">
+            Bulk Import
           </span>
         </div>
       </header>
@@ -70,7 +70,7 @@ export default function ImportPage() {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
           <div className="min-w-0">
         {/* 説明（コンパクト） */}
-        <div className="ui-card rounded-[10px] px-4 py-3.5 md:px-5">
+        <div className="ui-card rounded-lg px-4 py-3.5 md:px-5">
           <div className="flex items-center gap-2">
             <i className="ri-stack-line w-5 h-5 flex items-center justify-center text-primary-600"></i>
             <h1 className="text-[15px] font-semibold text-foreground-950">

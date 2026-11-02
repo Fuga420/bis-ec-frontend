@@ -257,7 +257,7 @@ export default function EditForm({
   };
 
   return (
-    <div className="rounded-lg border border-background-200 bg-white p-4 md:p-5">
+    <div className="ui-card rounded-lg p-4 md:p-5">
       <h2 className="text-[15px] font-semibold text-foreground-950">商品情報の編集</h2>
 
       <FormSection className="mt-4">

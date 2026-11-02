@@ -39,7 +39,7 @@ export default function ProductSummaryCard({
     product.planned_sale_price && product.planned_sale_price > 0
   );
   return (
-    <div className="ui-card flex flex-col overflow-hidden rounded-[10px]">
+    <div className="ui-card flex flex-col overflow-hidden rounded-lg">
       {/* 1. 商品名・商品ID・状態バッジ */}
       <div className="border-b border-background-100 px-4 py-4 md:px-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -59,14 +59,9 @@ export default function ProductSummaryCard({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            <span
-              className={`inline-flex h-[22px] items-center whitespace-nowrap rounded-md px-2 text-[11px] font-medium leading-none ${statusClass}`}
-            >
-              {statusLabel}
-            </span>
-            <span className="inline-flex h-[22px] items-center whitespace-nowrap rounded-md bg-background-100 px-2 text-[11px] font-medium leading-none text-foreground-600">
-              {categoryLabel}
-            </span>
+            {/* 並び順は全画面で統一: 公開 → 在庫 → 照合 → 連携 */}
+            <span className={`st-badge ${statusClass}`}>{statusLabel}</span>
+            <span className="st-badge st-muted">{categoryLabel}</span>
           </div>
         </div>
       </div>
@@ -94,12 +89,13 @@ export default function ProductSummaryCard({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-background-200 bg-background-50 px-2.5 py-1 text-[11px] font-medium text-foreground-700">
-              <i className="ri-eye-line w-3.5 h-3.5 flex items-center justify-center text-foreground-400"></i>
+            {/* 公開＝緑 / 在庫＝青グレー。詳細でも一覧と同じドメイン色・同じ寸法で揃える */}
+            <span className={`st-badge ${statusClass}`}>
+              <i className="ri-eye-line w-3 h-3 flex items-center justify-center text-xs"></i>
               公開：{statusLabel}
             </span>
-            <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-background-200 bg-background-50 px-2.5 py-1 text-[11px] font-medium text-foreground-700">
-              <i className="ri-archive-2-line w-3.5 h-3.5 flex items-center justify-center text-foreground-400"></i>
+            <span className="st-badge st-inventory">
+              <i className="ri-archive-2-line w-3 h-3 flex items-center justify-center text-xs"></i>
               在庫：{inventoryLabel}
             </span>
           </div>

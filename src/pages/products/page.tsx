@@ -21,6 +21,7 @@ import BulkArchiveResultModal from "./components/BulkArchiveResultModal";
 import { useAiBatch } from "./context/AiBatchProvider";
 import { useBulkArchive } from "./hooks/useBulkArchive";
 import { useProductList } from "./hooks/useProductList";
+import { useProductLedgerMatch } from "./hooks/useProductLedgerMatch";
 import { useProductInlineEdit } from "./hooks/useProductInlineEdit";
 import { isTerminalBatchStatus } from "./lib/aiBatch";
 import {
@@ -394,6 +395,14 @@ export default function ProductsPage() {
   const showSkeleton = loadState === "loading" && products.length === 0;
   const isRefreshing = loadState === "loading" && products.length > 0;
 
+  // 仕入照合の状態は一覧APIに含まれないため、表示中のページの商品IDをまとめて1回だけ取得する
+  // （商品ごとの追加リクエストは発行しない）。
+  const ledgerProductIds = useMemo(
+    () => products.map((product) => product.product_id),
+    [products]
+  );
+  const ledgerMatch = useProductLedgerMatch(ledgerProductIds);
+
   // 復元判定が終わったらフラグを消す（再読み込みや新規アクセスで復元しないようにする）。
   useEffect(() => {
     clearProductListReturnPending();
@@ -538,6 +547,12 @@ export default function ProductsPage() {
     () => products.filter((p) => selectedIds.has(p.product_id)).length,
     [products, selectedIds]
   );
+  // 全選択（チェック済み）と一部選択（indeterminate）を表示用に分ける。
+  // 実際の選択状態は selectedIds と input の indeterminate が保持し、ここでは見た目だけを切り替える。
+  const isAllPageSelected =
+    products.length > 0 && pageSelectedCount === products.length;
+  const isPagePartlySelected =
+    pageSelectedCount > 0 && pageSelectedCount < products.length;
   useEffect(() => {
     const el = selectAllRef.current;
     if (!el) return;
@@ -810,64 +825,67 @@ export default function ProductsPage() {
               </>
             )}
 
-            {/* 一括操作バー */}
+            {/* 一括操作バー。通知ではなく通常の操作領域として扱うため、
+                塗りつぶしの色は使わず「白＋薄いグレー枠線＋ニュートラルなボタン」だけにする。 */}
             {hasSelection && products.length > 0 && (
-              <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-primary-200 bg-primary-50 px-4 py-2.5">
-                <span className="inline-flex items-baseline gap-1 whitespace-nowrap text-sm font-medium text-foreground-700">
-                  <span className="text-base font-bold text-primary-700">
-                    {selectedIds.size}
+              <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-background-200 bg-white px-3 py-2 md:px-4">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-background-100 px-2 py-1 text-[13px] font-semibold leading-none text-foreground-700">
+                    <span className="admin-numeric">{selectedIds.size}</span>
+                    件選択中
                   </span>
-                  件選択中
-                </span>
-                {isBulkProcessing && (
-                  <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-primary-700">
-                    <i className="ri-loader-4-line animate-spin w-4 h-4 flex items-center justify-center"></i>
-                    処理中 {bulkProgress.done} / {bulkProgress.total}件
-                  </span>
-                )}
-                {archive.isRunning && (
-                  <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-red-700">
-                    <i className="ri-loader-4-line animate-spin w-4 h-4 flex items-center justify-center"></i>
-                    アーカイブ中 {archive.progress.done} / {archive.progress.total}件
-                  </span>
-                )}
-                <div className="flex flex-wrap items-center gap-2">
+                  {isBulkProcessing && (
+                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[13px] font-medium text-foreground-500">
+                      <i className="ri-loader-4-line animate-spin text-base w-4 h-4 flex items-center justify-center"></i>
+                      処理中 {bulkProgress.done} / {bulkProgress.total}件
+                    </span>
+                  )}
+                  {archive.isRunning && (
+                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[13px] font-medium text-foreground-500">
+                      <i className="ri-loader-4-line animate-spin text-base w-4 h-4 flex items-center justify-center"></i>
+                      アーカイブ中 {archive.progress.done} / {archive.progress.total}件
+                    </span>
+                  )}
+                </div>
+                <div className="ml-auto flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setIsBulkConfirmOpen(true)}
                     disabled={isAnyBulkBusy}
-                    className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-bold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border border-background-300 bg-white px-3 text-[13px] font-medium text-foreground-700 transition-colors hover:bg-background-100 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <i className="ri-upload-2-line w-4 h-4 flex items-center justify-center"></i>
-                    一括公開
+                    <i className="ri-upload-2-line text-base w-4 h-4 flex items-center justify-center"></i>
+                    {selectedIds.size > 1 ? "一括公開" : "公開"}
                   </button>
                   <button
                     type="button"
                     onClick={() => setIsAiConfirmOpen(true)}
                     disabled={isAnyBulkBusy}
-                    className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg bg-accent-500 px-4 py-2 text-sm font-bold text-accent-950 transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border border-background-300 bg-white px-3 text-[13px] font-medium text-foreground-700 transition-colors hover:bg-background-100 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <i className="ri-sparkling-line w-4 h-4 flex items-center justify-center"></i>
-                    一括AI生成
+                    <i className="ri-sparkling-line text-base w-4 h-4 flex items-center justify-center"></i>
+                    {selectedIds.size > 1 ? "一括AI生成" : "AI生成"}
                   </button>
                   {!isArchived && (
                     <button
                       type="button"
                       onClick={() => setIsArchiveConfirmOpen(true)}
                       disabled={isAnyBulkBusy}
-                      className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border border-red-300 bg-red-50 px-4 py-2 text-sm font-bold text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border border-background-300 bg-white px-3 text-[13px] font-medium text-foreground-700 transition-colors hover:bg-background-100 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      <i className="ri-archive-line w-4 h-4 flex items-center justify-center"></i>
-                      一括アーカイブ
+                      <i className="ri-archive-line text-base w-4 h-4 flex items-center justify-center"></i>
+                      {selectedIds.size > 1 ? "一括アーカイブ" : "アーカイブ"}
                     </button>
                   )}
+                </div>
+                <div className="flex items-center md:ml-1 md:border-l md:border-background-200 md:pl-3">
                   <button
                     type="button"
                     onClick={clearSelection}
                     disabled={isAnyBulkBusy}
-                    className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-foreground-600 transition-colors hover:bg-background-100 hover:text-foreground-900 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex h-9 cursor-pointer items-center gap-1 whitespace-nowrap rounded-md px-2.5 text-[13px] font-medium text-foreground-500 transition-colors hover:bg-background-100 hover:text-foreground-800 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <i className="ri-close-circle-line w-4 h-4 flex items-center justify-center"></i>
+                    <i className="ri-close-line text-base w-4 h-4 flex items-center justify-center"></i>
                     選択解除
                   </button>
                 </div>
@@ -889,22 +907,32 @@ export default function ProductsPage() {
               >
                 {/* 横幅が不足する場合は重ねずに横スクロールで対応する */}
                 <div className="overflow-x-auto">
-                  <div className="min-w-full lg:min-w-[900px]">
+                  <div className="min-w-full lg:min-w-[1004px]">
                     {/* ヘッダー行（デスクトップ） */}
                     <div className="hidden items-center border-b border-background-200 bg-background-50 py-2.5 lg:flex">
                       <div className="flex w-10 shrink-0 items-center justify-center">
-                        <input
-                          ref={selectAllRef}
-                          type="checkbox"
-                          checked={
-                            products.length > 0 &&
-                            pageSelectedCount === products.length
-                          }
-                          disabled={isAnyBulkBusy}
-                          onChange={toggleSelectAll}
-                          aria-label="全選択"
-                          className="h-4 w-4 cursor-pointer accent-primary-500 disabled:cursor-not-allowed disabled:opacity-50"
-                        />
+                        <label className="product-checkbox">
+                          <input
+                            ref={selectAllRef}
+                            type="checkbox"
+                            checked={isAllPageSelected}
+                            disabled={isAnyBulkBusy}
+                            onChange={toggleSelectAll}
+                            aria-label="全選択"
+                          />
+                          <span
+                            className="product-checkbox-box"
+                            aria-hidden="true"
+                          >
+                            <i
+                              className={
+                                isPagePartlySelected
+                                  ? "ri-subtract-line"
+                                  : "ri-check-line"
+                              }
+                            ></i>
+                          </span>
+                        </label>
                       </div>
                       <div className="flex min-w-0 flex-1 items-center gap-4 px-4">
                         <span className="w-28 shrink-0 text-xs font-medium text-foreground-500">
@@ -925,6 +953,9 @@ export default function ProductsPage() {
                         <span className="w-[84px] shrink-0 text-xs font-medium text-foreground-500">
                           在庫状態
                         </span>
+                        <span className="w-[104px] shrink-0 text-xs font-medium text-foreground-500">
+                          仕入照合
+                        </span>
                       </div>
                       {/* 行の右端操作列（詳細・別タブ・編集）と同じ幅を確保して桁を揃える */}
                       <div className={`${ACTION_COLUMN_WIDTH} shrink-0`}></div>
@@ -934,6 +965,10 @@ export default function ProductsPage() {
                       <ProductRow
                         key={product.product_id}
                         product={product}
+                        ledgerMatch={ledgerMatch.statuses.get(
+                          product.product_id
+                        )}
+                        ledgerMatchLoading={ledgerMatch.loadState === "loading"}
                         isSelected={selectedIds.has(product.product_id)}
                         onToggleSelect={toggleSelect}
                         selectDisabled={isAnyBulkBusy}

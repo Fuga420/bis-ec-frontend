@@ -273,7 +273,7 @@ export default function ProductLedgerLinker({
                 <li
                   key={hit.line_id}
                   className={`border-b border-background-100 px-3 py-2.5 last:border-b-0 ${
-                    isSelected ? "bg-primary-50/60" : ""
+                    isSelected ? "bg-background-100" : ""
                   }`}
                 >
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
@@ -286,7 +286,7 @@ export default function ProductLedgerLinker({
                           {hit.item_name || "（品目なし）"}
                         </span>
                         {linkedHere && (
-                          <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-primary-100 px-1.5 py-0.5 text-[10px] font-bold text-primary-700">
+                          <span className="inline-flex h-[20px] shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-background-200 px-1.5 text-[10px] font-bold text-foreground-700">
                             <i className="ri-check-line w-3 h-3 flex items-center justify-center"></i>
                             この商品に紐付け済み
                           </span>

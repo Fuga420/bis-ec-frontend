@@ -105,7 +105,7 @@ export default function ProductLedgerSection({
       {/* 自動照合の結果（商品の登録・編集の成否とは別に表示する） */}
       {autoLinkNotice && (
         <div
-          className={`rounded-[10px] border bg-white px-3.5 py-3 ${
+          className={`rounded-lg border bg-white px-3.5 py-3 ${
             autoLinkNotice.tone === "success"
               ? "border-primary-200"
               : autoLinkNotice.tone === "error"

@@ -114,7 +114,7 @@ export default function LedgerDocumentList({
   linker,
 }: LedgerDocumentListProps) {
   return (
-    <section className="rounded-[10px] border border-background-200 bg-white">
+    <section className="ui-card rounded-lg">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-background-200 px-4 py-2.5 md:px-5">
         <div className="flex min-w-0 items-center gap-2">
           <h2 className="flex items-center gap-1.5 whitespace-nowrap text-[15px] font-semibold text-foreground-950">

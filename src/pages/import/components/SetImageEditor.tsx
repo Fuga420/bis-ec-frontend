@@ -136,7 +136,7 @@ export default function SetImageEditor({
       {isEmpty ? (
         // 画像0枚：横幅いっぱいのドロップエリア
         disabled ? (
-          <div className="flex min-h-[180px] w-full items-center justify-center rounded-[10px] border-2 border-dashed border-background-300 bg-background-50 text-xs text-foreground-400">
+          <div className="flex min-h-[180px] w-full items-center justify-center rounded-lg border-2 border-dashed border-background-300 bg-background-50 text-xs text-foreground-400">
             画像は登録されていません。
           </div>
         ) : (
@@ -151,7 +151,7 @@ export default function SetImageEditor({
                 openPicker();
               }
             }}
-            className={`flex min-h-[180px] w-full cursor-pointer flex-col items-center justify-center gap-1.5 rounded-[10px] border-2 border-dashed px-4 py-8 text-center transition-colors ${
+            className={`flex min-h-[180px] w-full cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed px-4 py-8 text-center transition-colors ${
               isDragging
                 ? "border-primary-400 bg-primary-50"
                 : "border-background-400 bg-white hover:border-primary-300 hover:bg-background-50"
@@ -188,7 +188,7 @@ export default function SetImageEditor({
         // 画像追加済み：サムネイルのグリッド
         <div
           {...dragHandlers}
-          className={`rounded-[10px] border p-2 transition-colors ${
+          className={`rounded-lg border p-2 transition-colors ${
             isDragging
               ? "border-primary-400 bg-primary-50"
               : "border-transparent"

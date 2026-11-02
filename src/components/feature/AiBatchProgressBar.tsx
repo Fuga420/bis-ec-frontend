@@ -72,7 +72,7 @@ export default function AiBatchProgressBar() {
 
   return (
     <div className="border-b border-background-200 bg-white">
-      <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-2.5 gap-y-1 px-4 pt-1.5 pb-2 md:px-6">
+      <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-2.5 gap-y-1 px-4 pt-1.5 pb-2 md:px-6">
         <span className="flex min-w-0 items-center gap-1.5">
           {isPolling ? (
             <i className="ri-loader-4-line animate-spin w-3.5 h-3.5 flex items-center justify-center text-accent-600"></i>

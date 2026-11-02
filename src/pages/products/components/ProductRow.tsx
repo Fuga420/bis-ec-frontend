@@ -2,13 +2,18 @@ import { type MouseEvent } from "react";
 import { Link } from "react-router-dom";
 import ProductThumbnail from "./ProductThumbnail";
 import ProductInlineEditor from "./ProductInlineEditor";
+import LedgerMatchCell from "./LedgerMatchCell";
 import type { AdminProduct } from "../types";
+import type { LedgerMatchStatus } from "../lib/ledgerMatch";
 import { CATEGORY_LABELS, PUBLISH_STATUS_LABELS, INVENTORY_STATUS_LABELS, RECORD_STATUS_LABELS, SQUARE_LINK_LABELS } from "../types";
 import { getProductDisplayTitle } from "../lib/productTitle";
 import type { InlineEditDraft } from "../lib/inlineEdit";
 
 interface ProductRowProps {
   product: AdminProduct;
+  // 仕入照合の状態（対象外・未取得は undefined＝「—」表示）。
+  ledgerMatch?: LedgerMatchStatus;
+  ledgerMatchLoading: boolean;
   isSelected: boolean;
   onToggleSelect: (productId: string) => void;
   selectDisabled: boolean;
@@ -26,9 +31,9 @@ interface ProductRowProps {
   onNavigateToDetail?: () => void;
 }
 
-// 全ステータスバッジ共通の見た目（角丸6px・高さ22px・11px/500・余白を圧縮して統一）
-const badgeBase =
-  "inline-flex h-[22px] max-w-full items-center gap-1 whitespace-nowrap rounded-md px-2 text-[11px] font-medium leading-none";
+// 全ステータスバッジ共通の見た目（角丸6px・高さ22px・11px/500）。
+// 寸法とドメイン色は index.css の .st-badge / .st-* に集約し、画面ごとに色を作らない。
+const badgeBase = "st-badge";
 
 // 行右端の操作アイコン共通スタイル（36px のクリック領域・薄いグレー枠線・角丸8px・16pxアイコン）。
 // 商品詳細への遷移と編集はどちらもこの見た目で並べ、アイコンとアクセシブル名で区別する。
@@ -39,18 +44,19 @@ const actionIconBase =
 // ヘッダー側と合わせて桁を固定する。
 export const ACTION_COLUMN_WIDTH = "w-[136px]";
 
-// バッジの色は「意味」で固定する（tone-neutral / tone-success / tone-warning）。
-// 公開状態以外の色は使わない。
+// 色は「ドメイン」で固定する（index.css の .st-* を参照）。
+// 公開状態 = 緑 / 在庫 = 青グレー / 照合 = 黄 / 連携 = グレー。
+// 同じ色を別の意味に使い回さないため、ここでは色を追加しない。
 const statusStyles: Record<string, string> = {
-  draft: "tone-neutral",
-  published: "tone-success",
-  hidden: "tone-neutral",
+  draft: "st-publish-off",
+  published: "st-publish",
+  hidden: "st-publish-off",
 };
 
 const inventoryStyles: Record<string, string> = {
-  in_stock: "tone-success",
-  reserved: "tone-warning",
-  sold: "tone-neutral",
+  in_stock: "st-inventory",
+  reserved: "st-inventory-soft",
+  sold: "st-inventory-off",
 };
 
 // スニーカーのサイズが入力済みか判定する（null・空文字・0 は未入力扱い）
@@ -85,6 +91,8 @@ function formatDate(value: string): string {
 
 export default function ProductRow({
   product,
+  ledgerMatch,
+  ledgerMatchLoading,
   isSelected,
   onToggleSelect,
   selectDisabled,
@@ -105,12 +113,12 @@ export default function ProductRow({
     PUBLISH_STATUS_LABELS[product.publish_status] ??
     (product.publish_status || "—");
   const statusClass =
-    statusStyles[product.publish_status] ?? "tone-neutral";
+    statusStyles[product.publish_status] ?? "st-publish-off";
   const inventoryLabel =
     INVENTORY_STATUS_LABELS[product.inventory_status] ??
     (product.inventory_status || "—");
   const inventoryClass =
-    inventoryStyles[product.inventory_status] ?? "tone-neutral";
+    inventoryStyles[product.inventory_status] ?? "st-inventory-off";
   // 価格が未設定の行は「情報が無い」ことが伝わるよう、グレー＋少し小さい文字で控えめに置く。
   const hasPrice = Boolean(
     product.planned_sale_price && product.planned_sale_price > 0
@@ -170,7 +178,7 @@ export default function ProductRow({
     (product.record_status || "—");
   const recordStatusBadge =
     product.record_status === "archived" ? (
-      <span className={`${badgeBase} tone-neutral`}>{recordStatusLabel}</span>
+      <span className={`${badgeBase} st-muted`}>{recordStatusLabel}</span>
     ) : null;
 
   // Square連携の有無（Variation/Item ID のどちらかが入っていれば連携済みとみなす）
@@ -183,10 +191,12 @@ export default function ProductRow({
   const isSneaker = product.category === "sneaker";
   const sneakerSizeText = formatSneakerSize(product.sneaker_size);
   const hasSize = sneakerSizeText !== "";
-  // 補助情報バッジ（サイズ）: グリーンはステータス専用のため、通常はニュートラルなグレーで表示する
+  // 補助情報バッジ（サイズ）: ドメイン色（公開・在庫・照合・連携）は状態専用のため、
+  // 補助情報は色を持たせず枠線のグレーで表示する。未設定はアイコンで注意を示す。
   const sneakerSizeBadge = isSneaker ? (
     <span
-      className={`${badgeBase} ${hasSize ? "tone-neutral" : "tone-warning"}`}
+      className={`${badgeBase} st-muted`}
+      title={hasSize ? undefined : "公開にはサイズの入力が必要です"}
     >
       <i
         className={`${
@@ -197,10 +207,11 @@ export default function ProductRow({
     </span>
   ) : null;
 
-  // 補助情報バッジ（Square連携）: 連携済みはグレー、未連携のみ注意色
+  // 連携ドメインのバッジ（Square）: 連携済み＝グレー塗り / 未連携＝グレー枠線。
+  // 「未連携」を黄色にしないことで、黄色は照合ドメイン専用に保つ。
   const squareBadge = (
     <span
-      className={`${badgeBase} ${isSquareLinked ? "tone-neutral" : "tone-warning"}`}
+      className={`${badgeBase} ${isSquareLinked ? "st-link" : "st-link-soft"}`}
     >
       <i
         className={`${
@@ -259,25 +270,27 @@ export default function ProductRow({
 
   return (
     <div className="border-b border-background-200 last:border-b-0">
-      {/* 選択中はごく薄いグリーン系の背景を保持し、ホバー時はその選択色を一段濃くして
-          「選択中の背景」と「ホバー」が競合しないようにする（未選択はホバーで薄いニュートラルグレー）。 */}
+      {/* 行の4状態（通常・ホバー・選択・選択ホバー）は .product-row 側で管理する。
+          選択中でも背景はニュートラルなグレーにとどめ、選択の判別はチェックボックスの深緑で行う。 */}
       <div
-        className={`group/row flex items-stretch transition-colors duration-150 ${
-          isSelected
-            ? "bg-primary-100/60 hover:bg-primary-100"
-            : "hover:bg-background-100"
+        className={`product-row group/row flex items-stretch ${
+          isSelected ? "is-selected" : ""
         }`}
       >
         {/* チェックボックスは Link の外に配置し、操作時に詳細へ遷移しないようにする */}
         <div className="flex w-10 shrink-0 items-center justify-center">
-          <input
-            type="checkbox"
-            checked={isSelected}
-            disabled={selectDisabled}
-            onChange={() => onToggleSelect(product.product_id)}
-            aria-label={`${name} を選択`}
-            className="h-4 w-4 cursor-pointer accent-primary-500 disabled:cursor-not-allowed disabled:opacity-50"
-          />
+          <label className="product-checkbox">
+            <input
+              type="checkbox"
+              checked={isSelected}
+              disabled={selectDisabled}
+              onChange={() => onToggleSelect(product.product_id)}
+              aria-label={`${name} を選択`}
+            />
+            <span className="product-checkbox-box" aria-hidden="true">
+              <i className="ri-check-line"></i>
+            </span>
+          </label>
         </div>
 
         <Link
@@ -303,9 +316,7 @@ export default function ProductRow({
                   欧文書体（Archivo→Inter）を当てて字間を詰め、見出しとしての密度を出す。 */}
               <p
                 className={`admin-title line-clamp-2 text-[16px] font-semibold leading-snug ${
-                  isNameMissing
-                    ? "text-foreground-400"
-                    : "text-foreground-950 group-hover/row:text-primary-600"
+                  isNameMissing ? "text-foreground-400" : "text-foreground-950"
                 }`}
               >
                 {displayName}
@@ -317,9 +328,10 @@ export default function ProductRow({
               )}
               {hasBadges && (
                 <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
-                  {sneakerSizeBadge}
+                  {/* 並び順は全画面で統一: 公開 → 在庫 → 照合 → 連携 → 補助情報 */}
                   {squareBadge}
                   {recordStatusBadge}
+                  {sneakerSizeBadge}
                 </div>
               )}
               {/* 商品ID・商品の状態・登録日時は、視線の主役ではないため一段弱いトーンに落とす */}
@@ -353,6 +365,13 @@ export default function ProductRow({
             <span className="flex w-[84px] shrink-0 overflow-hidden">
               {inventoryBadge}
             </span>
+            {/* 仕入照合: 紐付け先の仕入書類が照合済みかどうか（一覧表示用） */}
+            <span className="flex w-[104px] shrink-0 overflow-hidden">
+              <LedgerMatchCell
+                status={ledgerMatch}
+                loading={ledgerMatchLoading}
+              />
+            </span>
           </div>
 
           {/* モバイル（画像88pxで、デスクトップと同じ階層感を保つ） */}
@@ -379,11 +398,16 @@ export default function ProductRow({
                 <span className="whitespace-nowrap font-mono text-[11px] tabular-nums text-foreground-400">
                   {product.product_id}
                 </span>
-                {sneakerSizeBadge}
+                {/* 並び順は全画面で統一: 公開 → 在庫 → 照合 → 連携 → 補助情報 */}
                 {statusBadge}
                 {inventoryBadge}
+                <LedgerMatchCell
+                  status={ledgerMatch}
+                  loading={ledgerMatchLoading}
+                />
                 {squareBadge}
                 {recordStatusBadge}
+                {sneakerSizeBadge}
               </div>
             </div>
             <div className="shrink-0 text-right">

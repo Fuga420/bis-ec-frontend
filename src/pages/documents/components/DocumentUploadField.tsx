@@ -103,7 +103,7 @@ export default function DocumentUploadField({
     "h-9 w-full rounded-md border border-background-300 bg-white px-3 text-sm text-foreground-900 placeholder:text-foreground-400 transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-50";
 
   return (
-    <div className="rounded-lg border border-background-200 bg-white p-4 md:p-5">
+    <div className="ui-card rounded-lg p-4 md:p-5">
       <div className="flex items-center gap-2">
         <i className="ri-upload-cloud-2-line w-5 h-5 flex items-center justify-center text-primary-600"></i>
         <h2 className="text-[15px] font-semibold text-foreground-950">

@@ -112,7 +112,7 @@ export default function ImportSetCard({
 
   return (
     <div
-      className={`ui-card ui-card-hover rounded-[10px] p-4 ${
+      className={`ui-card ui-card-hover rounded-lg p-4 ${
         isProcessing ? "ring-2 ring-primary-300" : ""
       }`}
       aria-busy={isProcessing}

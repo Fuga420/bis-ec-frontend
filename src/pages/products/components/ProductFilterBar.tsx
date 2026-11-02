@@ -62,7 +62,7 @@ export default function ProductFilterBar({
     "h-9 w-full rounded-lg border border-background-300 bg-white px-3 text-sm text-foreground-900 transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-44";
 
   return (
-    <div className="mb-6 flex flex-col gap-3 rounded-lg border border-background-200 bg-white p-3 lg:flex-row lg:flex-wrap lg:items-center">
+    <div className="ui-card mb-6 flex flex-col gap-3 rounded-lg p-3 lg:flex-row lg:flex-wrap lg:items-center">
       {/* 検索欄：横幅を広く確保するメイン要素 */}
       <div className="relative min-w-0 w-full lg:min-w-[220px] lg:flex-1">
         <i className="ri-search-line pointer-events-none absolute left-3 top-1/2 w-4 h-4 -translate-y-1/2 flex items-center justify-center text-sm text-foreground-400"></i>

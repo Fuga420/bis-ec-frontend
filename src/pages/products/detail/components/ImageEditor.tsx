@@ -252,7 +252,7 @@ export default function ImageEditor({
   };
 
   return (
-    <div className="rounded-lg border border-background-200 bg-white p-4 md:p-5">
+    <div className="ui-card rounded-lg p-4 md:p-5">
       <div className="flex items-center justify-between">
         <h2 className="text-[15px] font-semibold text-foreground-950">商品画像の編集</h2>
         <span className="text-xs text-foreground-500">{totalCount}/20</span>

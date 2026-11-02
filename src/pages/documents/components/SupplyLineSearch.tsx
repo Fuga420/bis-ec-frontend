@@ -69,7 +69,7 @@ export default function SupplyLineSearch() {
   };
 
   return (
-    <section className="rounded-lg border border-background-200 bg-white p-4 md:p-5">
+    <section className="ui-card rounded-lg p-4 md:p-5">
       <div className="flex items-start justify-between gap-3">
         <h2 className="flex min-w-0 items-center gap-1.5 text-[15px] font-semibold text-foreground-950">
           <i className="ri-search-eye-line w-4 h-4 flex items-center justify-center text-foreground-500"></i>

@@ -121,7 +121,7 @@ export default function LedgerOverview({
   const dash = (value: string) => (show ? value : "—");
 
   return (
-    <section className="rounded-[10px] border border-background-200 bg-white p-4 md:p-5">
+    <section className="ui-card rounded-lg p-4 md:p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-1.5 text-[15px] font-semibold text-foreground-950">
           <i className="ri-pie-chart-2-line w-4 h-4 flex items-center justify-center text-primary-600"></i>

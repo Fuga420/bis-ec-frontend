@@ -83,7 +83,7 @@ export default function DriveInboxImportSection({ ledgerSummary, ledgerDocuments
   const jobFinishedAt = formatDateTime(batch?.updated_at);
 
   return (
-    <section className="rounded-lg border border-background-200 bg-white">
+    <section className="ui-card overflow-hidden rounded-lg">
       <div className="flex flex-col gap-3 border-b border-background-200 px-4 py-3 md:flex-row md:items-center md:justify-between md:px-5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">

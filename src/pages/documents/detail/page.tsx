@@ -271,13 +271,13 @@ export default function DocumentDetailPage() {
             <i className="ri-arrow-left-line w-4 h-4 flex items-center justify-center"></i>
             書類一覧
           </Link>
-          <span className="text-sm font-semibold text-foreground-950">
-            書類詳細
+          <span className="admin-eyebrow text-[10px] font-semibold text-foreground-400">
+            Document Detail
           </span>
         </div>
       </header>
 
-      <main className="page-fade mx-auto w-full max-w-5xl px-4 py-6 md:px-6">
+      <main className="page-fade mx-auto w-full max-w-5xl px-4 py-4 md:px-6">
         {loadState === "loading" && (
           <div className="flex flex-col items-center justify-center gap-3 py-24">
             <i className="ri-loader-4-line animate-spin text-2xl text-foreground-400"></i>
@@ -303,7 +303,7 @@ export default function DocumentDetailPage() {
         {loadState === "success" && doc && (
           <div className="flex flex-col gap-5">
             {/* ファイル情報 */}
-            <section className="rounded-lg border border-background-200 bg-white p-4 md:p-5">
+            <section className="ui-card rounded-lg p-4 md:p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <h1 className="break-words text-lg font-semibold leading-snug text-foreground-950">
@@ -371,7 +371,7 @@ export default function DocumentDetailPage() {
             </section>
 
             {/* 原本合計・明細合計・差額 */}
-            <section className="rounded-lg border border-background-200 bg-white p-4 md:p-5">
+            <section className="ui-card rounded-lg p-4 md:p-5">
               <h2 className="mb-3 flex items-center gap-1.5 text-[15px] font-semibold text-foreground-950">
                 <i className="ri-scales-3-line w-4 h-4 flex items-center justify-center text-primary-600"></i>
                 合計と差額
@@ -382,7 +382,7 @@ export default function DocumentDetailPage() {
               />
               {/* 内訳（商品代金・落札手数料・税額は混ぜずに別々に確認する） */}
               <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                <div className="flex items-center justify-between gap-2 rounded-lg border border-background-200 bg-white px-3.5 py-2.5">
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-background-200 bg-background-50 px-3.5 py-2.5">
                   <span className="flex items-center gap-1.5 text-xs text-foreground-500">
                     <i className="ri-shopping-bag-3-line w-3.5 h-3.5 flex items-center justify-center"></i>
                     商品代金の合計（税抜）
@@ -391,7 +391,7 @@ export default function DocumentDetailPage() {
                     ¥{currentItemTotal.toLocaleString("ja-JP")}
                   </span>
                 </div>
-                <div className="flex items-center justify-between gap-2 rounded-lg border border-background-200 bg-white px-3.5 py-2.5">
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-background-200 bg-background-50 px-3.5 py-2.5">
                   <span className="flex items-center gap-1.5 text-xs text-foreground-500">
                     <i className="ri-percent-line w-3.5 h-3.5 flex items-center justify-center"></i>
                     落札手数料の合計（税抜）
@@ -414,7 +414,7 @@ export default function DocumentDetailPage() {
             </section>
 
             {/* 明細行（追加・修正・手動紐付け） */}
-            <section className="rounded-lg border border-background-200 bg-white p-4 md:p-5">
+            <section className="ui-card rounded-lg p-4 md:p-5">
               {highlightLineId && (
                 <p className="mb-3 flex items-start gap-1.5 rounded-md border border-primary-200 bg-primary-50 px-3 py-2 text-[11px] leading-relaxed text-primary-800">
                   <i className="ri-focus-3-line mt-0.5 w-4 h-4 flex items-center justify-center shrink-0"></i>
@@ -435,7 +435,7 @@ export default function DocumentDetailPage() {
             </section>
 
             {/* 保存 */}
-            <section className="rounded-lg border border-background-200 bg-white p-4 md:p-5">
+            <section className="ui-card rounded-lg p-4 md:p-5">
               <div className="flex flex-wrap items-center gap-3">
                 <button
                   type="button"

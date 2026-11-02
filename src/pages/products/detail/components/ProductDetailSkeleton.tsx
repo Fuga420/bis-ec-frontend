@@ -10,7 +10,7 @@ const INFO_ROWS = [0, 1, 2, 3, 4];
 
 function PanelSkeleton({ rows = 3 }: { rows?: number }) {
   return (
-    <div className="rounded-[10px] border border-background-200 bg-white p-4 md:p-5">
+    <div className="ui-card rounded-lg p-4 md:p-5">
       {/* 見出し + 右側の状態バッジ */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1 space-y-2">
@@ -61,7 +61,7 @@ export default function ProductDetailSkeleton() {
 
         {/* 情報エリア */}
         <div className="min-w-0 flex-1">
-          <div className="overflow-hidden rounded-[10px] border border-background-200 bg-white">
+          <div className="ui-card overflow-hidden rounded-lg">
             {/* 商品名・商品ID・ステータス */}
             <div className="border-b border-background-100 p-4 md:p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">

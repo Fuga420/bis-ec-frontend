@@ -209,6 +209,74 @@ body {
   @apply bg-accent-100 text-accent-900;
 }
 
+/* ========================================================================
+   ステータスバッジ：寸法は全画面共通、色は「ドメイン」で固定する
+   ----------------------------------------------------------------------
+   ・寸法: 高さ22px / 文字11px・500 / 角丸6px / 左右パディング8px / アイコン12px
+   ・並び順: 公開状態 → 在庫 → 照合 → 連携 → 補助情報（全画面で同じ順）
+   色は「ドメイン」ごとに1色だけ持たせる。緑・黄・グレーを別の意味に
+   使い回さないことで、色を見ただけで「何の状態か」が読めるようにする。
+     公開状態 = 緑（primary）
+     在庫     = 青グレー（slate）
+     照合     = 黄（amber）
+     連携     = グレー（background / foreground）
+     補助・対象外 = 枠線だけのグレー
+     AI生成   = 金（accent）
+   同じドメイン内の状態差は「塗りの濃さ・枠線・アイコン」で表し、色相は変えない。
+   ======================================================================== */
+.st-badge {
+  @apply inline-flex h-[22px] max-w-full items-center gap-1 whitespace-nowrap rounded-md px-2 text-[11px] font-medium leading-none;
+}
+
+/* --- 公開状態（公開中だけ塗り、下書き・非公開は枠線のみ） --- */
+.st-publish {
+  @apply bg-primary-100 text-primary-700;
+}
+
+.st-publish-off {
+  @apply border border-background-300 bg-white text-foreground-500;
+}
+
+/* --- 在庫（在庫あり＝塗り / 取り置き＝枠線 / 売却済み＝淡いグレー） --- */
+.st-inventory {
+  @apply bg-slate-100 text-slate-700;
+}
+
+.st-inventory-soft {
+  @apply border border-slate-300 bg-white text-slate-600;
+}
+
+.st-inventory-off {
+  @apply bg-slate-50 text-slate-400;
+}
+
+/* --- 照合（照合済み＝塗り / 一部照合＝濃い塗り / 未照合＝枠線） --- */
+.st-ledger {
+  @apply bg-amber-100 text-amber-800;
+}
+
+.st-ledger-strong {
+  @apply bg-amber-200 text-amber-900;
+}
+
+.st-ledger-soft {
+  @apply border border-amber-300 bg-white text-amber-700;
+}
+
+/* --- 連携（連携済み＝グレー塗り / 未連携＝枠線） --- */
+.st-link {
+  @apply bg-background-200 text-foreground-700;
+}
+
+.st-link-soft {
+  @apply border border-background-300 bg-white text-foreground-500;
+}
+
+/* --- 補助情報・アーカイブ・対象外（色を持たせない） --- */
+.st-muted {
+  @apply border border-background-200 bg-background-50 text-foreground-500;
+}
+
 /* ------------------------------------------------------------------------
    無効状態の扱い
    濃縮（primary）と金（accent）の塗りボタンは「主要アクション専用」。
@@ -226,6 +294,100 @@ button:disabled.bg-primary-500:hover,
 button:disabled.bg-primary-600:hover,
 button:disabled.bg-accent-500:hover {
   background-color: oklch(var(--background-200));
+}
+
+/* ------------------------------------------------------------------------
+   商品一覧の行状態（4状態：通常 / ホバー / 選択 / 選択ホバー）
+   選択の色は「グリーンの面」ではなくニュートラルなグレーに寄せる。
+   選択中であることは、行の塗りではなくチェックボックスの深緑で示す。
+   ------------------------------------------------------------------------ */
+.product-row {
+  background-color: #ffffff;
+  transition: background-color 150ms ease;
+}
+
+.product-row:hover {
+  background-color: oklch(var(--background-50)); /* #F9FAFB */
+}
+
+.product-row.is-selected {
+  background-color: oklch(var(--background-100)); /* #F3F4F6 */
+}
+
+/* 選択中にホバーしても選択背景を消さず、一段だけ沈める */
+.product-row.is-selected:hover {
+  background-color: oklch(var(--background-200) / 0.75);
+}
+
+/* 商品一覧のチェックボックス。
+   ネイティブの見た目（角丸なし・枠線色がブラウザ依存）を避けるため、
+   透明な input と、その状態に追従する箱を重ねて描画する。
+   チェック（深緑の塗り＋白いレ点）と indeterminate（横棒）の両方を扱う。 */
+.product-checkbox {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.product-checkbox input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.product-checkbox-box {
+  display: flex;
+  height: 18px;
+  width: 18px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #9ca3af;
+  border-radius: 4px;
+  background-color: #ffffff;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.product-checkbox-box i {
+  font-size: 12px;
+  line-height: 1;
+  color: #ffffff;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.product-checkbox:hover input:not(:disabled) + .product-checkbox-box {
+  border-color: #6b7280;
+}
+
+.product-checkbox input:checked + .product-checkbox-box,
+.product-checkbox input:indeterminate + .product-checkbox-box {
+  border-color: oklch(var(--primary-500));
+  background-color: oklch(var(--primary-500));
+}
+
+.product-checkbox input:checked + .product-checkbox-box i,
+.product-checkbox input:indeterminate + .product-checkbox-box i {
+  opacity: 1;
+}
+
+.product-checkbox input:focus-visible + .product-checkbox-box {
+  box-shadow: 0 0 0 3px oklch(var(--primary-200));
+}
+
+.product-checkbox input:disabled {
+  cursor: not-allowed;
+}
+
+.product-checkbox input:disabled + .product-checkbox-box {
+  opacity: 0.5;
 }
 
 /* カードの質感。

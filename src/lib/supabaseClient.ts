@@ -22,34 +22,3 @@ export function getSupabaseClient(): SupabaseClient | null {
 export function isBackendConnected(): boolean {
   return Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 }
-
-/**
- * 既存の Readdy Backend 接続資格情報（またはアクティブなセッションJWT）から
- * Cloud Run 商品書込API向けの認証ヘッダーを組み立てる。
- * - フロントエンドのソースコードには固定の秘密鍵を一切埋め込まない。
- * - 既存の `documents-relay` / `gas-ai-batch-relay` と同じ環境注入値を利用し、操作の手間を増やさない。
- */
-export async function getBackendWriteAuthHeaders(): Promise<Record<string, string>> {
-  const key = (SUPABASE_ANON_KEY ?? "").trim();
-  if (!key) return {};
-
-  const headers: Record<string, string> = {
-    apikey: key,
-    Authorization: `Bearer ${key}`,
-  };
-
-  const supabase = getSupabaseClient();
-  if (supabase) {
-    try {
-      const { data } = await supabase.auth.getSession();
-      const accessToken = data?.session?.access_token?.trim();
-      if (accessToken) {
-        headers.Authorization = `Bearer ${accessToken}`;
-      }
-    } catch {
-      // セッション未取得時は既存の Readdy Backend 接続資格情報を利用
-    }
-  }
-
-  return headers;
-}

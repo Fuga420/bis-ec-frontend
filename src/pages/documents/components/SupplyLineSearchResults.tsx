@@ -33,7 +33,7 @@ export default function SupplyLineSearchResults({
   const unlinkedCount = hits.length - linkedCount;
 
   return (
-    <div className="overflow-hidden rounded-lg border border-background-200 bg-white">
+    <div className="ui-card overflow-hidden rounded-lg">
       {/* 件数（候補件数を主、紐付け内訳を補助テキストとして同じ行に置く） */}
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-background-200 px-4 py-2.5">
         <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12px] text-foreground-600">

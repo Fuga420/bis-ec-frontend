@@ -17,7 +17,7 @@ export default function PublishSquareOptions({
   const squareDisabled = disabled || !publishChecked;
 
   return (
-    <div className="rounded-[10px] border border-background-200 bg-white">
+    <div className="ui-card rounded-lg">
       {/* 公開する */}
       <label
         className={`flex items-start gap-3 p-4 transition-colors ${

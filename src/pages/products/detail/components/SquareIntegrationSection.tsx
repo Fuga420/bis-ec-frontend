@@ -321,7 +321,7 @@ export default function SquareIntegrationSection({
   };
 
   return (
-    <div className="mt-4 rounded-lg border border-background-200 bg-white p-4 md:p-5">
+    <div className="mt-4 ui-card rounded-lg p-4 md:p-5">
       <h2 className="text-[15px] font-semibold text-foreground-950">Square連携</h2>
 
       {/*
@@ -348,13 +348,16 @@ export default function SquareIntegrationSection({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-xs font-bold text-foreground-700">本番環境</p>
+            {/* 連携ドメインはグレーで固定（緑は公開状態、黄は照合の専用色） */}
             {isProdLinked && (
-              <span className="inline-flex h-[22px] items-center whitespace-nowrap rounded-md px-2 text-[11px] font-medium leading-none tone-success">
+              <span className="st-badge st-link">
+                <i className="ri-link w-3 h-3 flex items-center justify-center text-xs"></i>
                 本番連携済み
               </span>
             )}
             {hasProdCheckoutUrl && (
-              <span className="inline-flex h-[22px] items-center whitespace-nowrap rounded-md px-2 text-[11px] font-medium leading-none tone-success">
+              <span className="st-badge st-link">
+                <i className="ri-secure-payment-line w-3 h-3 flex items-center justify-center text-xs"></i>
                 決済リンク生成済み
               </span>
             )}

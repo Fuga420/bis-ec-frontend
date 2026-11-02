@@ -45,9 +45,15 @@ export default function DocumentsPage() {
     <div className="admin-font products-theme min-h-screen bg-background-50">
       <header className="border-b border-background-200 bg-white">
         <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 md:px-6">
-          <h1 className="min-w-0 text-xl font-semibold text-foreground-950">
-            書類管理
-          </h1>
+          <div className="min-w-0">
+            {/* 一覧画面の見出しは商品一覧と同じ型（小さなラベル＋ディスプレイ書体）に揃える。 */}
+            <p className="admin-eyebrow text-[10px] font-semibold text-foreground-400">
+              Documents
+            </p>
+            <h1 className="admin-display mt-1 text-[26px] font-semibold leading-none text-foreground-950 md:text-[28px]">
+              書類管理
+            </h1>
+          </div>
           <Link
             to="/products"
             className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-background-300 bg-white px-4 py-2 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100"
@@ -173,7 +179,7 @@ export default function DocumentsPage() {
           {loadState === "success" && (
             <>
               {documents.length === 0 ? (
-                <div className="mt-3 flex flex-col items-center justify-center gap-2 rounded-lg border border-background-200 bg-white py-16 text-center">
+                <div className="ui-card mt-3 flex flex-col items-center justify-center gap-2 rounded-lg py-16 text-center">
                   <i className="ri-folder-open-line text-3xl w-8 h-8 flex items-center justify-center text-foreground-300"></i>
                   <p className="text-sm font-medium text-foreground-800">
                     書類がまだ登録されていません
@@ -183,7 +189,7 @@ export default function DocumentsPage() {
                   </p>
                 </div>
               ) : filtered.length === 0 ? (
-                <div className="mt-3 flex flex-col items-center justify-center gap-2 rounded-lg border border-background-200 bg-white py-16 text-center">
+                <div className="ui-card mt-3 flex flex-col items-center justify-center gap-2 rounded-lg py-16 text-center">
                   <i className="ri-search-line text-3xl w-8 h-8 flex items-center justify-center text-foreground-300"></i>
                   <p className="text-sm font-medium text-foreground-800">
                     条件に一致する書類がありません

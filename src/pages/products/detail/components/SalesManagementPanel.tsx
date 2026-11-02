@@ -160,18 +160,23 @@ function SaveButton({
   );
 }
 
-function StatusChip({ label, tone }: { label: string; tone: "primary" | "neutral" }) {
-  return (
-    <span
-      className={`inline-flex h-[22px] items-center whitespace-nowrap rounded-md px-2 text-[11px] font-medium leading-none ${
-        tone === "primary"
-          ? "bg-primary-100 text-primary-700"
-          : "bg-background-100 text-foreground-600"
-      }`}
-    >
-      {label}
-    </span>
-  );
+// バッジの色は「ドメイン」で固定する（index.css の .st-*）。
+// 公開状態＝緑 / 在庫＝青グレー / レコード＝グレー。
+const CHIP_TONES = {
+  publish: "st-publish",
+  "publish-off": "st-publish-off",
+  inventory: "st-inventory",
+  link: "st-link",
+} as const;
+
+function StatusChip({
+  label,
+  tone,
+}: {
+  label: string;
+  tone: keyof typeof CHIP_TONES;
+}) {
+  return <span className={`st-badge ${CHIP_TONES[tone]}`}>{label}</span>;
 }
 
 /**
@@ -189,7 +194,7 @@ export default function SalesManagementPanel({
     RECORD_STATUS_LABELS[record.recordStatus] ?? record.recordStatus ?? "—";
 
   return (
-    <div className="rounded-[10px] border border-background-200 bg-white">
+    <div className="ui-card rounded-lg">
       {/* 見出し + 現在の状態バッジ */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-background-100 px-4 py-3 md:px-5">
         <div className="flex min-w-0 items-center gap-2">
@@ -201,12 +206,13 @@ export default function SalesManagementPanel({
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
+          {/* 並び順は全画面で統一: 公開 → 在庫 → レコード */}
           <StatusChip
             label={`公開: ${publish.statusLabel}`}
-            tone={publish.currentStatus === "published" ? "primary" : "neutral"}
+            tone={publish.currentStatus === "published" ? "publish" : "publish-off"}
           />
-          <StatusChip label={`在庫: ${inventory.inventoryLabel}`} tone="neutral" />
-          <StatusChip label={`レコード: ${recordLabel}`} tone="neutral" />
+          <StatusChip label={`在庫: ${inventory.inventoryLabel}`} tone="inventory" />
+          <StatusChip label={`レコード: ${recordLabel}`} tone="link" />
         </div>
       </div>
 

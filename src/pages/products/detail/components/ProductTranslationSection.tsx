@@ -26,6 +26,8 @@ function formatGeneratedAt(value: string | undefined): string {
   });
 }
 
+// バッジの色は「ドメイン」で固定する。翻訳は外部連携と同じグレー系、
+// AIが生成した直後（Draft）だけ金（accent）。詳細のステータス列と色を競わせない。
 function statusBadge(translation: ProductTranslation | null | undefined): {
   label: string;
   className: string;
@@ -33,13 +35,13 @@ function statusBadge(translation: ProductTranslation | null | undefined): {
   if (!translation) {
     return {
       label: "未生成",
-      className: "tone-neutral",
+      className: "st-muted",
     };
   }
   if (translation.translation_status === "approved") {
     return {
       label: "承認済み",
-      className: "tone-success",
+      className: "st-link",
     };
   }
   if (translation.translation_status === "draft") {
@@ -51,7 +53,7 @@ function statusBadge(translation: ProductTranslation | null | undefined): {
   }
   return {
     label: translation.translation_status,
-    className: "tone-neutral",
+    className: "st-muted",
   };
 }
 
@@ -186,7 +188,7 @@ export default function ProductTranslationSection({
       : null;
 
   return (
-    <div className="rounded-[10px] border border-background-200 bg-white p-4 md:p-5">
+    <div className="ui-card rounded-lg p-4 md:p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-[15px] font-semibold text-foreground-950">
@@ -196,9 +198,7 @@ export default function ProductTranslationSection({
             越境EC向けに英語の商品説明を生成します
           </p>
         </div>
-        <span
-          className={`inline-flex h-[22px] shrink-0 items-center whitespace-nowrap rounded-md px-2 text-[11px] font-medium leading-none ${badge.className}`}
-        >
+        <span className={`st-badge shrink-0 ${badge.className}`}>
           {badge.label}
         </span>
       </div>
