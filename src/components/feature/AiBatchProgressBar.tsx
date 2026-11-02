@@ -61,28 +61,25 @@ export default function AiBatchProgressBar() {
   const completedRatio =
     counts.total > 0 ? Math.min(1, counts.success / counts.total) : 0;
 
+  // AI の識別色は金（accent）で統一し、状態（完了・失敗）はグレー／緑／アンバーの意味色で表す。
   const stateClass = pollError
-    ? "border-red-200 bg-red-50 text-red-700"
+    ? "border-amber-200 tone-warning"
     : terminal
-      ? "border-primary-200 bg-primary-50 text-primary-700"
-      : "border-background-200 bg-background-100 text-foreground-700";
+      ? "border-primary-200 tone-success"
+      : "border-background-200 tone-neutral";
 
-  const barClass = pollError
-    ? "bg-red-400"
-    : terminal
-      ? "bg-primary-500"
-      : "bg-primary-400";
+  const barClass = pollError ? "bg-amber-400" : terminal ? "bg-accent-500" : "bg-accent-400";
 
   return (
     <div className="border-b border-background-200 bg-white">
       <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-2.5 gap-y-1 px-4 pt-1.5 pb-2 md:px-6">
         <span className="flex min-w-0 items-center gap-1.5">
           {isPolling ? (
-            <i className="ri-loader-4-line animate-spin w-3.5 h-3.5 flex items-center justify-center text-primary-600"></i>
+            <i className="ri-loader-4-line animate-spin w-3.5 h-3.5 flex items-center justify-center text-accent-600"></i>
           ) : terminal ? (
-            <i className="ri-checkbox-circle-line w-3.5 h-3.5 flex items-center justify-center text-primary-600"></i>
+            <i className="ri-checkbox-circle-line w-3.5 h-3.5 flex items-center justify-center text-accent-600"></i>
           ) : (
-            <i className="ri-sparkling-line w-3.5 h-3.5 flex items-center justify-center text-primary-600"></i>
+            <i className="ri-sparkling-line w-3.5 h-3.5 flex items-center justify-center text-accent-600"></i>
           )}
           <span className="whitespace-nowrap text-xs font-bold text-foreground-950">
             AI生成
@@ -118,7 +115,7 @@ export default function AiBatchProgressBar() {
         </span>
 
         {counts.review > 0 && (
-          <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-secondary-200 bg-secondary-100 px-1.5 py-0.5 text-[11px] font-medium text-secondary-900">
+          <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-amber-200 px-1.5 py-0.5 text-[11px] font-medium tone-warning">
             <i className="ri-error-warning-line w-3 h-3 flex items-center justify-center"></i>
             要確認 {counts.review}
           </span>
@@ -126,7 +123,7 @@ export default function AiBatchProgressBar() {
 
         {pollError && (
           <span
-            className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-red-200 bg-red-50 px-1.5 py-0.5 text-[11px] font-medium text-red-700"
+            className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-amber-200 px-1.5 py-0.5 text-[11px] font-medium tone-warning"
             title={pollError}
           >
             <i className="ri-error-warning-line w-3 h-3 flex items-center justify-center"></i>

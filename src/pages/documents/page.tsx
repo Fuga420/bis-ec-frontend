@@ -248,7 +248,7 @@ export default function DocumentsPage() {
             className="flex w-full cursor-pointer flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-3.5 text-left transition-colors hover:bg-background-50 md:px-5"
           >
             <span className="flex min-w-0 items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-md bg-secondary-100 text-secondary-800">
+              <span className="flex h-7 w-7 items-center justify-center rounded-md bg-background-100 text-foreground-600">
                 <i className="ri-folder-add-line w-4 h-4 flex items-center justify-center"></i>
               </span>
               <span className="min-w-0">
@@ -273,9 +273,9 @@ export default function DocumentsPage() {
           {addPanelOpen && (
             <div className="border-t border-background-200 px-4 py-4 md:px-5">
               {/* 接続状況の案内 */}
-              <div className="mb-3 flex items-start gap-2 rounded-lg border border-secondary-200 bg-secondary-50 px-3.5 py-2.5">
-                <i className="ri-information-line mt-0.5 w-4 h-4 flex items-center justify-center shrink-0 text-secondary-700"></i>
-                <p className="min-w-0 flex-1 text-[12px] leading-relaxed text-secondary-900">
+              <div className="mb-3 flex items-start gap-2 rounded-lg border border-background-200 bg-background-100 px-3.5 py-2.5">
+                <i className="ri-information-line mt-0.5 w-4 h-4 flex items-center justify-center shrink-0 text-foreground-500"></i>
+                <p className="min-w-0 flex-1 text-[12px] leading-relaxed text-foreground-700">
                   原本は Drive に保管し、構造化データ（明細・紐付け・照合状態）はこの台帳で管理します。書類台帳API（documents-relay）に接続済みです。
                 </p>
               </div>

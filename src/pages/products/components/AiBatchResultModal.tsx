@@ -36,12 +36,12 @@ const DISPLAY_STATUS_LABELS: Record<AiBatchDisplayStatus, string> = {
 };
 
 const DISPLAY_STATUS_STYLES: Record<AiBatchDisplayStatus, string> = {
-  pending: "bg-background-100 text-foreground-600",
-  retry_wait: "bg-amber-100 text-amber-800",
-  processing: "bg-background-100 text-foreground-700",
-  success: "bg-primary-100 text-primary-500",
-  failed: "bg-red-100 text-red-800",
-  contract_violation: "bg-amber-100 text-amber-900",
+  pending: "tone-neutral",
+  retry_wait: "tone-warning",
+  processing: "tone-neutral",
+  success: "tone-success",
+  failed: "tone-warning",
+  contract_violation: "tone-warning",
 };
 
 const DISPLAY_STATUS_ORDER: AiBatchDisplayStatus[] = [

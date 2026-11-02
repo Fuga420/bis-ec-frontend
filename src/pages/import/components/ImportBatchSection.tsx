@@ -168,7 +168,7 @@ export default function ImportBatchSection({
                 type="button"
                 onClick={() => requestGroup(group)}
                 disabled={batch.isBusy}
-                className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md bg-accent-500 px-4 py-2 text-sm font-bold text-background-50 transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md bg-accent-500 px-4 py-2 text-sm font-bold text-accent-950 transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {batch.isBusy ? (
                   <>

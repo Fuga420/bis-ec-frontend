@@ -209,19 +209,19 @@ export default function ImportPage() {
             summary.unknown > 0) && (
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               {summary.success > 0 && (
-                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-primary-100 px-2.5 py-1 text-[11px] font-bold text-primary-700">
+                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-bold tone-success">
                   <i className="ri-checkbox-circle-line w-3.5 h-3.5 flex items-center justify-center"></i>
                   成功 {summary.success}
                 </span>
               )}
               {summary.error > 0 && (
-                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-red-100 px-2.5 py-1 text-[11px] font-bold text-red-700">
+                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-bold tone-warning">
                   <i className="ri-error-warning-line w-3.5 h-3.5 flex items-center justify-center"></i>
                   失敗 {summary.error}
                 </span>
               )}
               {summary.unknown > 0 && (
-                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800">
+                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-bold tone-warning">
                   <i className="ri-question-line w-3.5 h-3.5 flex items-center justify-center"></i>
                   受付不明 {summary.unknown}
                 </span>

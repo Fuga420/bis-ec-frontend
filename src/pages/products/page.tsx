@@ -335,11 +335,11 @@ const STATUS_LABELS: Record<BulkPublishStatus, string> = {
 };
 
 const STATUS_STYLES: Record<BulkPublishStatus, string> = {
-  success: "bg-primary-100 text-primary-500",
-  partial_success: "bg-amber-100 text-amber-800",
-  already_completed: "bg-background-100 text-foreground-600",
-  skipped: "bg-background-100 text-foreground-600",
-  failed: "bg-red-100 text-red-800",
+  success: "tone-success",
+  partial_success: "tone-warning",
+  already_completed: "tone-neutral",
+  skipped: "tone-neutral",
+  failed: "tone-warning",
 };
 
 const RESULT_STATUS_ORDER: BulkPublishStatus[] = [
@@ -845,7 +845,7 @@ export default function ProductsPage() {
                     type="button"
                     onClick={() => setIsAiConfirmOpen(true)}
                     disabled={isAnyBulkBusy}
-                    className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg bg-accent-500 px-4 py-2 text-sm font-bold text-background-50 transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg bg-accent-500 px-4 py-2 text-sm font-bold text-accent-950 transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <i className="ri-sparkling-line w-4 h-4 flex items-center justify-center"></i>
                     一括AI生成

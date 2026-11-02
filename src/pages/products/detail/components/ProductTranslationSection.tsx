@@ -33,24 +33,25 @@ function statusBadge(translation: ProductTranslation | null | undefined): {
   if (!translation) {
     return {
       label: "未生成",
-      className: "bg-foreground-100 text-foreground-600",
+      className: "tone-neutral",
     };
   }
   if (translation.translation_status === "approved") {
     return {
       label: "承認済み",
-      className: "bg-primary-100 text-primary-700",
+      className: "tone-success",
     };
   }
   if (translation.translation_status === "draft") {
+    // AI が生成した直後の状態。AI の識別色（金）で他の状態と区別する。
     return {
       label: "Draft（確認待ち）",
-      className: "bg-accent-100 text-accent-900",
+      className: "tone-ai",
     };
   }
   return {
     label: translation.translation_status,
-    className: "bg-foreground-100 text-foreground-600",
+    className: "tone-neutral",
   };
 }
 
@@ -268,7 +269,7 @@ export default function ProductTranslationSection({
           type="button"
           onClick={handleApprove}
           disabled={approveState === "approving"}
-          className="mt-4 inline-flex min-w-[148px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-accent-500 px-4 py-2 text-sm font-semibold text-background-50 transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-4 inline-flex min-w-[148px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-accent-500 px-4 py-2 text-sm font-semibold text-accent-950 transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {approveState === "approving" ? (
             <>

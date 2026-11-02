@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { AdminProductDetail } from "@/pages/products/types";
 import { formatYen, hasText } from "../lib/format";
 
@@ -242,56 +243,118 @@ interface ProductSpecGridProps {
 }
 
 /**
+ * 値が実質「空」かどうか。
+ * 空文字・「—」・「未設定」は未入力として扱うが、
+ * 補足文（note）やエラー表示を持つ項目は、案内として必要な情報なので空扱いにしない。
+ */
+function isBlankSpecItem(item: ProductSpecItem): boolean {
+  if (item.tone === "error") return false;
+  if (item.note) return false;
+  const value = (item.value ?? "").trim();
+  if (!hasText(value)) return true;
+  return value === "—" || value === "未設定";
+}
+
+/**
  * 商品スペックをコンパクトなグリッドで表示する。
  * 狭い幅では2カラム、広い幅では3カラム。
+ *
+ * 未入力の項目は既定では隠し、入力済みの項目だけを主役にする。
+ * 隠した項目は「未入力の項目（N）」から開いて確認できる（情報自体は捨てない）。
  */
 export default function ProductSpecGrid({ product, cost }: ProductSpecGridProps) {
   const items = buildProductSpecItems(product, cost);
+  const filledItems = items.filter((item) => !isBlankSpecItem(item));
+  const blankItems = items.filter(isBlankSpecItem);
+  const [showBlank, setShowBlank] = useState(false);
+
   const showCardConditionNote =
     product.category === "pokemon_card" &&
     product.pokemon_card?.grading_status !== "graded" &&
     product.pokemon_card?.card_condition === "A";
 
   return (
-    <div className="grid grid-cols-2 gap-x-4 gap-y-3 md:grid-cols-3">
-      {items.map((item) => (
-        <div key={item.label} className="min-w-0">
-          <dt className="text-[12px] leading-4 text-foreground-500">
-            {item.label}
-          </dt>
-          <dd
-            className={`mt-1 break-words text-[13px] leading-5 ${
-              item.tone === "error"
-                ? "font-semibold text-accent-700"
-                : !hasText(item.value)
-                  ? "text-foreground-300"
-                  : item.emphasize
-                    ? "font-semibold text-foreground-950"
-                    : "font-medium text-foreground-900"
-            }`}
-          >
-            {hasText(item.value) ? item.value : item.emptyText ?? "—"}
-          </dd>
-          {item.note && (
-            <p
-              className={`mt-0.5 text-[11px] leading-4 ${
-                item.tone === "error"
-                  ? "text-accent-700"
-                  : "text-foreground-400"
-              }`}
-            >
-              {item.note}
-            </p>
-          )}
-        </div>
-      ))}
+    <div>
+      {filledItems.length > 0 ? (
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 md:grid-cols-3">
+          {filledItems.map((item) => (
+            <div key={item.label} className="min-w-0">
+              <dt className="text-[12px] leading-4 text-foreground-500">
+                {item.label}
+              </dt>
+              <dd
+                className={`mt-1 break-words text-[13px] leading-5 ${
+                  item.tone === "error"
+                    ? "font-semibold text-amber-700"
+                    : item.emphasize
+                      ? "font-semibold text-foreground-950"
+                      : "font-medium text-foreground-900"
+                }`}
+              >
+                {hasText(item.value) ? item.value : item.emptyText ?? "—"}
+              </dd>
+              {item.note && (
+                <p
+                  className={`mt-0.5 text-[11px] leading-4 ${
+                    item.tone === "error"
+                      ? "text-amber-700"
+                      : "text-foreground-400"
+                  }`}
+                >
+                  {item.note}
+                </p>
+              )}
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <p className="text-[12px] leading-relaxed text-foreground-400">
+          入力済みの項目はまだありません。「商品情報を編集」から入力できます。
+        </p>
+      )}
+
       {showCardConditionNote && (
-        <p className="col-span-full flex items-start gap-1.5 text-[11px] leading-relaxed text-foreground-500">
+        <p className="mt-3 flex items-start gap-1.5 text-[11px] leading-relaxed text-foreground-500">
           <i className="ri-information-line mt-0.5 w-3.5 h-3.5 flex items-center justify-center shrink-0"></i>
           <span className="min-w-0 flex-1">
             AはAI生成直後の初期値です（現物確認前）。現物を確認のうえ、必要に応じて「商品情報を編集」からB/Cへ修正してください。
           </span>
         </p>
+      )}
+
+      {blankItems.length > 0 && (
+        <div className="mt-3 border-t border-background-100 pt-2">
+          <button
+            type="button"
+            onClick={() => setShowBlank((prev) => !prev)}
+            aria-expanded={showBlank}
+            className="flex cursor-pointer items-center gap-1 whitespace-nowrap rounded-md py-1 text-[11px] font-medium text-foreground-400 transition-colors hover:text-foreground-700"
+          >
+            <i
+              className={`${
+                showBlank ? "ri-subtract-line" : "ri-add-line"
+              } w-3 h-3 flex items-center justify-center text-xs`}
+            ></i>
+            未入力の項目（{blankItems.length}）
+          </button>
+
+          {showBlank && (
+            <dl className="tab-fade mt-1.5 grid grid-cols-2 gap-x-4 gap-y-2 md:grid-cols-3">
+              {blankItems.map((item) => (
+                <div key={item.label} className="min-w-0">
+                  <dt className="truncate text-[11px] leading-4 text-foreground-400">
+                    {item.label}
+                  </dt>
+                  <dd className="mt-0.5 text-[12px] leading-4 text-foreground-300">
+                    {item.emptyText && item.emptyText !== "—"
+                      ? item.emptyText
+                      : "未入力"}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
+        </div>
       )}
     </div>
   );

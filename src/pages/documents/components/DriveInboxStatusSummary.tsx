@@ -26,7 +26,7 @@ const CARDS: Array<{
     label: "処理中",
     icon: "ri-loader-4-line",
     valueClass: "text-foreground-950",
-    iconClass: "text-secondary-700",
+    iconClass: "text-foreground-500",
   },
   {
     key: "processed",
@@ -46,8 +46,8 @@ const CARDS: Array<{
     key: "failed",
     label: "失敗",
     icon: "ri-error-warning-line",
-    valueClass: "text-red-700",
-    iconClass: "text-red-600",
+    valueClass: "text-amber-800",
+    iconClass: "text-amber-700",
   },
   {
     key: "skipped",
@@ -82,7 +82,7 @@ export default function DriveInboxStatusSummary({
               key={card.key}
               className={`rounded-lg border px-3 py-2 ${
                 emphasize
-                  ? "border-secondary-300 bg-secondary-50"
+                  ? "border-background-300 bg-background-100"
                   : "border-background-200 bg-background-50"
               }`}
             >

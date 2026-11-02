@@ -187,7 +187,7 @@ export default function DocumentLineEditor({
                       {line.line_number ?? index + 1}
                     </span>
                     {line.reception_number ? (
-                      <span className="inline-flex h-[22px] min-w-0 items-center gap-1 truncate rounded-md bg-secondary-100 px-2 font-mono text-[11px] font-bold text-secondary-900">
+                      <span className="inline-flex h-[22px] min-w-0 items-center gap-1 truncate rounded-md bg-background-100 px-2 font-mono text-[11px] font-bold text-foreground-700">
                         <i className="ri-hashtag w-3 h-3 flex items-center justify-center"></i>
                         {line.reception_number}
                       </span>

@@ -467,7 +467,7 @@ export default function DocumentDetailPage() {
                       ? "border-red-300 bg-red-50 text-red-700"
                       : message.type === "success"
                         ? "border-primary-200 bg-primary-50 text-primary-800"
-                        : "border-secondary-200 bg-secondary-50 text-secondary-900"
+                        : "border-background-200 bg-background-50 text-foreground-700"
                   }`}
                 >
                   <i

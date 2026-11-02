@@ -67,7 +67,7 @@ export default function DriveInboxImportSection({ ledgerSummary, ledgerDocuments
     dryRun === false
       ? "bg-primary-100 text-primary-700"
       : dryRun === true
-      ? "bg-amber-100 text-amber-800"
+      ? "tone-warning"
       : "bg-background-100 text-foreground-600";
 
   const filesWithLedger = useMemo(
@@ -91,7 +91,7 @@ export default function DriveInboxImportSection({ ledgerSummary, ledgerDocuments
               <i className="ri-inbox-archive-line w-4 h-4 flex items-center justify-center text-primary-600"></i>
               Inbox一括取込
             </h2>
-            <span className="inline-flex h-[22px] items-center gap-1 whitespace-nowrap rounded-md bg-secondary-100 px-2 text-[11px] font-medium text-secondary-900">
+            <span className="inline-flex h-[22px] items-center gap-1 whitespace-nowrap rounded-md bg-background-100 px-2 text-[11px] font-medium text-foreground-600">
               <i className="ri-database-2-line w-3 h-3 flex items-center justify-center"></i>
               結果取得 {DRIVE_INBOX_RESULT_API_READY ? "接続済み" : "未接続"}
             </span>

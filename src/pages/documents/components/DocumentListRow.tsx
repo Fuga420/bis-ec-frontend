@@ -49,8 +49,12 @@ export default function DocumentListRow({ doc }: DocumentListRowProps) {
   const status = getDocumentMatchStatus(doc);
   const lineSum = documentLineTotal(doc);
   const lineCount = documentLineCount(doc);
-  const fileName = doc.file_name || "（ファイル名なし）";
-  const fileTitle = `${fileName}（書類ID: ${doc.document_id}）`;
+  const rawFileName = (doc.file_name ?? "").trim();
+  const hasFileName = rawFileName !== "";
+  const fileName = hasFileName ? rawFileName : "ファイル名なし";
+  const fileTitle = hasFileName
+    ? `${fileName}（書類ID: ${doc.document_id}）`
+    : `書類ID: ${doc.document_id}`;
 
   return (
     <Link
@@ -66,11 +70,19 @@ export default function DocumentListRow({ doc }: DocumentListRowProps) {
           ></i>
         </span>
         <div className="min-w-0 flex-1">
-          {/* ファイル名は最大2行まで表示し、超過分は省略する */}
-          <p className="line-clamp-2 break-words text-sm font-semibold leading-snug text-foreground-950 group-hover/row:text-primary-600">
+          {/* ファイル名は最大2行まで表示し、超過分は省略する。未取得のときは薄いイタリックで置く */}
+          <p
+            className={`line-clamp-2 break-words text-sm font-semibold leading-snug group-hover/row:text-primary-600 ${
+              hasFileName ? "text-foreground-950" : "italic text-foreground-400"
+            }`}
+          >
             {fileName}
           </p>
-          {/* 書類IDは常時表示せず、スクリーンリーダーと行のツールチップからのみ参照する */}
+          {/* 書類ID（長いUUID）は既定では見せず、行にホバーしたときだけ薄く出す。
+              行の高さを変えないよう、高さ10pxの1行として場所だけ確保しておく。 */}
+          <span className="mt-1 hidden h-[10px] max-w-full truncate font-mono text-[10px] leading-none tracking-[0.04em] text-foreground-400 opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 lg:block">
+            {doc.document_id}
+          </span>
           <span className="sr-only">書類ID {doc.document_id}</span>
         </div>
         <span className="w-[56px] shrink-0 truncate text-xs text-foreground-500">
@@ -102,7 +114,11 @@ export default function DocumentListRow({ doc }: DocumentListRowProps) {
           ></i>
         </span>
         <div className="min-w-0 flex-1">
-          <p className="line-clamp-2 break-words text-sm font-semibold leading-snug text-foreground-950">
+          <p
+            className={`line-clamp-2 break-words text-sm font-semibold leading-snug ${
+              hasFileName ? "text-foreground-950" : "italic text-foreground-400"
+            }`}
+          >
             {fileName}
           </p>
           <span className="sr-only">書類ID {doc.document_id}</span>

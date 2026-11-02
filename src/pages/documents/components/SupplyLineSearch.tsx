@@ -197,12 +197,12 @@ export default function SupplyLineSearch() {
             <p className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-foreground-400">
               <span>検索条件:</span>
               {applied.reception && (
-                <span className="rounded bg-secondary-100 px-1.5 py-0.5 font-mono text-secondary-900">
+                <span className="rounded bg-background-100 px-1.5 py-0.5 font-mono text-foreground-700">
                   受付番号 {applied.reception}
                 </span>
               )}
               {applied.keyword && (
-                <span className="rounded bg-secondary-100 px-1.5 py-0.5 text-secondary-900">
+                <span className="rounded bg-background-100 px-1.5 py-0.5 text-foreground-700">
                   キーワード {applied.keyword}
                 </span>
               )}

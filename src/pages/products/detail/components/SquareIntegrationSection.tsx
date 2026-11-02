@@ -349,12 +349,12 @@ export default function SquareIntegrationSection({
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-xs font-bold text-foreground-700">本番環境</p>
             {isProdLinked && (
-              <span className="inline-flex h-[22px] items-center whitespace-nowrap rounded-md bg-primary-100 px-2 text-[11px] font-medium leading-none text-primary-500">
+              <span className="inline-flex h-[22px] items-center whitespace-nowrap rounded-md px-2 text-[11px] font-medium leading-none tone-success">
                 本番連携済み
               </span>
             )}
             {hasProdCheckoutUrl && (
-              <span className="inline-flex h-[22px] items-center whitespace-nowrap rounded-md bg-accent-100 px-2 text-[11px] font-medium leading-none text-accent-900">
+              <span className="inline-flex h-[22px] items-center whitespace-nowrap rounded-md px-2 text-[11px] font-medium leading-none tone-success">
                 決済リンク生成済み
               </span>
             )}

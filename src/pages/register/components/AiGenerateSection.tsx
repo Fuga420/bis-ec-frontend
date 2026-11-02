@@ -39,7 +39,7 @@ export default function AiGenerateSection({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <p className="flex items-center gap-1.5 text-sm font-semibold text-foreground-950">
-            <i className="ri-sparkling-line w-4 h-4 flex items-center justify-center text-primary-600"></i>
+            <i className="ri-sparkling-line w-4 h-4 flex items-center justify-center text-accent-600"></i>
             画像からAIで商品情報を生成
           </p>
           <p className="mt-1 text-xs leading-relaxed text-foreground-500">
@@ -53,7 +53,7 @@ export default function AiGenerateSection({
           type="button"
           onClick={onGenerate}
           disabled={isDisabled}
-          className="inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-accent-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-accent-500 px-4 py-2.5 text-sm font-semibold text-accent-950 transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {busy ? (
             <>
@@ -77,7 +77,7 @@ export default function AiGenerateSection({
           aria-busy="true"
         >
           <div className="flex items-center gap-2">
-            <i className="ri-loader-4-line animate-spin w-4 h-4 flex items-center justify-center text-primary-600"></i>
+            <i className="ri-loader-4-line animate-spin w-4 h-4 flex items-center justify-center text-accent-600"></i>
             <span className="text-xs font-semibold text-foreground-800">
               {busyTitle}
             </span>

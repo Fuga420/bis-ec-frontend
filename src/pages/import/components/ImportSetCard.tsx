@@ -40,11 +40,11 @@ const STATUS_LABELS: Record<ImportSetStatus, string> = {
 };
 
 const STATUS_STYLES: Record<ImportSetStatus, string> = {
-  idle: "bg-background-100 text-foreground-600",
-  processing: "bg-primary-100 text-primary-700",
-  success: "bg-primary-100 text-primary-700",
-  error: "bg-red-100 text-red-700",
-  unknown: "bg-amber-100 text-amber-800",
+  idle: "tone-neutral",
+  processing: "tone-neutral",
+  success: "tone-success",
+  error: "tone-warning",
+  unknown: "tone-warning",
 };
 
 export default function ImportSetCard({
@@ -407,7 +407,7 @@ export default function ImportSetCard({
                   type="button"
                   onClick={onResend}
                   disabled={disabled}
-                  className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md bg-amber-500 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md bg-primary-500 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <i className="ri-refresh-line w-4 h-4 flex items-center justify-center"></i>
                   同じ内容で再送（同一ID）
@@ -461,7 +461,7 @@ export default function ImportSetCard({
                 type="button"
                 onClick={onResend}
                 disabled={disabled || !acknowledged || set.images.length === 0}
-                className="mt-2 inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md bg-amber-500 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
+                className="mt-2 inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md bg-primary-500 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <i className="ri-add-circle-line w-4 h-4 flex items-center justify-center"></i>
                 新しいIDで取り込む（重複に注意）

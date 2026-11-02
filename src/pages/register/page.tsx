@@ -15,12 +15,7 @@ import PokemonCardFields, {
   type PokemonCardValues,
 } from "./components/PokemonCardFields";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
-import {
-  createDraftProductViaApi,
-  markDraftProductSyncedInSession,
-  syncProductToReadDb,
-  updateDraftProductViaApi,
-} from "@/config/productsApi";
+import { syncProductToReadDb } from "@/config/productsApi";
 import PublishSquareOptions from "./components/PublishSquareOptions";
 import RegisterProgress from "./components/RegisterProgress";
 import SaveStatusMessage from "@/components/base/SaveStatusMessage";
@@ -166,11 +161,6 @@ export default function RegisterPage() {
   const confirmAttemptRef = useRef<{
     signature: string;
     attemptId: string;
-  } | null>(null);
-  // 下書き新規登録（Cloud Run + Supabase）の通信失敗リトライ時も同じ client_request_id を再利用する
-  const draftCreateAttemptRef = useRef<{
-    signature: string;
-    requestId: string;
   } | null>(null);
 
   // 価格サジェストの手入力保護。
@@ -620,28 +610,20 @@ export default function RegisterPage() {
 
       // 仮draftが既にある場合は同じ product_id を再利用し、新規登録POSTを送らない。
       const existingDraftId = ai.draftProductId;
-      const isNonSquareDraftWrite = !willPublish && !willSyncSquare;
       let response: Response;
-      let wroteDirectlyToSupabase = false;
 
       if (existingDraftId) {
         // 画像が変わっていれば既存の画像更新APIで同期（変わっていなければ何もしない）
         await ai.syncDraftImages(existingDraftId);
-        if (isNonSquareDraftWrite) {
-          await syncProductToReadDb(existingDraftId);
-          response = await updateDraftProductViaApi(existingDraftId, payload);
-          wroteDirectlyToSupabase = true;
-        } else {
-          response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-            method: "POST",
-            headers: { "Content-Type": "text/plain;charset=utf-8" },
-            body: JSON.stringify({
-              ...payload,
-              action: "update_product",
-              product_id: existingDraftId,
-            }),
-          });
-        }
+        response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({
+            ...payload,
+            action: "update_product",
+            product_id: existingDraftId,
+          }),
+        });
       } else {
         const imagesPayload = await Promise.all(
           images.map(async (file) => ({
@@ -650,64 +632,27 @@ export default function RegisterPage() {
             base64: await fileToBase64(file),
           }))
         );
-        if (isNonSquareDraftWrite) {
-          const draftSignature = JSON.stringify({
-            payload,
-            aiSelectedImageIndexes,
-            imagesMeta: images.map((f) => `${f.name}:${f.size}:${f.lastModified}`),
-          });
-          const requestId =
-            draftCreateAttemptRef.current?.signature === draftSignature
-              ? draftCreateAttemptRef.current.requestId
-              : createConfirmationAttemptId();
-          draftCreateAttemptRef.current = {
-            signature: draftSignature,
-            requestId,
-          };
-          response = await createDraftProductViaApi({
-            ...payload,
-            client_request_id: requestId,
-            images: imagesPayload,
-            ...(aiSelectedImageIndexes.length > 0
-              ? { selected_image_indexes: aiSelectedImageIndexes }
-              : {}),
-          });
-          wroteDirectlyToSupabase = true;
-        } else {
-          response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-            method: "POST",
-            headers: { "Content-Type": "text/plain;charset=utf-8" },
-            body: JSON.stringify({ ...payload, images: imagesPayload }),
-          });
-        }
+        response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({ ...payload, images: imagesPayload }),
+        });
       }
 
-      let data: Record<string, unknown> | null = null;
-      try {
-        data = (await response.json()) as Record<string, unknown>;
-      } catch {
-        data = null;
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
       }
 
-      if (!response.ok || !data || data.success !== true) {
-        const backendMsg =
-          (typeof data?.message === "string" && data.message.trim()) ||
-          (typeof data?.error === "string" && data.error.trim()) ||
-          "";
-        throw new Error(backendMsg || `HTTP ${response.status}`);
+      const data = await response.json();
+
+      if (!data || data.success !== true) {
+        throw new Error("Invalid response");
       }
 
-      const newProductId =
-        (typeof data.product_id === "string" && data.product_id) ||
-        existingDraftId ||
-        "";
+      const newProductId = data.product_id ?? existingDraftId ?? "";
       setProductId(newProductId);
 
-      if (wroteDirectlyToSupabase) {
-        markDraftProductSyncedInSession(newProductId);
-      } else {
-        await syncProductToReadDb(newProductId);
-      }
+      await syncProductToReadDb(newProductId);
 
       // Square連携なし → BIS登録のみで完了
       if (!willSyncSquare) {
@@ -794,7 +739,6 @@ export default function RegisterPage() {
     setIsConfirming(false);
     setConfirmError("");
     confirmAttemptRef.current = null;
-    draftCreateAttemptRef.current = null;
     priceTouchedRef.current = false;
     priceAutoValueRef.current = null;
   };

@@ -22,10 +22,10 @@ const STATUS_LABELS: Record<BulkArchiveStatus, string> = {
 };
 
 const STATUS_STYLES: Record<BulkArchiveStatus, string> = {
-  success: "bg-primary-100 text-primary-500",
-  failed: "bg-red-100 text-red-800",
-  skipped: "bg-background-100 text-foreground-600",
-  unknown: "bg-amber-100 text-amber-800",
+  success: "tone-success",
+  failed: "tone-warning",
+  skipped: "tone-neutral",
+  unknown: "tone-warning",
 };
 
 const STATUS_ORDER: BulkArchiveStatus[] = [

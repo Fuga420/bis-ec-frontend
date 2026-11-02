@@ -8,9 +8,9 @@ interface DocumentStatusBadgeProps {
 // 未照合・一部照合・照合済みの状態バッジ。
 // 色は status ごとに一意（未照合=ニュートラル、一部照合=注意、照合済み=完了）。
 const STATUS_STYLES: Record<DocumentMatchStatus, string> = {
-  unmatched: "bg-background-100 text-foreground-600",
-  partial: "bg-amber-100 text-amber-800",
-  matched: "bg-primary-100 text-primary-500",
+  unmatched: "tone-neutral",
+  partial: "tone-warning",
+  matched: "tone-success",
 };
 
 const STATUS_ICONS: Record<DocumentMatchStatus, string> = {

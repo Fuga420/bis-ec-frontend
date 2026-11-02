@@ -181,6 +181,53 @@ body {
   animation: mainImageFade 150ms ease-in-out;
 }
 
+/* ========================================================================
+   意味で固定した色（セマンティック・トーン）
+   ----------------------------------------------------------------------
+   色数を増やすのではなく「意味」に色を固定するための最小レイヤー。
+   バッジ・ラベルはこの3種類だけで塗る。
+     ・tone-neutral = 未確定・下書き・対象外・スキップ（グレー）
+     ・tone-success = 正常・完了（グリーン = primary）
+     ・tone-warning = 要注意・要対応・失敗（アンバー）
+   赤はバッジでは使わない。赤は「破壊的操作のボタン」と「エラー本文」だけに限定する。
+   AI は accent（金）に統一し、状態色としては使わない。
+   ======================================================================== */
+.tone-neutral {
+  @apply bg-background-100 text-foreground-600;
+}
+
+.tone-success {
+  @apply bg-primary-100 text-primary-700;
+}
+
+.tone-warning {
+  @apply bg-amber-100 text-amber-800;
+}
+
+/* AI の「金」。生成ボタン・生成中・生成済みバッジを全画面で同じ金に統一する。 */
+.tone-ai {
+  @apply bg-accent-100 text-accent-900;
+}
+
+/* ------------------------------------------------------------------------
+   無効状態の扱い
+   濃縮（primary）と金（accent）の塗りボタンは「主要アクション専用」。
+   無効時は緑や金を薄めず、グレー＋透明度で「押せない」ことを表す。
+   これで「淡い緑のボタン」が画面上から消える。
+   ------------------------------------------------------------------------ */
+button:disabled.bg-primary-500,
+button:disabled.bg-primary-600,
+button:disabled.bg-accent-500 {
+  background-color: oklch(var(--background-200));
+  color: oklch(var(--foreground-400));
+}
+
+button:disabled.bg-primary-500:hover,
+button:disabled.bg-primary-600:hover,
+button:disabled.bg-accent-500:hover {
+  background-color: oklch(var(--background-200));
+}
+
 /* カードの質感。
    フラットなまま安っぽく見えないよう「ごく薄い影＋細い枠線」だけを足す。
    影は前景色の低い不透明度で作るので、パレットを差し替えても破綻しない。

@@ -39,16 +39,18 @@ const actionIconBase =
 // ヘッダー側と合わせて桁を固定する。
 export const ACTION_COLUMN_WIDTH = "w-[136px]";
 
+// バッジの色は「意味」で固定する（tone-neutral / tone-success / tone-warning）。
+// 公開状態以外の色は使わない。
 const statusStyles: Record<string, string> = {
-  draft: "bg-background-100 text-foreground-600",
-  published: "bg-primary-100 text-primary-500",
-  hidden: "bg-background-100 text-foreground-600",
+  draft: "tone-neutral",
+  published: "tone-success",
+  hidden: "tone-neutral",
 };
 
 const inventoryStyles: Record<string, string> = {
-  in_stock: "bg-primary-100 text-primary-500",
-  reserved: "bg-amber-100 text-amber-800",
-  sold: "bg-red-100 text-red-800",
+  in_stock: "tone-success",
+  reserved: "tone-warning",
+  sold: "tone-neutral",
 };
 
 // スニーカーのサイズが入力済みか判定する（null・空文字・0 は未入力扱い）
@@ -103,21 +105,26 @@ export default function ProductRow({
     PUBLISH_STATUS_LABELS[product.publish_status] ??
     (product.publish_status || "—");
   const statusClass =
-    statusStyles[product.publish_status] ?? "bg-foreground-100 text-foreground-600";
+    statusStyles[product.publish_status] ?? "tone-neutral";
   const inventoryLabel =
     INVENTORY_STATUS_LABELS[product.inventory_status] ??
     (product.inventory_status || "—");
   const inventoryClass =
-    inventoryStyles[product.inventory_status] ??
-    "bg-foreground-100 text-foreground-600";
-  const priceText =
+    inventoryStyles[product.inventory_status] ?? "tone-neutral";
+  // 価格が未設定の行は「情報が無い」ことが伝わるよう、グレー＋少し小さい文字で控えめに置く。
+  const hasPrice = Boolean(
     product.planned_sale_price && product.planned_sale_price > 0
-      ? `¥${product.planned_sale_price.toLocaleString("ja-JP")}`
-      : "価格未設定";
+  );
+  const priceText = hasPrice
+    ? `¥${product.planned_sale_price!.toLocaleString("ja-JP")}`
+    : "価格未設定";
   // 先頭の大きな商品タイトルはスニーカーだけ英語タイトル優先
   // （スニーカー: translated_title → product_name、それ以外: product_name → 「商品名なし」）。
   // デスクトップ・モバイルの両表示でこの値を使う。
   const name = getProductDisplayTitle(product);
+  // 商品名が未入力の行は、グレーの「（商品名なし）」を並べず、控えめなグレー文字で置く
+  const isNameMissing = name === "（商品名なし）";
+  const displayName = isNameMissing ? "商品名未入力" : name;
 
   // 同じタブで商品詳細へ移動する時だけ、一覧の表示状態を残すよう依頼する。
   // 新しいタブで開く操作や修飾キー付きクリックでは、現在の一覧を離れないため何もしない。
@@ -163,9 +170,7 @@ export default function ProductRow({
     (product.record_status || "—");
   const recordStatusBadge =
     product.record_status === "archived" ? (
-      <span className={`${badgeBase} bg-background-100 text-foreground-600`}>
-        {recordStatusLabel}
-      </span>
+      <span className={`${badgeBase} tone-neutral`}>{recordStatusLabel}</span>
     ) : null;
 
   // Square連携の有無（Variation/Item ID のどちらかが入っていれば連携済みとみなす）
@@ -181,11 +186,7 @@ export default function ProductRow({
   // 補助情報バッジ（サイズ）: グリーンはステータス専用のため、通常はニュートラルなグレーで表示する
   const sneakerSizeBadge = isSneaker ? (
     <span
-      className={`${badgeBase} ${
-        hasSize
-          ? "bg-background-100 text-foreground-600"
-          : "bg-amber-100 text-amber-800"
-      }`}
+      className={`${badgeBase} ${hasSize ? "tone-neutral" : "tone-warning"}`}
     >
       <i
         className={`${
@@ -199,11 +200,7 @@ export default function ProductRow({
   // 補助情報バッジ（Square連携）: 連携済みはグレー、未連携のみ注意色
   const squareBadge = (
     <span
-      className={`${badgeBase} ${
-        isSquareLinked
-          ? "bg-background-100 text-foreground-600"
-          : "bg-amber-100 text-amber-800"
-      }`}
+      className={`${badgeBase} ${isSquareLinked ? "tone-neutral" : "tone-warning"}`}
     >
       <i
         className={`${
@@ -304,8 +301,14 @@ export default function ProductRow({
             <div className="min-w-0 flex-1">
               {/* 商品名は最大2行まで表示し、超過分は末尾を省略する。
                   欧文書体（Archivo→Inter）を当てて字間を詰め、見出しとしての密度を出す。 */}
-              <p className="admin-title line-clamp-2 text-[16px] font-semibold leading-snug text-foreground-950 group-hover/row:text-primary-600">
-                {name}
+              <p
+                className={`admin-title line-clamp-2 text-[16px] font-semibold leading-snug ${
+                  isNameMissing
+                    ? "text-foreground-400"
+                    : "text-foreground-950 group-hover/row:text-primary-600"
+                }`}
+              >
+                {displayName}
               </p>
               {hasBrand && (
                 <p className="admin-eyebrow mt-1.5 truncate text-[10px] font-semibold leading-none text-foreground-400">
@@ -335,7 +338,13 @@ export default function ProductRow({
             <span className="w-[88px] shrink-0 truncate text-xs text-foreground-500">
               {categoryLabel}
             </span>
-            <span className="admin-numeric w-[104px] shrink-0 whitespace-nowrap text-right text-[17px] font-bold tracking-tight text-foreground-950">
+            <span
+              className={`admin-numeric w-[104px] shrink-0 whitespace-nowrap text-right tracking-tight ${
+                hasPrice
+                  ? "text-[17px] font-bold text-foreground-950"
+                  : "text-[14px] font-medium text-foreground-400"
+              }`}
+            >
               {priceText}
             </span>
             <span className="flex w-[84px] shrink-0 overflow-hidden">
@@ -354,8 +363,12 @@ export default function ProductRow({
               size="md"
             />
             <div className="min-w-0 flex-1">
-              <p className="admin-title line-clamp-2 text-[15px] font-semibold leading-snug text-foreground-950">
-                {name}
+              <p
+                className={`admin-title line-clamp-2 text-[15px] font-semibold leading-snug ${
+                  isNameMissing ? "text-foreground-400" : "text-foreground-950"
+                }`}
+              >
+                {displayName}
               </p>
               {hasBrand && (
                 <p className="admin-eyebrow mt-1.5 truncate text-[10px] font-semibold leading-none text-foreground-400">
@@ -374,7 +387,13 @@ export default function ProductRow({
               </div>
             </div>
             <div className="shrink-0 text-right">
-              <p className="admin-numeric whitespace-nowrap text-base font-bold tracking-tight text-foreground-950">
+              <p
+                className={`admin-numeric whitespace-nowrap tracking-tight ${
+                  hasPrice
+                    ? "text-base font-bold text-foreground-950"
+                    : "text-[13px] font-medium text-foreground-400"
+                }`}
+              >
                 {priceText}
               </p>
               <p className="mt-1 text-xs text-foreground-500">{categoryLabel}</p>

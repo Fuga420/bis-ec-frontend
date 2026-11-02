@@ -1,11 +1,6 @@
 import { useCallback, useState } from "react";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
-import {
-  canUseCloudRunDraftUpdate,
-  markDraftProductSyncedInSession,
-  syncProductToReadDb,
-  updateDraftProductViaApi,
-} from "@/config/productsApi";
+import { syncProductToReadDb } from "@/config/productsApi";
 import type { AdminProduct, ProductUpdateResponse } from "../types";
 import {
   buildInlineEditInitialDraft,
@@ -94,19 +89,16 @@ export function useProductInlineEdit({ onSaved }: UseProductInlineEditParams) {
       }
 
       setSavingId(product.product_id);
-      const useDraftWriteApi = canUseCloudRunDraftUpdate(product);
       try {
-        const response = useDraftWriteApi
-          ? await updateDraftProductViaApi(product.product_id, payload)
-          : await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-              method: "POST",
-              headers: { "Content-Type": "text/plain;charset=utf-8" },
-              body: JSON.stringify({
-                action: "update_product",
-                product_id: product.product_id,
-                ...payload,
-              }),
-            });
+        const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({
+            action: "update_product",
+            product_id: product.product_id,
+            ...payload,
+          }),
+        });
         let data: ProductUpdateResponse | null = null;
         try {
           data = (await response.json()) as ProductUpdateResponse;
@@ -117,12 +109,8 @@ export function useProductInlineEdit({ onSaved }: UseProductInlineEditParams) {
           throw new Error(extractError(data, "商品情報の更新に失敗しました"));
         }
 
-        // 成功: Cloud Run直接書込ならセッション未同期フラグ解除のみ、GAS書込なら読取DBへ即時同期する。
-        if (useDraftWriteApi) {
-          markDraftProductSyncedInSession(product.product_id);
-        } else {
-          await syncProductToReadDb(product.product_id);
-        }
+        // 成功: 読取DBへ即時同期し、該当行のエラーを消し、編集モードを閉じ、一覧を再取得する。
+        await syncProductToReadDb(product.product_id);
         clearError(product.product_id);
         setEditingId(null);
         onSaved();

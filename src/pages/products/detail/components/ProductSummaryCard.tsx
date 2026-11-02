@@ -34,6 +34,10 @@ export default function ProductSummaryCard({
   onStartEdit,
   cost,
 }: ProductSummaryCardProps) {
+  // 価格が未設定のときは、グレー＋少し小さい文字にして「情報が無い」ことを控えめに伝える。
+  const hasPrice = Boolean(
+    product.planned_sale_price && product.planned_sale_price > 0
+  );
   return (
     <div className="ui-card flex flex-col overflow-hidden rounded-[10px]">
       {/* 1. 商品名・商品ID・状態バッジ */}
@@ -41,8 +45,14 @@ export default function ProductSummaryCard({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             {/* 商品名は一覧と同じディスプレイ書体。見出しとして一段大きく、字間を詰める。 */}
-            <h1 className="admin-title break-words text-[22px] font-semibold leading-tight text-foreground-950 md:text-[26px]">
-              {product.product_name || "（商品名なし）"}
+            <h1
+              className={`admin-title break-words text-[22px] font-semibold leading-tight md:text-[26px] ${
+                product.product_name
+                  ? "text-foreground-950"
+                  : "text-foreground-400"
+              }`}
+            >
+              {product.product_name || "商品名未入力"}
             </h1>
             <p className="admin-numeric mt-1.5 text-[11px] tracking-[0.06em] text-foreground-400">
               {product.product_id}
@@ -62,9 +72,9 @@ export default function ProductSummaryCard({
       </div>
 
       {/* 2. 商品スペック */}
-      <dl className="border-b border-background-100 px-4 py-4 md:px-5">
+      <div className="border-b border-background-100 px-4 py-4 md:px-5">
         <ProductSpecGrid product={product} cost={cost} />
-      </dl>
+      </div>
 
       {/* 3. 販売予定価格 + 公開/在庫状態 */}
       <div className="border-b border-background-100 px-4 py-4 md:px-5">
@@ -73,7 +83,13 @@ export default function ProductSummaryCard({
             <p className="text-[12px] leading-4 text-foreground-500">
               販売予定価格
             </p>
-            <p className="mt-1 whitespace-nowrap text-[28px] font-semibold leading-none tracking-tight text-foreground-950 admin-numeric">
+            <p
+              className={`mt-1 whitespace-nowrap leading-none tracking-tight admin-numeric ${
+                hasPrice
+                  ? "text-[28px] font-semibold text-foreground-950"
+                  : "text-[22px] font-medium text-foreground-400"
+              }`}
+            >
               {formatPrice(product.planned_sale_price)}
             </p>
           </div>

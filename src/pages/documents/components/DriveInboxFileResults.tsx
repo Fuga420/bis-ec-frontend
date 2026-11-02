@@ -18,12 +18,12 @@ interface DriveInboxFileResultsProps {
 }
 
 const STATUS_STYLES: Record<DriveInboxFileStatus, string> = {
-  pending: "bg-background-100 text-foreground-600",
-  processing: "bg-secondary-100 text-secondary-900 ring-1 ring-secondary-300",
-  processed: "bg-primary-100 text-primary-700",
-  needs_review: "bg-amber-100 text-amber-800",
-  failed: "bg-red-50 text-red-700",
-  skipped: "bg-background-100 text-foreground-500",
+  pending: "tone-neutral",
+  processing: "tone-neutral",
+  processed: "tone-success",
+  needs_review: "tone-warning",
+  failed: "tone-warning",
+  skipped: "tone-neutral",
 };
 
 function formatDateTime(value?: string): string {
@@ -88,7 +88,7 @@ export default function DriveInboxFileResults({
             className={`${
               isError ? "ri-error-warning-line" : "ri-plug-line"
             } mt-0.5 w-4 h-4 shrink-0 flex items-center justify-center text-sm ${
-              isError ? "text-red-600" : "text-secondary-700"
+              isError ? "text-red-600" : "text-foreground-500"
             }`}
           ></i>
           <div className="min-w-0 flex-1">

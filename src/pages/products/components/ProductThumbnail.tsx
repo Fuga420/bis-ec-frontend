@@ -1,4 +1,5 @@
 import { useState } from "react";
+import BisImagePlaceholder from "@/components/base/BisImagePlaceholder";
 
 type ThumbnailSize = "sm" | "md" | "lg";
 
@@ -16,10 +17,11 @@ const SIZE_CLASSES: Record<ThumbnailSize, string> = {
   lg: "h-28 w-28 rounded-lg",
 };
 
-const ICON_CLASSES: Record<ThumbnailSize, string> = {
-  sm: "w-5 h-5 text-base",
-  md: "w-6 h-6 text-lg",
-  lg: "w-7 h-7 text-xl",
+// 画像が無いときは画像アイコンではなく、薄いグレーに「BIS」を透かしたプレースホルダにする。
+const PLACEHOLDER_SIZE: Record<ThumbnailSize, "sm" | "md" | "lg"> = {
+  sm: "sm",
+  md: "md",
+  lg: "lg",
 };
 
 export default function ProductThumbnail({
@@ -31,15 +33,19 @@ export default function ProductThumbnail({
   const showPlaceholder = !src || failed;
   const sizeClass = SIZE_CLASSES[size];
 
+  // 画像が切り替わったときに、前の画像の読み込み失敗を引きずらないようにする
+  const [prevSrc, setPrevSrc] = useState(src);
+  if (prevSrc !== src) {
+    setPrevSrc(src);
+    if (failed) setFailed(false);
+  }
+
   if (showPlaceholder) {
     return (
-      <div
-        className={`flex shrink-0 items-center justify-center bg-background-100 ${sizeClass}`}
-      >
-        <i
-          className={`ri-image-line flex items-center justify-center text-foreground-300 ${ICON_CLASSES[size]}`}
-        ></i>
-      </div>
+      <BisImagePlaceholder
+        size={PLACEHOLDER_SIZE[size]}
+        className={`shrink-0 border border-background-200 ${sizeClass}`}
+      />
     );
   }
 

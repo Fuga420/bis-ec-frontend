@@ -2,11 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
 import {
-  canUseCloudRunDraftUpdate,
   fetchProductsReadApi,
-  markDraftProductSyncedInSession,
   syncProductToReadDb,
-  updateDraftProductViaApi,
 } from "@/config/productsApi";
 import type {
   AdminProduct,
@@ -56,6 +53,7 @@ import ProductDetailTabs, {
 import SalesManagementPanel from "./components/SalesManagementPanel";
 import ProductDangerDialogs from "./components/ProductDangerDialogs";
 import SaveStatusMessage from "@/components/base/SaveStatusMessage";
+import BisImagePlaceholder from "@/components/base/BisImagePlaceholder";
 
 type LoadState = "loading" | "success" | "error";
 type SaveState = "idle" | "saving";
@@ -67,9 +65,9 @@ const INVENTORY_STATUS_LABELS: Record<string, string> = {
 };
 
 const statusStyles: Record<string, string> = {
-  draft: "bg-background-100 text-foreground-600",
-  published: "bg-primary-100 text-primary-500",
-  hidden: "bg-background-100 text-foreground-600",
+  draft: "tone-neutral",
+  published: "tone-success",
+  hidden: "tone-neutral",
 };
 
 // 一覧API（mode=admin）の商品情報から、詳細画面表示に必要な最小限の情報を組み立てる。
@@ -805,34 +803,24 @@ export default function ProductDetailPage() {
     setEditSaveState("saving");
     setEditMessage(null);
 
-    const useDraftWriteApi = canUseCloudRunDraftUpdate(product);
-
     try {
-      const response = useDraftWriteApi
-        ? await updateDraftProductViaApi(product.product_id, payload)
-        : await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-            method: "POST",
-            headers: {
-              "Content-Type": "text/plain;charset=utf-8",
-            },
-            body: JSON.stringify({
-              ...payload,
-              action: "update_product",
-              product_id: product.product_id,
-            }),
-          });
-      let data: ProductUpdateResponse | null = null;
-      try {
-        data = (await response.json()) as ProductUpdateResponse;
-      } catch {
-        data = null;
+      const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8",
+        },
+        body: JSON.stringify({
+          ...payload,
+          action: "update_product",
+          product_id: product.product_id,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
       }
-      if (!response.ok || !data || data.success !== true) {
-        const backendErr =
-          (typeof data?.message === "string" && data.message.trim()) ||
-          (typeof data?.error === "string" && data.error.trim()) ||
-          "";
-        throw new Error(backendErr || `HTTP ${response.status}`);
+      const data = (await response.json()) as ProductUpdateResponse;
+      if (!data || data.success !== true) {
+        throw new Error("Invalid response");
       }
       setIsEditing(false);
 
@@ -940,11 +928,7 @@ export default function ProductDetailPage() {
         });
       }
 
-      if (useDraftWriteApi) {
-        markDraftProductSyncedInSession(product.product_id);
-      } else {
-        await syncProductToReadDb(product.product_id);
-      }
+      await syncProductToReadDb(product.product_id);
       try {
         const updated = await loadProduct();
         setProduct(updated);
@@ -979,8 +963,8 @@ export default function ProductDetailPage() {
       (product.publish_status || "—")
     : "—";
   const statusClass = product
-    ? statusStyles[product.publish_status] ?? "bg-foreground-100 text-foreground-600"
-    : "bg-foreground-100 text-foreground-600";
+    ? statusStyles[product.publish_status] ?? "tone-neutral"
+    : "tone-neutral";
   const inventoryLabel = product
     ? INVENTORY_STATUS_LABELS[product.inventory_status] ??
       (product.inventory_status || "—")
@@ -1333,9 +1317,10 @@ function MainImage({
 
   if (showPlaceholder) {
     return (
-      <div className="flex aspect-square w-full items-center justify-center rounded-lg border border-background-200 bg-background-100">
-        <i className="ri-image-line w-10 h-10 flex items-center justify-center text-foreground-300"></i>
-      </div>
+      <BisImagePlaceholder
+        size="xl"
+        className="aspect-square w-full rounded-lg border border-background-200"
+      />
     );
   }
 
@@ -1388,9 +1373,7 @@ function Thumbnail({
       className={`h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 bg-background-100 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 ${stateClass}`}
     >
       {showPlaceholder ? (
-        <span className="flex h-full w-full items-center justify-center">
-          <i className="ri-image-line w-5 h-5 flex items-center justify-center text-foreground-300"></i>
-        </span>
+        <BisImagePlaceholder size="sm" className="h-full w-full" />
       ) : (
         <img
           src={src}

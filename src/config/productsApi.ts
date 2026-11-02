@@ -1,11 +1,9 @@
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "./googleSheets";
 
 /**
- * 商品マスターAPI（Cloud Run + Supabase）のエンドポイント。
+ * 商品マスター読取API（Cloud Run + Supabase）のエンドポイント。
  * - 一覧・検索・詳細のGET読取はこちらを優先利用する（ログイン不要・ブラウザへの秘密鍵埋め込みなし）。
- * - Phase 2 Unit 1: Square連携を伴わない下書き商品の新規登録（POST /products）および
- *   下書き商品の編集（POST /products/:productId/update）は Cloud Run + Supabase を書込正本とする。
- * - 公開登録・Square連携済み商品の編集・公開状態変更・AI生成等は引き続き GOOGLE_SHEETS_WEBHOOK_URL（GAS）を利用し、
+ * - 商品登録・更新・削除・Square同期等のPOST書込は引き続き GOOGLE_SHEETS_WEBHOOK_URL（GAS）を正本とし、
  *   書込成功後に syncProductToReadDb() で該当1商品をSupabaseへ即時反映する。
  * - 画面を閉じている間のGAS定期処理による変更は Cloud Scheduler -> POST /reconcile（5分周期）が差分同期する。
  */
@@ -247,81 +245,3 @@ export async function syncProductToReadDb(
     return { ok: false, error: errMsg };
   }
 }
-
-/**
- * 対象商品が「Square連携を伴わない下書き商品」であり、Cloud Run + Supabase 書込APIの対象かを判定する。
- * - 一度公開して Square Item / Variation が紐付いた後に下書きへ戻した商品は Square 価格同期が関わるため除外する。
- */
-export function canUseCloudRunDraftUpdate(product: {
-  publish_status?: string | null;
-  square_item_id?: string | null;
-  square_variation_id?: string | null;
-}): boolean {
-  if (!PRODUCTS_READ_API_URL) return false;
-  const pubStatus = (product.publish_status ?? "draft").trim() || "draft";
-  const hasSquareLink =
-    Boolean((product.square_item_id ?? "").trim()) ||
-    Boolean((product.square_variation_id ?? "").trim());
-  return pubStatus === "draft" && !hasSquareLink;
-}
-
-/**
- * Cloud Run + Supabase へ直接書込が完了した商品について、セッション内の未同期フラグを解除する。
- */
-export function markDraftProductSyncedInSession(
-  productId: string | null | undefined
-): void {
-  const id = (productId ?? "").trim();
-  if (!id) return;
-  clearProductUnsynced(id);
-}
-
-/**
- * Phase 2 Unit 1: Square連携を伴わない下書き商品の新規登録（Cloud Run -> Supabase 正本保存 + Drive画像保存）。
- */
-export async function createDraftProductViaApi(
-  payload: Record<string, unknown>
-): Promise<Response> {
-  if (!PRODUCTS_READ_API_URL) {
-    return fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload),
-    });
-  }
-  return fetch(`${PRODUCTS_READ_API_URL}/products`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json; charset=utf-8" },
-    body: JSON.stringify(payload),
-  });
-}
-
-/**
- * Phase 2 Unit 1: Square連携を伴わない下書き商品の編集（Cloud Run -> Supabase 正本更新 + Sheets互換ミラー）。
- */
-export async function updateDraftProductViaApi(
-  productId: string,
-  payload: Record<string, unknown>
-): Promise<Response> {
-  const id = productId.trim();
-  if (!PRODUCTS_READ_API_URL) {
-    return fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({
-        ...payload,
-        action: "update_product",
-        product_id: id,
-      }),
-    });
-  }
-  return fetch(
-    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/update`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json; charset=utf-8" },
-      body: JSON.stringify(payload),
-    }
-  );
-}
-

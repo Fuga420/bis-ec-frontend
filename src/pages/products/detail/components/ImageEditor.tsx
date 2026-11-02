@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { AdminProductImage } from "@/pages/products/types";
+import BisImagePlaceholder from "@/components/base/BisImagePlaceholder";
 
 export const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 export const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -488,7 +489,7 @@ export default function ImageEditor({
                 onSave({ image_order: [], newImages: [] });
               }}
               disabled={saving}
-              className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-accent-500 px-3 py-1.5 text-sm font-bold text-background-50 transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-accent-500 px-3 py-1.5 text-sm font-bold text-accent-950 transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
               削除して保存
             </button>
@@ -548,9 +549,10 @@ function ImageThumb({
   const [failed, setFailed] = useState(false);
   if (!src || failed) {
     return (
-      <div className="flex h-full w-full items-center justify-center bg-background-100 pb-6">
-        <i className="ri-image-line text-xl text-foreground-300"></i>
-      </div>
+      <BisImagePlaceholder
+        size="sm"
+        className="h-full w-full pb-6"
+      />
     );
   }
   return (

@@ -183,7 +183,7 @@ export default function RelayCheckPage() {
             2. auto_link_product_by_item_number の判定
           </h2>
           <p className="mb-4 text-sm leading-relaxed text-foreground-700">
-            <span className="font-medium text-accent-900">注意:</span>{" "}
+            <span className="font-medium text-amber-900">注意:</span>{" "}
             新版が動いている場合、このリクエストは実際にリンク状態を評価します。
             期待される結果は
             <code className="mx-1 rounded bg-background-200 px-1.5 py-0.5 font-mono text-xs">
@@ -241,7 +241,7 @@ export default function RelayCheckPage() {
             <div
               className={`mt-4 rounded-xl border px-4 py-3 text-sm font-medium ${
                 isUnsupported
-                  ? "border-accent-200 bg-accent-100 text-accent-900"
+                  ? "border-amber-200 bg-amber-100 text-amber-900"
                   : "border-primary-200 bg-primary-100 text-primary-900"
               }`}
             >
@@ -276,7 +276,7 @@ function PanelView({ panel }: { panel: Panel }) {
           <span
             className={`rounded-full px-2.5 py-0.5 font-mono text-xs ${
               isErrorStatus
-                ? "bg-accent-100 text-accent-900"
+                ? "bg-amber-100 text-amber-900"
                 : "bg-primary-100 text-primary-900"
             }`}
           >
@@ -288,7 +288,7 @@ function PanelView({ panel }: { panel: Panel }) {
         <p className="mb-2 break-all text-xs text-foreground-600">{panel.description}</p>
       ) : null}
       {panel.error ? (
-        <div className="rounded-lg border border-accent-200 bg-accent-100 px-3 py-2 text-xs text-accent-900">
+        <div className="rounded-lg border border-amber-200 bg-amber-100 px-3 py-2 text-xs text-amber-900">
           {panel.error}
         </div>
       ) : null}
