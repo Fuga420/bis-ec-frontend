@@ -2,8 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
 import {
+  canUseCloudRunDraftUpdate,
   fetchProductsReadApi,
+  markDraftProductSyncedInSession,
   syncProductToReadDb,
+  updateDraftProductViaApi,
 } from "@/config/productsApi";
 import type {
   AdminProduct,
@@ -802,24 +805,34 @@ export default function ProductDetailPage() {
     setEditSaveState("saving");
     setEditMessage(null);
 
+    const useDraftWriteApi = canUseCloudRunDraftUpdate(product);
+
     try {
-      const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8",
-        },
-        body: JSON.stringify({
-          ...payload,
-          action: "update_product",
-          product_id: product.product_id,
-        }),
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+      const response = useDraftWriteApi
+        ? await updateDraftProductViaApi(product.product_id, payload)
+        : await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "text/plain;charset=utf-8",
+            },
+            body: JSON.stringify({
+              ...payload,
+              action: "update_product",
+              product_id: product.product_id,
+            }),
+          });
+      let data: ProductUpdateResponse | null = null;
+      try {
+        data = (await response.json()) as ProductUpdateResponse;
+      } catch {
+        data = null;
       }
-      const data = (await response.json()) as ProductUpdateResponse;
-      if (!data || data.success !== true) {
-        throw new Error("Invalid response");
+      if (!response.ok || !data || data.success !== true) {
+        const backendErr =
+          (typeof data?.message === "string" && data.message.trim()) ||
+          (typeof data?.error === "string" && data.error.trim()) ||
+          "";
+        throw new Error(backendErr || `HTTP ${response.status}`);
       }
       setIsEditing(false);
 
@@ -927,7 +940,11 @@ export default function ProductDetailPage() {
         });
       }
 
-      await syncProductToReadDb(product.product_id);
+      if (useDraftWriteApi) {
+        markDraftProductSyncedInSession(product.product_id);
+      } else {
+        await syncProductToReadDb(product.product_id);
+      }
       try {
         const updated = await loadProduct();
         setProduct(updated);
