@@ -7,6 +7,7 @@ import {
   markDraftProductSyncedInSession,
   syncProductToReadDb,
   updateDraftProductViaApi,
+  updateProductImagesViaApi,
 } from "@/config/productsApi";
 import type {
   AdminProduct,
@@ -764,17 +765,9 @@ export default function ProductDetailPage() {
         }))
       );
 
-      const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8",
-        },
-        body: JSON.stringify({
-          action: "update_product_images",
-          product_id: product.product_id,
-          image_order: payload.image_order,
-          new_images: newImages,
-        }),
+      const response = await updateProductImagesViaApi(product.product_id, {
+        image_order: payload.image_order,
+        new_images: newImages,
       });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
@@ -784,9 +777,9 @@ export default function ProductDetailPage() {
         throw new Error("Invalid response");
       }
 
+      markDraftProductSyncedInSession(product.product_id);
       setIsImageEditing(false);
       setImageMessage({ type: "success", text: "商品画像を更新しました" });
-      await syncProductToReadDb(product.product_id);
 
       try {
         const updated = await loadProduct();

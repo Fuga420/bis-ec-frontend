@@ -1,7 +1,8 @@
-import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
 import {
+  createDraftProductViaApi,
   fetchProductsReadApi,
-  syncProductToReadDb,
+  markDraftProductSyncedInSession,
+  updateProductImagesViaApi,
 } from "@/config/productsApi";
 import { getSupabaseClient } from "@/lib/supabaseClient";
 import { categories, conditions } from "@/mocks/productForm";
@@ -523,10 +524,15 @@ export async function createTempProductDraft(images: File[]): Promise<string> {
     }))
   );
 
-  const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({ publish_status: "draft", images: imagesPayload }),
+  const clientRequestId =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? `temp_draft_${crypto.randomUUID()}`
+      : `temp_draft_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+  const response = await createDraftProductViaApi({
+    publish_status: "draft",
+    client_request_id: clientRequestId,
+    images: imagesPayload,
   });
 
   const text = await response.text();
@@ -537,12 +543,12 @@ export async function createTempProductDraft(images: File[]): Promise<string> {
         `画像保存または仮draftの作成に失敗しました (HTTP ${response.status})`
     );
   }
-  await syncProductToReadDb(data.product_id);
+  markDraftProductSyncedInSession(data.product_id);
   return data.product_id;
 }
 
 /**
- * 既存商品の画像を差し替える（update_product_images）。
+ * 既存商品の画像を差し替える（POST /products/:productId/images）。
  * 同じ product_id を再利用し、新規商品は作らない。
  * images の並び順がそのまま保存順序になる（全置換）。
  */
@@ -559,18 +565,12 @@ export async function updateProductImages(
     }))
   );
 
-  const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({
-      action: "update_product_images",
-      product_id: productId,
-      image_order: newImages.map((img) => ({
-        source: "new",
-        id: img.client_id,
-      })),
-      new_images: newImages,
-    }),
+  const response = await updateProductImagesViaApi(productId, {
+    image_order: newImages.map((img) => ({
+      source: "new",
+      id: img.client_id,
+    })),
+    new_images: newImages,
   });
 
   const text = await response.text();
@@ -580,7 +580,7 @@ export async function updateProductImages(
       data?.error || `商品画像の更新に失敗しました (HTTP ${response.status})`
     );
   }
-  await syncProductToReadDb(productId);
+  markDraftProductSyncedInSession(productId);
 }
 
 function createClientId(index: number): string {
