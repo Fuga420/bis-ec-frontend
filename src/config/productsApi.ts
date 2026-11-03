@@ -9,7 +9,9 @@ import { getBackendWriteAuthHeaders } from "@/lib/supabaseClient";
  * - Phase 2 Unit 2: 複数画像からの商品取込（POST /products/import）および
  *   商品画像の追加・並べ替え・削除（POST /products/:productId/images）は Cloud Run + Supabase を書込正本とする
  *   （画像ファイル本体の保存先は既存の Google Drive フォルダを維持）。
- * - 公開登録・Square連携済み商品の編集・公開状態変更・AI生成等は引き続き GOOGLE_SHEETS_WEBHOOK_URL（GAS）を利用し、
+ * - Phase 2 Unit 3: Square未連携の下書き商品の在庫状態変更（POST /products/:productId/inventory-status）、
+ *   アーカイブ・復元（POST /products/:productId/record-status）、一覧の一括アーカイブは Cloud Run + Supabase を書込正本とする。
+ * - 公開登録・Square連携済み商品の操作・公開状態変更・完全削除・AI生成等は引き続き GOOGLE_SHEETS_WEBHOOK_URL（GAS）を利用し、
  *   書込成功後に syncProductToReadDb() で該当1商品をSupabaseへ即時反映する。
  * - 画面を閉じている間のGAS定期処理による変更は Cloud Scheduler -> POST /reconcile（5分周期）が差分同期する。
  */
@@ -254,18 +256,23 @@ export async function syncProductToReadDb(
 
 /**
  * 対象商品が「Square連携を伴わない下書き商品」であり、Cloud Run + Supabase 書込APIの対象かを判定する。
- * - 一度公開して Square Item / Variation が紐付いた後に下書きへ戻した商品は Square 価格同期が関わるため除外する。
+ * - 一度公開して Square Item / Variation / Payment Link / Checkout URL が紐付いた商品は
+ *   Square 在庫・決済リンク・アーカイブ同期が関わるため除外し、従来の GAS 経路を維持する。
  */
 export function canUseCloudRunDraftUpdate(product: {
   publish_status?: string | null;
   square_item_id?: string | null;
   square_variation_id?: string | null;
+  square_payment_link_id?: string | null;
+  square_checkout_url?: string | null;
 }): boolean {
   if (!PRODUCTS_READ_API_URL) return false;
   const pubStatus = (product.publish_status ?? "draft").trim() || "draft";
   const hasSquareLink =
     Boolean((product.square_item_id ?? "").trim()) ||
-    Boolean((product.square_variation_id ?? "").trim());
+    Boolean((product.square_variation_id ?? "").trim()) ||
+    Boolean((product.square_payment_link_id ?? "").trim()) ||
+    Boolean((product.square_checkout_url ?? "").trim());
   return pubStatus === "draft" && !hasSquareLink;
 }
 
@@ -397,3 +404,70 @@ export async function updateProductImagesViaApi(
   );
 }
 
+/**
+ * Phase 2 Unit 3: Square未連携の下書き商品の在庫状態変更（Cloud Run -> Supabase 正本更新 + Sheets互換ミラー）。
+ */
+export async function updateDraftInventoryStatusViaApi(
+  productId: string,
+  inventoryStatus: string
+): Promise<Response> {
+  const id = productId.trim();
+  if (!PRODUCTS_READ_API_URL) {
+    return fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        action: "update_inventory_status",
+        product_id: id,
+        inventory_status: inventoryStatus,
+      }),
+    });
+  }
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(
+      id
+    )}/inventory-status`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...authHeaders,
+      },
+      body: JSON.stringify({ inventory_status: inventoryStatus }),
+    }
+  );
+}
+
+/**
+ * Phase 2 Unit 3: Square未連携の下書き商品のアーカイブ・復元（Cloud Run -> Supabase 正本更新 + Sheets互換ミラー）。
+ */
+export async function updateDraftRecordStatusViaApi(
+  productId: string,
+  recordStatus: "active" | "archived"
+): Promise<Response> {
+  const id = productId.trim();
+  if (!PRODUCTS_READ_API_URL) {
+    return fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        action: "update_record_status",
+        product_id: id,
+        record_status: recordStatus,
+      }),
+    });
+  }
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/record-status`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...authHeaders,
+      },
+      body: JSON.stringify({ record_status: recordStatus }),
+    }
+  );
+}

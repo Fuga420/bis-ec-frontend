@@ -6,7 +6,9 @@ import {
   fetchProductsReadApi,
   markDraftProductSyncedInSession,
   syncProductToReadDb,
+  updateDraftInventoryStatusViaApi,
   updateDraftProductViaApi,
+  updateDraftRecordStatusViaApi,
   updateProductImagesViaApi,
 } from "@/config/productsApi";
 import type {
@@ -477,18 +479,25 @@ export default function ProductDetailPage() {
     setInventorySaveState("saving");
     setInventoryMessage(null);
 
+    const useCloudRun = canUseCloudRunDraftUpdate(product);
+
     try {
-      const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8",
-        },
-        body: JSON.stringify({
-          action: "update_inventory_status",
-          product_id: product.product_id,
-          inventory_status: selectedInventoryStatus,
-        }),
-      });
+      const response = useCloudRun
+        ? await updateDraftInventoryStatusViaApi(
+            product.product_id,
+            selectedInventoryStatus
+          )
+        : await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "text/plain;charset=utf-8",
+            },
+            body: JSON.stringify({
+              action: "update_inventory_status",
+              product_id: product.product_id,
+              inventory_status: selectedInventoryStatus,
+            }),
+          });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
@@ -504,7 +513,11 @@ export default function ProductDetailPage() {
         data.inventory_status ?? selectedInventoryStatus
       );
       setInventoryMessage({ type: "success", text: "在庫状態を更新しました" });
-      await syncProductToReadDb(product.product_id);
+      if (useCloudRun) {
+        markDraftProductSyncedInSession(product.product_id);
+      } else {
+        await syncProductToReadDb(product.product_id);
+      }
 
       try {
         const updated = await loadProduct();
@@ -532,21 +545,28 @@ export default function ProductDetailPage() {
     const targetStatus =
       product.record_status === "active" ? "archived" : "active";
     const squareLinked = Boolean(
-      product.square_item_id || product.square_variation_id
+      product.square_item_id ||
+        product.square_variation_id ||
+        product.square_payment_link_id ||
+        product.square_checkout_url
     );
+    const useCloudRun =
+      canUseCloudRunDraftUpdate(product) && !regeneratePaymentLink;
 
     try {
-      const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8",
-        },
-        body: JSON.stringify({
-          action: "update_record_status",
-          product_id: product.product_id,
-          record_status: targetStatus,
-        }),
-      });
+      const response = useCloudRun
+        ? await updateDraftRecordStatusViaApi(product.product_id, targetStatus)
+        : await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "text/plain;charset=utf-8",
+            },
+            body: JSON.stringify({
+              action: "update_record_status",
+              product_id: product.product_id,
+              record_status: targetStatus,
+            }),
+          });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
@@ -554,6 +574,18 @@ export default function ProductDetailPage() {
       if (!data || data.success !== true) {
         throw new Error("Invalid response");
       }
+
+      const nextPublishStatus =
+        data.publish_status ??
+        (product.record_status === "archived" && targetStatus === "active"
+          ? "draft"
+          : product.publish_status);
+      setProduct({
+        ...product,
+        record_status: data.record_status ?? targetStatus,
+        publish_status: nextPublishStatus,
+      });
+      setSelectedStatus(nextPublishStatus);
 
       setIsArchiveConfirmOpen(false);
       setIsRestoreConfirmOpen(false);
@@ -612,7 +644,11 @@ export default function ProductDetailPage() {
         });
       }
 
-      await syncProductToReadDb(product.product_id);
+      if (useCloudRun) {
+        markDraftProductSyncedInSession(product.product_id);
+      } else {
+        await syncProductToReadDb(product.product_id);
+      }
       try {
         const updated = await loadProduct();
         setProduct(updated);
