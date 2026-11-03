@@ -1,6 +1,12 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
-import { syncProductToReadDb } from "@/config/productsApi";
+import {
+  PRODUCTS_READ_API_URL,
+  canUseCloudRunDraftUpdate,
+  markDraftProductSyncedInSession,
+  syncProductToReadDb,
+  updateDraftRecordStatusViaApi,
+} from "@/config/productsApi";
 import type {
   AdminProductDetailResponse,
   RecordStatusUpdateResponse,
@@ -33,6 +39,11 @@ export interface BulkArchiveTarget {
   product_id: string;
   product_name?: string;
   record_status?: string;
+  publish_status?: string | null;
+  square_item_id?: string | null;
+  square_variation_id?: string | null;
+  square_payment_link_id?: string | null;
+  square_checkout_url?: string | null;
 }
 
 // 単品アーカイブ呼び出しの結果区分。
@@ -42,19 +53,29 @@ type ArchiveOutcome =
   | { kind: "failed"; reason: string }
   | { kind: "uncertain" };
 
-async function requestArchive(productId: string): Promise<ArchiveOutcome> {
+function shouldUseCloudRunArchive(target: BulkArchiveTarget): boolean {
+  if (target.publish_status === undefined) return false;
+  return canUseCloudRunDraftUpdate(target);
+}
+
+async function requestArchive(
+  productId: string,
+  useCloudRun: boolean
+): Promise<ArchiveOutcome> {
   try {
-    // 既存の単品アーカイブと同じ action を1件ずつ呼ぶ（新しいAPI・一括APIは使わない）。
-    // これにより Square 連携済み商品の Square 側アーカイブ等は GAS 側で既存どおり実行される。
-    const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({
-        action: "update_record_status",
-        product_id: productId,
-        record_status: "archived",
-      }),
-    });
+    // Square未連携の下書き商品は Cloud Run + Supabase（正本）へ送信し、
+    // 公開中商品・Square連携済み商品は既存の GAS 経路で Square 側アーカイブ等と同期実行する。
+    const response = useCloudRun
+      ? await updateDraftRecordStatusViaApi(productId, "archived")
+      : await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({
+            action: "update_record_status",
+            product_id: productId,
+            record_status: "archived",
+          }),
+        });
     let data: RecordStatusUpdateResponse | null = null;
     try {
       data = (await response.json()) as RecordStatusUpdateResponse;
@@ -74,6 +95,13 @@ async function requestArchive(productId: string): Promise<ArchiveOutcome> {
       if (code) return { kind: "failed", reason: `アーカイブに失敗しました（コード: ${code}）` };
       return { kind: "failed", reason: "アーカイブに失敗しました" };
     }
+    // 4xx は受付前の確定拒否のため再試行可能な確定失敗とする。
+    if (response.status >= 400 && response.status < 500) {
+      return {
+        kind: "failed",
+        reason: `アーカイブに失敗しました（HTTP ${response.status}）`,
+      };
+    }
     // 応答は返ったが成功・失敗を判定できない → 状態不明（要確認）
     return { kind: "uncertain" };
   } catch {
@@ -83,15 +111,21 @@ async function requestArchive(productId: string): Promise<ArchiveOutcome> {
 }
 
 // 既存の単品取得API（GET ?mode=admin&product_id=...）で現在の record_status を再取得する。
-// 商品詳細画面と同じエンドポイントを使い、新しいAPIは追加しない。
+// - Cloud Run 経路の商品は正本である Cloud Run / Supabase 側を直接確認する（GAS フォールバックで古い状態を読まない）。
+// - GAS 経路の商品は正本である GAS 側を確認する。
 async function fetchCurrentRecordStatus(
-  productId: string
+  productId: string,
+  useCloudRun: boolean
 ): Promise<"archived" | "active" | "unknown"> {
   try {
-    const url = `${GOOGLE_SHEETS_WEBHOOK_URL}?mode=admin&product_id=${encodeURIComponent(
+    const baseUrl =
+      useCloudRun && PRODUCTS_READ_API_URL
+        ? `${PRODUCTS_READ_API_URL}/`
+        : GOOGLE_SHEETS_WEBHOOK_URL;
+    const url = `${baseUrl}?mode=admin&product_id=${encodeURIComponent(
       productId
     )}`;
-    const response = await fetch(url, { method: "GET" });
+    const response = await fetch(url, { method: "GET", cache: "no-store" });
     if (!response.ok) return "unknown";
     const data = (await response.json()) as AdminProductDetailResponse;
     if (!data || data.success !== true || !data.product) return "unknown";
@@ -109,9 +143,10 @@ async function fetchCurrentRecordStatus(
 // - active を確認   → failed（未アーカイブを確認。スタッフの操作で再試行できる）
 // - 確認できない    → unknown（受付結果不明・要確認。成功・確定失敗のどちらにも決めつけない）
 async function resolveUnknown(
-  productId: string
+  productId: string,
+  useCloudRun: boolean
 ): Promise<{ status: BulkArchiveStatus; reason: string }> {
-  const verified = await fetchCurrentRecordStatus(productId);
+  const verified = await fetchCurrentRecordStatus(productId, useCloudRun);
   if (verified === "archived") {
     return {
       status: "success",
@@ -136,9 +171,10 @@ async function resolveUnknown(
  * 一括アーカイブ（既存の単品 update_record_status を1件ずつ直列実行）。
  *
  * - 逐次実行（並列にしない）。商品ごとに成功／失敗／スキップ／要確認を記録する。
+ * - Square未連携の下書き商品は Cloud Run + Supabase 正本へ更新し、公開中・Square連携済み商品は GAS 経路を維持する。
  * - 途中失敗を全件成功と表示しない（成功は success の商品のみ）。
  * - 成功分は再送しない。確定失敗（failed）のみ再試行できる（retryFailed）。
- * - 通信断・タイムアウト等で結果不明（uncertain）の商品は、既存APIで現在の状態を再取得し、
+ * - 通信断・タイムアウト等で結果不明（uncertain）の商品は、それぞれの書込正本APIで現在の状態を再取得し、
  *   archived なら成功、未アーカイブなら failed（再試行可）、確認できなければ unknown（要確認）。
  * - 連打防止（isRunning / runningRef でガード）。
  * - 削除・完全消去は行わない（アーカイブの既存の意味のみ）。
@@ -148,6 +184,7 @@ export function useBulkArchive() {
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [results, setResults] = useState<BulkArchiveResultItem[] | null>(null);
   const runningRef = useRef(false);
+  const targetMetaRef = useRef<Map<string, BulkArchiveTarget>>(new Map());
 
   const runTargets = useCallback(async (targets: BulkArchiveTarget[]) => {
     if (runningRef.current) return;
@@ -158,26 +195,45 @@ export function useBulkArchive() {
 
     const out: BulkArchiveResultItem[] = [];
     for (let i = 0; i < targets.length; i += 1) {
-      const target = targets[i];
+      const rawTarget = targets[i];
+      const cachedMeta = targetMetaRef.current.get(rawTarget.product_id);
+      const effectiveTarget: BulkArchiveTarget =
+        rawTarget.publish_status !== undefined
+          ? rawTarget
+          : cachedMeta ?? rawTarget;
+      targetMetaRef.current.set(rawTarget.product_id, effectiveTarget);
+
+      const useCloudRun = shouldUseCloudRunArchive(effectiveTarget);
       const base = {
-        product_id: target.product_id,
-        product_name: target.product_name || "（商品名なし）",
+        product_id: effectiveTarget.product_id,
+        product_name: effectiveTarget.product_name || "（商品名なし）",
       };
       // すでにアーカイブ済みなら API を呼ばず skipped
-      if (target.record_status === "archived") {
+      if (effectiveTarget.record_status === "archived") {
         out.push({ ...base, status: "skipped", reason: "すでにアーカイブ済みです" });
       } else {
-        const res = await requestArchive(target.product_id);
+        const res = await requestArchive(effectiveTarget.product_id, useCloudRun);
         if (res.kind === "success") {
-          await syncProductToReadDb(target.product_id);
+          if (useCloudRun) {
+            markDraftProductSyncedInSession(effectiveTarget.product_id);
+          } else {
+            await syncProductToReadDb(effectiveTarget.product_id);
+          }
           out.push({ ...base, status: "success" });
         } else if (res.kind === "failed") {
           out.push({ ...base, status: "failed", reason: res.reason });
         } else {
-          // 通信断・タイムアウト等で結果不明 → 既存APIで現在の状態を再取得して判定する
-          const resolved = await resolveUnknown(target.product_id);
+          // 通信断・タイムアウト等で結果不明 → 書込正本APIで現在の状態を再取得して判定する
+          const resolved = await resolveUnknown(
+            effectiveTarget.product_id,
+            useCloudRun
+          );
           if (resolved.status === "success") {
-            await syncProductToReadDb(target.product_id);
+            if (useCloudRun) {
+              markDraftProductSyncedInSession(effectiveTarget.product_id);
+            } else {
+              await syncProductToReadDb(effectiveTarget.product_id);
+            }
           }
           out.push({ ...base, status: resolved.status, reason: resolved.reason });
         }
@@ -196,10 +252,15 @@ export function useBulkArchive() {
     const failed = results.filter((item) => item.status === "failed");
     if (failed.length === 0) return;
     await runTargets(
-      failed.map((item) => ({
-        product_id: item.product_id,
-        product_name: item.product_name,
-      }))
+      failed.map((item) => {
+        const meta = targetMetaRef.current.get(item.product_id);
+        return {
+          ...meta,
+          product_id: item.product_id,
+          product_name: item.product_name,
+          record_status: undefined,
+        };
+      })
     );
   }, [results, runTargets]);
 
@@ -216,7 +277,16 @@ export function useBulkArchive() {
     const updated = new Map<string, BulkArchiveResultItem>();
     for (let i = 0; i < unknownItems.length; i += 1) {
       const item = unknownItems[i];
-      const resolved = await resolveUnknown(item.product_id);
+      const meta = targetMetaRef.current.get(item.product_id);
+      const useCloudRun = meta ? shouldUseCloudRunArchive(meta) : false;
+      const resolved = await resolveUnknown(item.product_id, useCloudRun);
+      if (resolved.status === "success") {
+        if (useCloudRun) {
+          markDraftProductSyncedInSession(item.product_id);
+        } else {
+          await syncProductToReadDb(item.product_id);
+        }
+      }
       updated.set(item.product_id, {
         ...item,
         status: resolved.status,
@@ -233,6 +303,7 @@ export function useBulkArchive() {
   }, [results]);
 
   const dismiss = useCallback(() => {
+    targetMetaRef.current.clear();
     setResults(null);
     setProgress({ done: 0, total: 0 });
   }, []);
