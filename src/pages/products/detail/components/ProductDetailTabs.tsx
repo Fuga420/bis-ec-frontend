@@ -1,47 +1,22 @@
 import { useRef, type KeyboardEvent } from "react";
 
-export type ProductDetailTabKey =
-  | "sales"
-  | "purchase"
-  | "translation"
-  | "external";
+export type ProductDetailTabKey = "sales" | "purchase" | "integration";
 
 interface ProductDetailTabsProps {
   activeTab: ProductDetailTabKey;
   onChange: (tab: ProductDetailTabKey) => void;
 }
 
-const TABS: Array<{
-  key: ProductDetailTabKey;
-  label: string;
-  icon: string;
-}> = [
-  {
-    key: "sales",
-    label: "販売管理",
-    icon: "ri-store-3-line",
-  },
-  {
-    key: "purchase",
-    label: "仕入・書類",
-    icon: "ri-file-text-line",
-  },
-  {
-    key: "translation",
-    label: "英語翻訳",
-    icon: "ri-translate-2",
-  },
-  {
-    key: "external",
-    label: "外部連携",
-    icon: "ri-links-line",
-  },
+const TABS: Array<{ key: ProductDetailTabKey; label: string }> = [
+  { key: "sales", label: "販売管理" },
+  { key: "purchase", label: "来歴・仕入" },
+  { key: "integration", label: "翻訳・外部連携" },
 ];
 
 /**
- * 商品詳細の情報を切り替えるローカルタブ（URLは変えず、画面内の表示だけ切り替える）。
- * 補足説明は持たず、ラベルとアイコンのみのコンパクトな表示にする。
- * 4タブを横並びにし、画面幅が狭いときはタブ領域だけ横スクロールさせる。
+ * 商品詳細の下段を切り替えるローカルタブ（URLは変えず、画面内の表示だけ切り替える）。
+ * 図録体裁に合わせ、カードや塗りのタブは使わず、細罫線の上の文字タブにする。
+ * 選択中だけ深緑の太字＋下線で示す（ステータス切替と同じ語彙）。
  * キーボード操作: ←→ で移動、Home/End で先頭・末尾へ移動（roving tabindex）。
  */
 export default function ProductDetailTabs({
@@ -89,7 +64,7 @@ export default function ProductDetailTabs({
       <div
         role="tablist"
         aria-label="商品詳細の情報切り替え"
-        className="ui-card inline-flex w-max min-w-full items-center gap-1 rounded-lg p-1"
+        className="flex w-max min-w-full items-center gap-x-7 border-b border-[var(--cat-rule)]"
       >
         {TABS.map((tab, index) => {
           const active = activeTab === tab.key;
@@ -105,16 +80,12 @@ export default function ProductDetailTabs({
               tabIndex={active ? 0 : -1}
               onClick={() => onChange(tab.key)}
               onKeyDown={(event) => handleKeyDown(event, index)}
-              className={`inline-flex h-9 flex-1 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3.5 text-[13px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 ${
+              className={`-mb-px cursor-pointer whitespace-nowrap border-b bg-transparent px-0 pb-2.5 pt-1 text-[12px] tracking-[0.16em] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cat-green)] ${
                 active
-                  ? "bg-primary-600 text-background-50"
-                  : "text-foreground-600 hover:bg-background-100 hover:text-foreground-900"
+                  ? "border-[var(--cat-green)] font-semibold text-[var(--cat-green)]"
+                  : "border-transparent text-[var(--cat-ink-soft)] hover:text-[var(--cat-ink)]"
               }`}
             >
-              <i
-                className={`${tab.icon} w-4 h-4 flex items-center justify-center shrink-0`}
-                aria-hidden="true"
-              ></i>
               {tab.label}
             </button>
           );

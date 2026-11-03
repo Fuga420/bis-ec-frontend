@@ -7,7 +7,7 @@ import type {
   ProductTranslationApproveResponse,
 } from "../../types";
 import SaveStatusMessage from "@/components/base/SaveStatusMessage";
-import SectionHeading from "./SectionHeading";
+import CataloguePanelHeading from "./CataloguePanelHeading";
 import CollapsibleText from "./CollapsibleText";
 
 type SyncState = "idle" | "generating" | "success" | "error";
@@ -190,18 +190,20 @@ export default function ProductTranslationSection({
       : null;
 
   return (
-    <div className="ui-card rounded-lg p-4 md:p-5">
-      <SectionHeading
-        eyebrow="Localization"
+    <div>
+      <CataloguePanelHeading
         title="英語翻訳"
-        icon="ri-translate-2"
-        description="越境EC向けに英語の商品説明を生成します"
+        eyebrow="Localization"
         right={
-          <span className={`st-badge shrink-0 ${badge.className}`}>
+          <span className="cat-mono whitespace-nowrap text-[9px] tracking-[0.16em] text-[var(--cat-ink-soft)]">
             {badge.label}
           </span>
         }
       />
+
+      <p className="mt-2 text-[11px] leading-[1.9] text-[var(--cat-ink-soft)]">
+        越境EC向けに英語の商品説明を生成します。
+      </p>
 
       {translationData ? (
         <div className="mt-4 flex flex-col gap-3">
@@ -290,7 +292,7 @@ export default function ProductTranslationSection({
           type="button"
           onClick={handleApprove}
           disabled={approveState === "approving"}
-          className="mt-4 inline-flex min-w-[148px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-accent-500 px-4 py-2 text-sm font-semibold text-accent-950 transition-colors hover:bg-accent-600 disabled:cursor-not-allowed disabled:opacity-50"
+          className="cat-mono mt-4 inline-flex min-w-[148px] cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap border border-[var(--cat-green)] px-4 py-2 text-[10.5px] tracking-[0.14em] text-[var(--cat-green)] transition-colors hover:bg-[var(--cat-green)] hover:text-[var(--cat-paper)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {approveState === "approving" ? (
             <>

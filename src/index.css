@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&family=Shippori+Mincho:wght@500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&family=Shippori+Mincho:wght@500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -499,4 +499,50 @@ button:disabled.bg-accent-500:hover {
     width: 100%;
     opacity: 0.6;
   }
+}
+
+/* ========================================================================
+   商品詳細：オークション図録（カタログ）調の土台
+   ------------------------------------------------------------------------
+   生成りの紙色の上に、細い罫線と余白だけで情報を組み立てる。
+   白いカード・角丸・影は使わない。色は5色だけに固定する。
+     紙 #FAF8F2 / 本文 #1D1B16 / 補助 #4F4B42 / 罫線 #BDB49C / 深緑 #12502C
+   書体は 見出し（欧文）= Cormorant Garamond、和文 = しっぽり明朝、
+   数字・ID・日付 = IBM Plex Mono（等幅）。
+   このクラスは商品詳細ページのルート要素にだけ付ける（他の画面に影響させない）。
+   ======================================================================== */
+.catalogue {
+  --cat-paper: #faf8f2;
+  --cat-ink: #1d1b16;
+  --cat-ink-soft: #4f4b42;
+  --cat-rule: #bdb49c;
+  --cat-rule-soft: #d9d3c1;
+  --cat-green: #12502c;
+
+  background-color: var(--cat-paper);
+  color: var(--cat-ink);
+  font-family: 'Shippori Mincho', 'Noto Sans JP', serif;
+  letter-spacing: 0.01em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 欧文の見出し（Cormorant Garamond） */
+.catalogue .cat-display {
+  font-family: 'Cormorant Garamond', 'Shippori Mincho', serif;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+/* 和文の見出し・本文（しっぽり明朝） */
+.catalogue .cat-serif {
+  font-family: 'Shippori Mincho', 'Noto Sans JP', serif;
+  font-weight: 600;
+}
+
+/* 数字・ID・日付・型番（IBM Plex Mono・等幅） */
+.catalogue .cat-mono {
+  font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: 'tnum' 1, 'lnum' 1;
 }

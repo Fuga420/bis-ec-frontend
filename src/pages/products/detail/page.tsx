@@ -6,9 +6,7 @@ import {
   fetchProductsReadApi,
   markDraftProductSyncedInSession,
   syncProductToReadDb,
-  updateDraftInventoryStatusViaApi,
   updateDraftProductViaApi,
-  updateDraftRecordStatusViaApi,
   updateProductImagesViaApi,
 } from "@/config/productsApi";
 import type {
@@ -51,8 +49,12 @@ import ProductLedgerSection, {
 import { autoLinkProductByItemNumber } from "@/pages/documents/lib/productAutoLink";
 import { useProductCostDetail } from "./hooks/useProductCostDetail";
 import { deriveProductCost } from "./lib/productCost";
-import ProductSummaryCard from "./components/ProductSummaryCard";
-import ProductSpecPanel from "./components/ProductSpecPanel";
+import CatalogueMasthead from "./components/CatalogueMasthead";
+import CatalogueLotHeader from "./components/CatalogueLotHeader";
+import CatalogueSpecPanel from "./components/CatalogueSpecPanel";
+import CatalogueDescription from "./components/CatalogueDescription";
+import CatalogueConditionReport from "./components/CatalogueConditionReport";
+import CatalogueFooter from "./components/CatalogueFooter";
 import ProductDetailTabs, {
   type ProductDetailTabKey,
 } from "./components/ProductDetailTabs";
@@ -253,7 +255,7 @@ export default function ProductDetailPage() {
   // メイン画像の拡大表示（ライトボックス）の開閉（表示専用・保存はしない）
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
 
-  // 管理タブ（販売管理 / 仕入・書類 / 英語翻訳 / 外部連携）の選択状態。
+  // 管理タブ（販売管理 / 来歴・仕入 / 翻訳・外部連携）の選択状態。
   // 基本情報（商品スペック・説明・備考）はタブから独立して常時表示する。
   // 画面内の表示切り替えのみで、URLやデータ取得には影響しない。
   const [activeTab, setActiveTab] = useState<ProductDetailTabKey>("sales");
@@ -475,25 +477,18 @@ export default function ProductDetailPage() {
     setInventorySaveState("saving");
     setInventoryMessage(null);
 
-    const useCloudRun = canUseCloudRunDraftUpdate(product);
-
     try {
-      const response = useCloudRun
-        ? await updateDraftInventoryStatusViaApi(
-            product.product_id,
-            selectedInventoryStatus
-          )
-        : await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-            method: "POST",
-            headers: {
-              "Content-Type": "text/plain;charset=utf-8",
-            },
-            body: JSON.stringify({
-              action: "update_inventory_status",
-              product_id: product.product_id,
-              inventory_status: selectedInventoryStatus,
-            }),
-          });
+      const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8",
+        },
+        body: JSON.stringify({
+          action: "update_inventory_status",
+          product_id: product.product_id,
+          inventory_status: selectedInventoryStatus,
+        }),
+      });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
@@ -509,11 +504,7 @@ export default function ProductDetailPage() {
         data.inventory_status ?? selectedInventoryStatus
       );
       setInventoryMessage({ type: "success", text: "在庫状態を更新しました" });
-      if (useCloudRun) {
-        markDraftProductSyncedInSession(product.product_id);
-      } else {
-        await syncProductToReadDb(product.product_id);
-      }
+      await syncProductToReadDb(product.product_id);
 
       try {
         const updated = await loadProduct();
@@ -541,28 +532,21 @@ export default function ProductDetailPage() {
     const targetStatus =
       product.record_status === "active" ? "archived" : "active";
     const squareLinked = Boolean(
-      product.square_item_id ||
-        product.square_variation_id ||
-        product.square_payment_link_id ||
-        product.square_checkout_url
+      product.square_item_id || product.square_variation_id
     );
-    const useCloudRun =
-      canUseCloudRunDraftUpdate(product) && !regeneratePaymentLink;
 
     try {
-      const response = useCloudRun
-        ? await updateDraftRecordStatusViaApi(product.product_id, targetStatus)
-        : await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-            method: "POST",
-            headers: {
-              "Content-Type": "text/plain;charset=utf-8",
-            },
-            body: JSON.stringify({
-              action: "update_record_status",
-              product_id: product.product_id,
-              record_status: targetStatus,
-            }),
-          });
+      const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8",
+        },
+        body: JSON.stringify({
+          action: "update_record_status",
+          product_id: product.product_id,
+          record_status: targetStatus,
+        }),
+      });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
@@ -570,18 +554,6 @@ export default function ProductDetailPage() {
       if (!data || data.success !== true) {
         throw new Error("Invalid response");
       }
-
-      const nextPublishStatus =
-        data.publish_status ??
-        (product.record_status === "archived" && targetStatus === "active"
-          ? "draft"
-          : product.publish_status);
-      setProduct({
-        ...product,
-        record_status: data.record_status ?? targetStatus,
-        publish_status: nextPublishStatus,
-      });
-      setSelectedStatus(nextPublishStatus);
 
       setIsArchiveConfirmOpen(false);
       setIsRestoreConfirmOpen(false);
@@ -640,11 +612,7 @@ export default function ProductDetailPage() {
         });
       }
 
-      if (useCloudRun) {
-        markDraftProductSyncedInSession(product.product_id);
-      } else {
-        await syncProductToReadDb(product.product_id);
-      }
+      await syncProductToReadDb(product.product_id);
       try {
         const updated = await loadProduct();
         setProduct(updated);
@@ -1039,23 +1007,10 @@ export default function ProductDetailPage() {
   );
 
   return (
-    <div className="admin-font products-theme min-h-screen bg-background-50">
-      <header className="border-b border-background-200 bg-white">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-3 md:px-6">
-          <Link
-            to={listPath}
-            className="flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-foreground-600 transition-colors hover:text-primary-600"
-          >
-            <i className="ri-arrow-left-line w-4 h-4 flex items-center justify-center"></i>
-            商品一覧に戻る
-          </Link>
-          <span className="admin-eyebrow text-[10px] font-semibold text-foreground-400">
-            Product Detail
-          </span>
-        </div>
-      </header>
+    <div className="catalogue products-theme min-h-screen">
+      <CatalogueMasthead listPath={listPath} />
 
-      <main className="page-fade mx-auto w-full max-w-5xl px-4 py-4 md:px-6">
+      <main className="page-fade mx-auto w-full max-w-5xl px-4 pb-12 pt-6 md:px-6 md:pt-7">
         {loadState === "loading" && <ProductDetailSkeleton />}
 
         {loadState === "error" && (
@@ -1084,9 +1039,20 @@ export default function ProductDetailPage() {
 
         {loadState === "success" && product && (
           <>
-            {/* 上部サマリー: 商品画像 + 商品名・主要情報・価格・状態・編集 */}
-            <div className="flex flex-col gap-5 lg:flex-row">
-              <div className="w-full lg:w-[340px] lg:shrink-0">
+            {/* 図録体裁のヘッダー: LOT番号・英字タイトル・価格・状態・編集導線 */}
+            <CatalogueLotHeader
+              product={product}
+              categoryLabel={categoryLabel}
+              statusLabel={statusLabel}
+              inventoryLabel={inventoryLabel}
+              aiPriceHint={{ show: showAiPriceHint, price: aiDraftPrice }}
+              editMessage={editMessage}
+              onStartEdit={handleStartEdit}
+            />
+
+            {/* 商品画像 + 商品スペック（図録体裁: 画像を大きく、罫線だけで構成） */}
+            <div className="mt-7 flex flex-col gap-7 lg:flex-row lg:gap-8">
+              <div className="w-full lg:w-[52%] lg:shrink-0">
                 {isImageEditing ? (
                   <ImageEditor
                     existingImages={product.images ?? []}
@@ -1111,7 +1077,7 @@ export default function ProductDetailPage() {
                       onOpen={() => setIsLightboxOpen(true)}
                     />
                     {thumbnails.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-2">
+                      <div className="mt-3 flex flex-wrap gap-2.5">
                         {thumbnails.map((img, idx) => (
                           <Thumbnail
                             key={idx}
@@ -1126,9 +1092,9 @@ export default function ProductDetailPage() {
                     <button
                       type="button"
                       onClick={handleStartImageEdit}
-                      className="mt-3 inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-background-300 bg-white px-4 py-2 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100"
+                      className="cat-mono mt-4 inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap border border-[var(--cat-rule)] px-4 py-2 text-[10.5px] tracking-[0.14em] text-[var(--cat-ink)] transition-colors hover:bg-[var(--cat-ink)] hover:text-[var(--cat-paper)]"
                     >
-                      <i className="ri-image-edit-line w-4 h-4 flex items-center justify-center"></i>
+                      <i className="ri-image-edit-line w-3.5 h-3.5 flex items-center justify-center"></i>
                       画像を編集
                     </button>
                     {imageMessage && imageMessage.type === "success" && (
@@ -1153,14 +1119,8 @@ export default function ProductDetailPage() {
                     onSave={handleSaveEdit}
                   />
                 ) : (
-                  <ProductSummaryCard
+                  <CatalogueSpecPanel
                     product={product}
-                    categoryLabel={categoryLabel}
-                    statusLabel={statusLabel}
-                    inventoryLabel={inventoryLabel}
-                    statusClass={statusClass}
-                    aiPriceHint={{ show: showAiPriceHint, price: aiDraftPrice }}
-                    editMessage={editMessage}
                     cost={{
                       loadState: productCost.loadState,
                       errorText: productCost.errorText,
@@ -1169,29 +1129,29 @@ export default function ProductDetailPage() {
                       costTotal: costView.costTotal,
                       hasUnconfirmedTax: costView.hasUnconfirmedTax,
                     }}
-                    onStartEdit={handleStartEdit}
                   />
                 )}
               </div>
             </div>
 
-            {/* 商品説明・備考はタブから独立して常時表示する（商品スペックは右上カードに集約） */}
+            {/* 商品説明・状態報告はタブから独立して常時表示する */}
             {!isEditing && (
-              <div className="mt-4">
-                <ProductSpecPanel product={product} />
+              <div className="mt-9 flex flex-col gap-9">
+                <CatalogueDescription product={product} />
+                <CatalogueConditionReport product={product} />
               </div>
             )}
 
-            {/* 管理タブ（販売管理 / 仕入・書類 / 英語翻訳 / 外部連携） */}
+            {/* 管理タブ（販売管理 / 来歴・仕入 / 翻訳・外部連携） */}
             {isEditing ? (
               <p className="mt-4 flex items-start gap-1.5 rounded-lg border border-background-200 bg-background-100 px-3 py-2 text-[12px] leading-relaxed text-foreground-500">
                 <i className="ri-information-line mt-0.5 w-4 h-4 flex items-center justify-center shrink-0"></i>
                 <span className="min-w-0 flex-1">
-                  商品情報を編集中です。保存またはキャンセルすると、商品説明・備考と、販売管理・仕入・書類・英語翻訳・外部連携の管理タブが表示されます。
+                  商品情報を編集中です。保存またはキャンセルすると、商品説明・備考と、販売管理・来歴／仕入・翻訳／外部連携の管理タブが表示されます。
                 </span>
               </p>
             ) : (
-              <div className="mt-4">
+              <div className="mt-12">
                 <ProductDetailTabs
                   activeTab={activeTab}
                   onChange={setActiveTab}
@@ -1259,7 +1219,7 @@ export default function ProductDetailPage() {
                   </div>
                 )}
 
-                {/* 仕入・書類 */}
+                {/* 来歴・仕入 */}
                 {activeTab === "purchase" && (
                   <div className="tab-fade mt-4 flex flex-col gap-4">
                     <ProductLedgerSection
@@ -1274,39 +1234,35 @@ export default function ProductDetailPage() {
                       onDismissAutoLinkNotice={() => setAutoLinkNotice(null)}
                     />
                     {hasAttachedDocument(product.document) && (
-                      <div className="ui-card rounded-lg px-4 py-4 md:px-5">
+                      <div className="border-t border-[var(--cat-rule)] pt-4">
                         <ProductDocumentSection doc={product.document} />
                       </div>
                     )}
                   </div>
                 )}
 
-                {/* 英語翻訳（翻訳データの取得・表示条件は従来どおり） */}
-                {activeTab === "translation" && (
-                  <div className="tab-fade mt-4">
-                    {product.category !== "pokemon_card" ? (
-                      <ProductTranslationSection
-                        productId={product.product_id}
-                        translation={product.translation}
-                        onTranslationChange={(translation) => {
-                          setProduct((prev) =>
-                            prev ? { ...prev, translation } : prev
-                          );
-                        }}
-                      />
-                    ) : (
-                      <div className="ui-card rounded-lg px-4 py-6 text-center">
-                        <p className="text-sm text-foreground-500">
+                {/* 翻訳・外部連携（翻訳データの取得・表示条件は従来どおり） */}
+                {activeTab === "integration" && (
+                  <div className="tab-fade mt-5 flex flex-col gap-9">
+                    <div className="border-t border-[var(--cat-rule-soft)] pt-4">
+                      {product.category !== "pokemon_card" ? (
+                        <ProductTranslationSection
+                          productId={product.product_id}
+                          translation={product.translation}
+                          onTranslationChange={(translation) => {
+                            setProduct((prev) =>
+                              prev ? { ...prev, translation } : prev
+                            );
+                          }}
+                        />
+                      ) : (
+                        <p className="py-4 text-[12px] leading-relaxed text-[var(--cat-ink-soft)]">
                           このカテゴリの商品は英語翻訳の対象外です
                         </p>
-                      </div>
-                    )}
-                  </div>
-                )}
+                      )}
+                    </div>
 
-                {/* 外部連携（現時点ではSquareのみ。サービスごとに1カードで表示） */}
-                {activeTab === "external" && (
-                  <div className="tab-fade mt-4 flex flex-col gap-4">
+                    {/* 外部連携（現時点ではSquareのみ） */}
                     <SquareIntegrationSection
                       product={product}
                       onRefreshed={refreshProduct}
@@ -1363,6 +1319,8 @@ export default function ProductDetailPage() {
                 onNavigate={setSelectedImageIndex}
               />
             )}
+            {/* 最下部: 前後の商品への参照（図録のページ送り） */}
+            <CatalogueFooter productId={product.product_id} listPath={listPath} />
           </>
         )}
       </main>
@@ -1390,10 +1348,7 @@ function MainImage({
 
   if (showPlaceholder) {
     return (
-      <BisImagePlaceholder
-        size="xl"
-        className="aspect-square w-full rounded-lg border border-background-200"
-      />
+      <BisImagePlaceholder size="xl" className="aspect-square w-full" />
     );
   }
 
@@ -1402,7 +1357,7 @@ function MainImage({
       type="button"
       onClick={onOpen}
       aria-label={`${alt} の画像を拡大表示`}
-      className="group relative block w-full cursor-zoom-in overflow-hidden rounded-lg border border-background-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+      className="group relative block w-full cursor-zoom-in overflow-hidden focus:outline-none"
     >
       <img
         key={src}
@@ -1411,8 +1366,9 @@ function MainImage({
         onError={() => setFailed(true)}
         className="main-image-fade aspect-square w-full object-cover object-top"
       />
-      <span className="pointer-events-none absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-background-50 opacity-0 transition-opacity group-hover:opacity-100">
-        <i className="ri-zoom-in-line"></i>
+      <span className="cat-mono pointer-events-none absolute bottom-2 right-2 flex items-center gap-1 bg-[var(--cat-paper)] px-1.5 py-0.5 text-[9px] tracking-[0.14em] text-[var(--cat-ink-soft)] opacity-0 transition-opacity group-hover:opacity-100">
+        <i className="ri-zoom-in-line text-[11px] leading-none"></i>
+        ZOOM
       </span>
     </button>
   );
@@ -1432,18 +1388,16 @@ function Thumbnail({
   const [failed, setFailed] = useState(false);
   const showPlaceholder = !src || failed;
 
-  // 選択中はグリーン系の2px枠線＋薄いリング、未選択は薄いグレーの2px枠線（サイズは変わらない）
-  const stateClass = selected
-    ? "border-primary-500 ring-2 ring-primary-100"
-    : "border-background-200 hover:border-background-300";
-
+  // 図録体裁: 画像自体に枠・角丸は付けず、選択中のサムネイルだけ下に深緑の細い線を引く
   return (
     <button
       type="button"
       onClick={onClick}
       aria-label={alt}
       aria-current={selected ? "true" : undefined}
-      className={`h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 bg-background-100 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 ${stateClass}`}
+      className={`relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden transition-opacity focus:outline-none ${
+        selected ? "opacity-100" : "opacity-45 hover:opacity-80"
+      }`}
     >
       {showPlaceholder ? (
         <BisImagePlaceholder size="sm" className="h-full w-full" />
@@ -1455,6 +1409,11 @@ function Thumbnail({
           className="h-full w-full object-cover object-top"
         />
       )}
+      <span
+        className={`absolute inset-x-0 bottom-0 h-[2px] ${
+          selected ? "bg-[var(--cat-green)]" : "bg-transparent"
+        }`}
+      />
     </button>
   );
 }

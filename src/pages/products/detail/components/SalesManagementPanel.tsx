@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import SaveStatusMessage from "@/components/base/SaveStatusMessage";
 import { RECORD_STATUS_LABELS } from "@/pages/products/types";
-import SectionHeading from "./SectionHeading";
+import CataloguePanelHeading from "./CataloguePanelHeading";
 
 type SaveMessage = { type: "success" | "error"; text: string } | null;
 
@@ -66,101 +66,34 @@ const INVENTORY_STATUS_OPTIONS: SegmentOption[] = [
   { value: "sold", label: "売却済み" },
 ];
 
-const SEGMENT_WRAP =
-  "inline-flex flex-wrap items-center gap-0.5 rounded-lg bg-background-100 p-0.5";
-const SEGMENT_BUTTON =
-  "cursor-pointer whitespace-nowrap rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors";
-const SEGMENT_ACTIVE = "bg-white text-foreground-950 shadow-sm";
-const SEGMENT_IDLE = "text-foreground-600 hover:text-foreground-900";
-const ROW = "px-4 py-3 md:px-5";
-const LABEL_CELL = "w-full shrink-0 sm:w-[92px]";
+const ROW =
+  "flex flex-col gap-3 border-b border-[var(--cat-rule-soft)] py-4 sm:flex-row sm:items-start sm:gap-6";
+const LABEL_CELL =
+  "w-full shrink-0 text-[10px] leading-5 tracking-[0.18em] text-[var(--cat-ink-soft)] sm:w-[104px]";
 
-/** 1行分の設定行（左ラベル / セグメント / 保存ボタン / 状態メッセージ） */
-function SettingRow({
-  label,
-  hint,
-  children,
-  message,
-}: {
-  label: string;
-  hint?: string;
-  children: ReactNode;
-  message?: ReactNode;
-}) {
-  return (
-    <div className={ROW}>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <div className={LABEL_CELL}>
-          <span className="text-[13px] font-semibold text-foreground-900">
-            {label}
-          </span>
-          {hint && (
-            <p className="mt-0.5 text-[11px] leading-tight text-foreground-400">
-              {hint}
-            </p>
-          )}
-        </div>
-        {children}
-      </div>
-      {message}
-    </div>
-  );
-}
-
-function SegmentGroup({
-  options,
-  value,
-  onChange,
-  disabled,
-}: {
-  options: SegmentOption[];
-  value: string;
-  onChange: (value: string) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div className={SEGMENT_WRAP}>
-      {options.map((option) => {
-        const active = value === option.value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            onClick={() => onChange(option.value)}
-            aria-pressed={active}
-            disabled={disabled}
-            className={`${SEGMENT_BUTTON} ${active ? SEGMENT_ACTIVE : SEGMENT_IDLE} disabled:cursor-not-allowed disabled:opacity-60`}
-          >
-            {option.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function SaveButton({
-  saving,
-  disabled,
-  label,
+/** 保存ボタン（図録調の細罫線ボタン。主要操作なので枠線は濃いめ） */
+function ActionButton({
   onClick,
+  disabled,
+  saving,
+  label,
 }: {
-  saving: boolean;
-  disabled: boolean;
-  label: string;
   onClick: () => void;
+  disabled: boolean;
+  saving: boolean;
+  label: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={saving || disabled}
-      className="inline-flex cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-primary-500 px-3 py-1.5 text-[12px] font-semibold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
+      className="inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap border border-[var(--cat-ink)] px-3 py-1.5 text-[11px] tracking-[0.12em] text-[var(--cat-ink)] transition-colors hover:bg-[var(--cat-ink)] hover:text-[var(--cat-paper)] disabled:cursor-not-allowed disabled:border-[var(--cat-rule)] disabled:bg-transparent disabled:text-[var(--cat-ink-soft)] disabled:opacity-60"
     >
       {saving ? (
         <>
           <i className="ri-loader-4-line animate-spin w-3.5 h-3.5 flex items-center justify-center"></i>
-          保存中...
+          保存中
         </>
       ) : (
         <>
@@ -172,39 +105,54 @@ function SaveButton({
   );
 }
 
-// バッジの色は「ドメイン」で固定する（index.css の .st-*）。
-// 公開状態＝緑 / 在庫＝青グレー / レコード＝グレー。
-const CHIP_TONES = {
-  publish: "st-publish",
-  "publish-off": "st-publish-off",
-  inventory: "st-inventory",
-  link: "st-link",
-} as const;
-
-function StatusChip({
-  label,
-  tone,
+/** 文字ベースの切替（選択中だけ深緑の太字＋下線） */
+function TextToggleGroup({
+  options,
+  value,
+  onChange,
+  disabled,
 }: {
-  label: string;
-  tone: keyof typeof CHIP_TONES;
+  options: SegmentOption[];
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
 }) {
-  return <span className={`st-badge ${CHIP_TONES[tone]}`}>{label}</span>;
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-5 gap-y-2">
+      {options.map((option) => {
+        const active = value === option.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            aria-pressed={active}
+            disabled={disabled}
+            className={`cursor-pointer whitespace-nowrap border-b pb-1 text-[12.5px] leading-none tracking-[0.06em] transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+              active
+                ? "border-[var(--cat-green)] font-semibold text-[var(--cat-green)]"
+                : "border-transparent text-[var(--cat-ink-soft)] hover:text-[var(--cat-ink)]"
+            }`}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 const WORKFLOW_STEPS = [
-  { key: "imported", label: "取込", icon: "ri-inbox-archive-line" },
-  { key: "aiGenerated", label: "AI生成", icon: "ri-sparkling-line" },
-  { key: "reviewed", label: "確認", icon: "ri-checkbox-circle-line" },
-  { key: "published", label: "公開", icon: "ri-global-line" },
-  { key: "squareLinked", label: "Square連携", icon: "ri-links-line" },
+  { key: "imported", label: "取込" },
+  { key: "aiGenerated", label: "AI生成" },
+  { key: "reviewed", label: "確認" },
+  { key: "published", label: "公開" },
+  { key: "squareLinked", label: "Square連携" },
 ] as const;
 
-/**
- * 取込 → AI生成 → 確認 → 公開 のステップ表示。
- * ボタンの羅列ではなく「今どこにいるか」が分かるようにする（表示専用）。
- */
-function WorkflowSteps({ workflow }: { workflow: SalesWorkflow }) {
-  const doneList = WORKFLOW_STEPS.map((step, index) => {
+/** 取込 → AI生成 → 確認 → 公開 のステップ（数字の列として罫線の上に置く） */
+function WorkflowLine({ workflow }: { workflow: SalesWorkflow }) {
+  const doneList = WORKFLOW_STEPS.map((step) => {
     if (step.key === "imported") return workflow.imported;
     if (step.key === "aiGenerated") return workflow.aiGenerated;
     if (step.key === "reviewed") return workflow.reviewed;
@@ -214,65 +162,68 @@ function WorkflowSteps({ workflow }: { workflow: SalesWorkflow }) {
   const currentIndex = doneList.findIndex((done) => !done);
 
   return (
-    <div className="border-b border-background-100 bg-background-50 px-4 py-2.5 md:px-5">
-      <ol className="flex flex-wrap items-center gap-x-1.5 gap-y-1.5">
-        {WORKFLOW_STEPS.map((step, index) => {
-          const done = doneList[index];
-          const current = index === currentIndex;
-          return (
-            <li key={step.key} className="flex items-center gap-1.5">
-              <span
-                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold leading-none ${
-                  done
-                    ? "bg-primary-500 text-background-50"
-                    : current
-                      ? "bg-white text-primary-700 ring-1 ring-primary-400"
-                      : "bg-background-200 text-foreground-400"
-                }`}
-                aria-hidden="true"
-              >
-                {done ? (
-                  <i className="ri-check-line text-[11px] leading-none"></i>
-                ) : (
-                  index + 1
-                )}
-              </span>
-              <span
-                className={`inline-flex items-center gap-1 whitespace-nowrap text-[11.5px] ${
-                  current
-                    ? "font-semibold text-foreground-950"
-                    : done
-                      ? "font-medium text-foreground-700"
-                      : "text-foreground-400"
-                }`}
-              >
-                {step.label}
-                {current && (
-                  <span className="rounded bg-primary-50 px-1 py-0.5 text-[9px] font-bold text-primary-700">
-                    現在
-                  </span>
-                )}
-              </span>
-              {index < WORKFLOW_STEPS.length - 1 && (
-                <span
-                  className={`mx-0.5 h-px w-4 sm:w-6 ${
-                    done ? "bg-primary-300" : "bg-background-300"
-                  }`}
-                  aria-hidden="true"
-                ></span>
-              )}
-            </li>
-          );
-        })}
-      </ol>
+    <dl className="mt-3 flex flex-wrap items-baseline gap-x-6 gap-y-1.5">
+      {WORKFLOW_STEPS.map((step, index) => {
+        const done = doneList[index];
+        const current = index === currentIndex;
+        return (
+          <div key={step.key} className="flex items-baseline gap-1.5">
+            <dt
+              className={`cat-mono text-[9px] leading-none tracking-[0.16em] ${
+                done
+                  ? "text-[var(--cat-green)]"
+                  : current
+                    ? "text-[var(--cat-ink)]"
+                    : "text-[var(--cat-rule)]"
+              }`}
+            >
+              {done ? "✓" : String(index + 1).padStart(2, "0")}
+            </dt>
+            <dd
+              className={`whitespace-nowrap text-[10.5px] leading-none tracking-[0.12em] ${
+                current
+                  ? "font-semibold text-[var(--cat-green)]"
+                  : done
+                    ? "text-[var(--cat-ink)]"
+                    : "text-[var(--cat-ink-soft)]"
+              }`}
+            >
+              {step.label}
+            </dd>
+          </div>
+        );
+      })}
+    </dl>
+  );
+}
+
+function StatusRow({
+  label,
+  message,
+  children,
+}: {
+  label: string;
+  message?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className={ROW}>
+      <dt className={LABEL_CELL}>{label}</dt>
+      <dd className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline gap-x-6 gap-y-3 sm:justify-end">
+          {children}
+        </div>
+        {message}
+      </dd>
     </div>
   );
 }
 
 /**
- * 販売管理タブ: 公開状態 / 在庫状態を1つのカードにまとめた設定ブロック。
- * カード先頭に進行ステップ、最下部に「管理操作」（アーカイブ・完全削除）を分離して置く。
- * 表示と入力の受け渡しのみを担当し、保存処理は呼び出し元（商品詳細ページ）が持つ。
+ * 販売管理: 公開状態 / 在庫状態を1つの罫線テーブルにまとめた設定ブロック。
+ * 切替はカード型のセグメントではなく「選択中だけ深緑の太字＋下線」の文字表示。
+ * アーカイブ・完全削除は通常操作と分け、最下部の独立した「管理操作」ゾーンに隔離する。
+ * 保存処理は呼び出し元（商品詳細ページ）が持ち、ここは表示と入力の受け渡しのみ。
  */
 export default function SalesManagementPanel({
   publish,
@@ -287,41 +238,28 @@ export default function SalesManagementPanel({
   const isArchived = record.recordStatus !== "active";
 
   return (
-    <div className="ui-card rounded-lg">
-      {/* 見出し + 現在の状態バッジ */}
-      <div className="border-b border-background-100 px-4 py-3 md:px-5">
-        <SectionHeading
-          eyebrow="Sales Control"
-          title="販売管理"
-          icon="ri-store-3-line"
-          description="変更は保存ボタンで反映されます"
-          right={
-            <div className="flex flex-wrap items-center gap-1.5">
-              {/* 並び順は全画面で統一: 公開 → 在庫 → レコード */}
-              <StatusChip
-                label={`公開: ${publish.statusLabel}`}
-                tone={
-                  publish.currentStatus === "published"
-                    ? "publish"
-                    : "publish-off"
-                }
-              />
-              <StatusChip
-                label={`在庫: ${inventory.inventoryLabel}`}
-                tone="inventory"
-              />
-              <StatusChip label={`レコード: ${recordLabel}`} tone="link" />
-            </div>
-          }
-        />
-      </div>
+    <section>
+      <CataloguePanelHeading
+        number="01"
+        title="販売管理"
+        eyebrow="Sales Control"
+        right={
+          <span className="cat-mono text-[9px] tracking-[0.18em] text-[var(--cat-ink-soft)]">
+            {publishDirty || inventoryDirty ? "UNSAVED" : "SAVED"}
+          </span>
+        }
+      />
 
-      {/* 進行ステップ（取込 → AI生成 → 確認 → 公開） */}
-      <WorkflowSteps workflow={workflow} />
+      {/* 現在の状態（表示のみ） */}
+      <p className="cat-mono mt-3 text-[9.5px] leading-5 tracking-[0.14em] text-[var(--cat-ink-soft)]">
+        公開 {publish.statusLabel} · 在庫 {inventory.inventoryLabel} · レコード{" "}
+        {recordLabel}
+      </p>
 
-      <div className="divide-y divide-background-100">
-        {/* 公開状態 */}
-        <SettingRow
+      <WorkflowLine workflow={workflow} />
+
+      <dl className="mt-5 border-t border-[var(--cat-rule-soft)]">
+        <StatusRow
           label="公開状態"
           message={
             publish.message ? (
@@ -333,28 +271,27 @@ export default function SalesManagementPanel({
             ) : null
           }
         >
-          <SegmentGroup
+          <TextToggleGroup
             options={PUBLISH_STATUS_OPTIONS}
             value={publish.selectedStatus}
             onChange={publish.onSelect}
           />
-          <div className="flex items-center gap-2">
-            <SaveButton
+          <div className="flex items-center gap-3">
+            <ActionButton
               saving={publish.saving}
               disabled={!publishDirty}
               label="公開状態を保存"
               onClick={publish.onSave}
             />
             {!publish.saving && publishDirty && (
-              <span className="whitespace-nowrap text-[11px] font-medium text-foreground-400">
+              <span className="cat-mono whitespace-nowrap text-[9px] tracking-[0.16em] text-[var(--cat-ink-soft)]">
                 未保存
               </span>
             )}
           </div>
-        </SettingRow>
+        </StatusRow>
 
-        {/* 在庫状態 */}
-        <SettingRow
+        <StatusRow
           label="在庫状態"
           message={
             inventory.message ? (
@@ -366,89 +303,87 @@ export default function SalesManagementPanel({
             ) : null
           }
         >
-          <SegmentGroup
+          <TextToggleGroup
             options={INVENTORY_STATUS_OPTIONS}
             value={inventory.selectedStatus}
             onChange={inventory.onSelect}
           />
-          <div className="flex items-center gap-2">
-            <SaveButton
+          <div className="flex items-center gap-3">
+            <ActionButton
               saving={inventory.saving}
               disabled={!inventoryDirty}
               label="在庫状態を保存"
               onClick={inventory.onSave}
             />
             {!inventory.saving && inventoryDirty && (
-              <span className="whitespace-nowrap text-[11px] font-medium text-foreground-400">
+              <span className="cat-mono whitespace-nowrap text-[9px] tracking-[0.16em] text-[var(--cat-ink-soft)]">
                 未保存
               </span>
             )}
           </div>
-        </SettingRow>
-      </div>
+        </StatusRow>
+      </dl>
 
-      {/* 管理操作: 通常の設定と同列に置かず、カード最下部の危険ゾーンに隔離する */}
-      <div className="border-t border-red-200 bg-red-50/60 px-4 py-3 md:px-5">
-        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-          <div className="min-w-0">
-            <p className="admin-eyebrow text-[9px] font-semibold text-red-400">
-              Manage
-            </p>
-            <p className="mt-0.5 text-[12px] font-medium text-foreground-800">
-              管理操作
-              <span className="ml-1.5 text-[11px] font-normal text-foreground-500">
-                レコード: {recordLabel}
-              </span>
-            </p>
-            <p className="mt-0.5 text-[11px] leading-relaxed text-foreground-500">
-              {isArchived
-                ? "アーカイブ済みです。復元すると通常の商品一覧に戻ります（データは残ります）。"
-                : "アーカイブすると通常の商品一覧から外れます。削除はアーカイブ後にのみ行えます。"}
-            </p>
-          </div>
+      {/* 管理操作: 通常の設定と同列に置かず、最下部の独立したゾーンに隔離する */}
+      <div className="mt-8 border border-[#dcc0b9] px-4 py-4 md:px-5">
+        <p className="cat-mono text-[9px] uppercase tracking-[0.26em] text-[#a4554a]">
+          Manage
+        </p>
+        <div className="mt-2 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
+          <h3 className="cat-serif text-[13px] tracking-[0.08em] text-[var(--cat-ink)]">
+            管理操作
+          </h3>
+          <p className="cat-mono text-[9px] tracking-[0.16em] text-[var(--cat-ink-soft)]">
+            RECORD {recordLabel}
+          </p>
+        </div>
+        <p className="mt-2 max-w-[62ch] text-[11.5px] leading-[1.9] text-[var(--cat-ink-soft)]">
+          {isArchived
+            ? "アーカイブ済みです。復元すると通常の商品一覧に戻ります（データは残ります）。"
+            : "アーカイブすると通常の商品一覧から外れます。削除はアーカイブ後にのみ行えます。"}
+        </p>
 
-          <div className="flex flex-wrap items-center gap-1.5">
-            {isArchived ? (
-              <button
-                type="button"
-                onClick={record.onSelectActive}
-                disabled={record.saving}
-                className="inline-flex cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-background-300 bg-white px-2.5 py-1.5 text-[12px] font-medium text-foreground-700 transition-colors hover:bg-background-100 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <i className="ri-arrow-go-back-line w-3.5 h-3.5 flex items-center justify-center"></i>
-                復元する
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={record.onSelectArchived}
-                disabled={record.saving}
-                className="inline-flex cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-red-300 bg-white px-2.5 py-1.5 text-[12px] font-medium text-red-700 transition-colors hover:border-red-400 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <i className="ri-archive-2-line w-3.5 h-3.5 flex items-center justify-center"></i>
-                アーカイブする
-              </button>
-            )}
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+          {isArchived ? (
+            <button
+              type="button"
+              onClick={record.onSelectActive}
+              disabled={record.saving}
+              className="inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap border border-[var(--cat-rule)] px-3 py-1.5 text-[11px] tracking-[0.12em] text-[var(--cat-ink-soft)] transition-colors hover:border-[var(--cat-ink)] hover:text-[var(--cat-ink)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <i className="ri-arrow-go-back-line w-3.5 h-3.5 flex items-center justify-center"></i>
+              復元する
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={record.onSelectArchived}
+              disabled={record.saving}
+              className="inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap border border-[#c98f86] px-3 py-1.5 text-[11px] tracking-[0.12em] text-[#8f3f34] transition-colors hover:bg-[#8f3f34] hover:text-[var(--cat-paper)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <i className="ri-archive-2-line w-3.5 h-3.5 flex items-center justify-center"></i>
+              アーカイブする
+            </button>
+          )}
 
-            {isArchived && (
-              <button
-                type="button"
-                onClick={record.onRequestDelete}
-                disabled={record.saving}
-                className="inline-flex cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-transparent px-2.5 py-1.5 text-[12px] font-medium text-red-600 transition-colors hover:border-red-200 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <i className="ri-delete-bin-6-line w-3.5 h-3.5 flex items-center justify-center"></i>
-                完全削除
-              </button>
-            )}
-          </div>
+          {isArchived && (
+            <button
+              type="button"
+              onClick={record.onRequestDelete}
+              disabled={record.saving}
+              className="inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap border-b border-transparent px-0.5 py-1 text-[11px] tracking-[0.12em] text-[#8f3f34] transition-colors hover:border-[#8f3f34] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <i className="ri-delete-bin-6-line w-3.5 h-3.5 flex items-center justify-center"></i>
+              完全削除
+            </button>
+          )}
         </div>
 
         {(record.saving || record.message) && (
-          <div className="mt-2">
+          <div className="mt-3 flex flex-col gap-1.5">
             {record.saving && (
-              <p className="inline-flex items-center gap-1.5 text-[11px] font-medium text-foreground-400">
-                <i className="ri-loader-4-line animate-spin w-3.5 h-3.5 flex items-center justify-center"></i>
+              <p className="cat-mono inline-flex items-center gap-1.5 text-[9.5px] tracking-[0.14em] text-[var(--cat-ink-soft)]">
+                <i className="ri-loader-4-line animate-spin w-3 h-3 flex items-center justify-center"></i>
                 処理中...
               </p>
             )}
@@ -461,6 +396,6 @@ export default function SalesManagementPanel({
           </div>
         )}
       </div>
-    </div>
+    </section>
   );
 }

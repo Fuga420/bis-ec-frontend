@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { AdminProductDetail } from "@/pages/products/types";
 import { formatYen, hasText } from "../lib/format";
 
-interface ProductSpecItem {
+export interface ProductSpecItem {
   label: string;
   value: string;
   emphasize?: boolean;
@@ -247,7 +247,7 @@ interface ProductSpecGridProps {
  * 空文字・「—」・「未設定」は未入力として扱うが、
  * 補足文（note）やエラー表示を持つ項目は、案内として必要な情報なので空扱いにしない。
  */
-function isBlankSpecItem(item: ProductSpecItem): boolean {
+export function isBlankSpecItem(item: ProductSpecItem): boolean {
   if (item.tone === "error") return false;
   if (item.note) return false;
   const value = (item.value ?? "").trim();

@@ -9,7 +9,7 @@ import type {
   SquareProductionProductResponse,
 } from "@/pages/products/types";
 import SaveStatusMessage from "@/components/base/SaveStatusMessage";
-import SectionHeading from "./SectionHeading";
+import CataloguePanelHeading from "./CataloguePanelHeading";
 import DetailDisclosure from "./DetailDisclosure";
 
 type SquareSyncState = "idle" | "saving" | "success" | "error";
@@ -372,28 +372,30 @@ export default function SquareIntegrationSection({
   ];
 
   return (
-    <div className="ui-card rounded-lg p-4 md:p-5">
+    <div className="border-t border-[var(--cat-rule)] pt-4">
       {/* サービス単位のカード: 上部にサービス名と現在の連携状態を表示する
           （将来メルカリShops・スニダン等を追加する場合も同じカードを縦に並べる） */}
-      <SectionHeading
-        eyebrow="Integration"
+      <CataloguePanelHeading
         title="Square 連携"
-        icon="ri-links-line"
-        description="本番環境の商品情報・在庫・決済リンクを連携します"
+        eyebrow="Integration"
         right={
           isProdLinked ? (
-            <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-primary-200 bg-primary-50 px-2 py-0.5 text-[10px] font-semibold text-primary-700">
+            <span className="cat-mono inline-flex items-center gap-1 whitespace-nowrap text-[9.5px] tracking-[0.16em] text-[var(--cat-green)]">
               <i className="ri-check-line w-3 h-3 flex items-center justify-center"></i>
               連携済み
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+            <span className="cat-mono inline-flex items-center gap-1 whitespace-nowrap text-[9.5px] tracking-[0.16em] text-[#8f3f34]">
               <i className="ri-error-warning-line w-3 h-3 flex items-center justify-center"></i>
               未連携
             </span>
           )
         }
       />
+
+      <p className="mt-2 text-[11px] leading-[1.9] text-[var(--cat-ink-soft)]">
+        本番環境の商品情報・在庫・決済リンクを連携します。
+      </p>
 
       {/* 未連携のときは、何が揃えば連携できるかをチェックリストで示す */}
       {!isProdLinked && (
@@ -558,8 +560,8 @@ export default function SquareIntegrationSection({
 
       {/* 技術的なIDと決済リンクは折りたたみ（通常は状態と操作だけを見せる） */}
       {!hasTechInfo ? (
-        <p className="mt-3 border-t border-background-100 pt-2 text-[11px] text-foreground-400">
-          未連携のため技術情報はありません。
+        <p className="mt-3 border-t border-[var(--cat-rule-soft)] pt-2 text-[10.5px] leading-[1.8] text-[var(--cat-ink-soft)]">
+          未連携のため、該当する情報はない
         </p>
       ) : (
         <DetailDisclosure
