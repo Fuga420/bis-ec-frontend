@@ -1,10 +1,14 @@
 import {
+  PRODUCTS_READ_API_URL,
+  confirmProductAiDraftViaApi,
   createDraftProductViaApi,
   fetchProductsReadApi,
+  generateProductAiDraftViaApi,
+  getProductAiDraftViaApi,
   markDraftProductSyncedInSession,
   updateProductImagesViaApi,
 } from "@/config/productsApi";
-import { getSupabaseClient } from "@/lib/supabaseClient";
+import { getSupabaseClient, isBackendConnected } from "@/lib/supabaseClient";
 import { categories, conditions } from "@/mocks/productForm";
 
 // 認証付き中継（Readdy Backend Edge Function）の関数名。
@@ -595,51 +599,92 @@ function createClientId(index: number): string {
 }
 
 /**
- * 既存の generate_ai_product_draft API を呼び出す。
- * 送るのは product_id のみ（画像はGAS側がDriveから取得する）。
- * candidate と draft_id / draft_version を返す。認証ヘッダーは送らない。
+ * 単品AI下書き生成API（POST /products/:productId/ai-draft/generate）を呼び出す。
+ * 送るのは product_id のみ（画像は Cloud Run 側が Drive から取得し、確定原価下限もサーバー側で照合する）。
+ * 生成結果はスタッフ確認前のドラフト（review_status:"pending_review"）として保存され、公開は行わない。
  */
 export async function generateAiProductDraft(
   productId: string
 ): Promise<AiProductGeneration> {
-  // 認証付き中継経由（ブラウザからはキーを送らない）。送るのは product_id のみ。
-  const data = await invokeAiRelay<AiGenerateResponse>({
-    action: AI_ACTIONS.generateDraft,
-    product_id: productId,
-  });
+  let data: AiGenerateResponse | null = null;
+  if (!PRODUCTS_READ_API_URL) {
+    data = await invokeAiRelay<AiGenerateResponse>({
+      action: AI_ACTIONS.generateDraft,
+      product_id: productId,
+    });
+  } else {
+    if (!isBackendConnected()) {
+      throw new Error(
+        "バックエンド（Readdy Backend / SaaS Supabase）に接続されていません。管理者に接続を依頼してください。"
+      );
+    }
+    const response = await generateProductAiDraftViaApi(productId);
+    data = parseJson<AiGenerateResponse>(await response.text());
+    if (!response.ok && (!data || data.success === undefined)) {
+      throw new Error(
+        `AI生成に失敗しました (HTTP ${response.status})。時間をおいて再度お試しください。`
+      );
+    }
+  }
   if (!data || data.success !== true) {
-    const info = extractRelayError(data, "AI生成に失敗しました。時間をおいて再度お試しください。");
+    const info = extractRelayError(
+      data,
+      "AI生成に失敗しました。時間をおいて再度お試しください。"
+    );
     throw new AiRelayError(info.message, info.code);
   }
   if (!data.candidate) {
     throw new Error("AI生成の候補データが空でした。再度お試しください。");
   }
+  const resolvedProductId = asString(data.product_id) || productId;
+  markDraftProductSyncedInSession(resolvedProductId);
   return {
     candidate: normalizeCandidate(data.candidate),
     // product_id / draft_id / draft_version は返却値をそのまま保持する
-    productId: asString(data.product_id),
+    productId: resolvedProductId,
     draftId: asString(data.draft_id),
     draftVersion: data.draft_version ?? "",
   };
 }
 
 /**
- * AI候補の確認保存。既存 draft を確定する（新規商品は作らない）。
+ * AI候補の確認保存（POST /products/:productId/ai-draft/confirm）。
+ * 既存 draft を下書きのまま確定更新する（新規商品は作らず、公開処理も行わない）。
  * draft_id / draft_version / confirmation_attempt_id / confirmed_data を送る。
- * 認証ヘッダーは送らない。
  */
 export async function confirmAiProductDraft(
   params: ConfirmAiProductDraftParams
 ): Promise<ConfirmAiProductDraftResponse> {
-  // 認証付き中継経由。接続先URLと管理者キーはサーバー側（Secrets）のみで扱う。
-  const data = await invokeAiRelay<ConfirmAiProductDraftResponse>({
-    action: AI_ACTIONS.confirmDraft,
-    product_id: params.productId,
-    draft_id: params.draftId,
-    draft_version: params.draftVersion,
-    confirmation_attempt_id: params.confirmationAttemptId,
-    confirmed_data: params.confirmedData,
-  });
+  let data: ConfirmAiProductDraftResponse | null = null;
+  if (!PRODUCTS_READ_API_URL) {
+    data = await invokeAiRelay<ConfirmAiProductDraftResponse>({
+      action: AI_ACTIONS.confirmDraft,
+      product_id: params.productId,
+      draft_id: params.draftId,
+      draft_version: params.draftVersion,
+      confirmation_attempt_id: params.confirmationAttemptId,
+      confirmed_data: params.confirmedData,
+    });
+  } else {
+    if (!isBackendConnected()) {
+      throw new Error(
+        "バックエンド（Readdy Backend / SaaS Supabase）に接続されていません。管理者に接続を依頼してください。"
+      );
+    }
+    const response = await confirmProductAiDraftViaApi(params.productId, {
+      product_id: params.productId,
+      draft_id: params.draftId,
+      draft_version: params.draftVersion,
+      confirmation_attempt_id: params.confirmationAttemptId,
+      confirmed_data: params.confirmedData,
+    });
+    data = parseJson<ConfirmAiProductDraftResponse>(await response.text());
+    if (!response.ok && (!data || data.success === undefined)) {
+      throw new Error(
+        `AI候補の確定保存に失敗しました (HTTP ${response.status})。もう一度お試しください。`
+      );
+    }
+  }
   // 確定成功は success:true かつ review_status:"confirmed" で判定する
   // （初回応答の confirmed_fingerprint は必須にしない）。
   if (!data || data.success !== true || data.review_status !== "confirmed") {
@@ -649,13 +694,14 @@ export async function confirmAiProductDraft(
     );
     throw new AiRelayError(info.message, info.code);
   }
+  markDraftProductSyncedInSession(asString(data.product_id) || params.productId);
   return data;
 }
 
 /**
  * get_ai_product_draft の取得結果（境界での形式統一後の形）。
- * GAS契約: { success:true, product_id, latest_ai_draft:{ draft_id, draft_version,
- *            review_status, confirmed_fingerprint, ... } }
+ * 契約: { success:true, product_id, latest_ai_draft:{ draft_id, draft_version,
+ *         review_status, confirmed_fingerprint, ... } }
  * - found: 実体の draft（latest_ai_draft の中身、または展開済みのトップレベル）
  * - none : 正常応答かつ latest_ai_draft:null（＝AI下書きの履歴なし）だけ
  * - error: API取得失敗、または応答形式の不一致（「履歴なし」とは扱わない）
@@ -666,8 +712,7 @@ export type AiProductDraftLookup =
   | { status: "error"; message: string };
 
 /**
- * 仮draft（AI候補）の詳細を取得する（get_ai_product_draft）。
- * 中継対象の3actionの1つ。接続先と管理者キーはサーバー側（Secrets）のみで扱う。
+ * 仮draft（AI候補）の詳細を取得する（GET /products/:productId/ai-draft）。
  * 境界で latest_ai_draft を取り出して形式を統一し、呼び出し側が
  * draft_id / draft_version / review_status を正しく読めるようにする。
  */
@@ -677,11 +722,29 @@ export async function getAiProductDraft(
 ): Promise<AiProductDraftLookup> {
   let data: Record<string, unknown> | null = null;
   try {
-    data = await invokeAiRelay<Record<string, unknown>>({
-      action: AI_ACTIONS.getDraft,
-      product_id: productId,
-      draft_id: draftId ?? "",
-    });
+    if (!PRODUCTS_READ_API_URL) {
+      data = await invokeAiRelay<Record<string, unknown>>({
+        action: AI_ACTIONS.getDraft,
+        product_id: productId,
+        draft_id: draftId ?? "",
+      });
+    } else {
+      if (!isBackendConnected()) {
+        return {
+          status: "error",
+          message:
+            "バックエンド（Readdy Backend / SaaS Supabase）に接続されていません。管理者に接続を依頼してください。",
+        };
+      }
+      const response = await getProductAiDraftViaApi(productId, draftId);
+      data = parseJson<Record<string, unknown>>(await response.text());
+      if (!response.ok && (!data || data.success === undefined)) {
+        return {
+          status: "error",
+          message: `AI下書きの取得に失敗しました (HTTP ${response.status})。`,
+        };
+      }
+    }
   } catch (err) {
     // API取得失敗は「履歴なし」と扱わない（無言スキップしない）。
     return {
@@ -705,7 +768,7 @@ export async function getAiProductDraft(
     };
   }
 
-  // 境界での形式統一: GAS は実体を latest_ai_draft 配下に返す。
+  // 境界での形式統一: API は実体を latest_ai_draft 配下に返す。
   // 既に展開済み（トップレベルに draft_id を持つ）場合は二重展開しない。
   const hasNestedKey = Object.prototype.hasOwnProperty.call(
     data,
