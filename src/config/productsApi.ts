@@ -11,8 +11,11 @@ import { getBackendWriteAuthHeaders } from "@/lib/supabaseClient";
  *   （画像ファイル本体の保存先は既存の Google Drive フォルダを維持）。
  * - Phase 2 Unit 3: Square未連携の下書き商品の在庫状態変更（POST /products/:productId/inventory-status）、
  *   アーカイブ・復元（POST /products/:productId/record-status）、一覧の一括アーカイブは Cloud Run + Supabase を書込正本とする。
- * - 公開登録・Square連携済み商品の操作・公開状態変更・完全削除・AI生成等は引き続き GOOGLE_SHEETS_WEBHOOK_URL（GAS）を利用し、
- *   書込成功後に syncProductToReadDb() で該当1商品をSupabaseへ即時反映する。
+ * - Phase 2 Unit 4: 単品AI下書き生成（POST /products/:productId/ai-draft/generate）、
+ *   単品AI下書き取得（GET /products/:productId/ai-draft）、単品AI下書き確定（POST /products/:productId/ai-draft/confirm）、
+ *   およびAI解析用画像選択保存（POST /products/:productId/ai-selected-images）は Cloud Run + Supabase を正本とする。
+ * - 公開登録・Square連携済み商品の操作・公開状態変更・完全削除・一括AI生成は引き続き既存経路（GAS / gas-ai-batch-relay）を利用し、
+ *   GAS書込成功後に syncProductToReadDb() で該当1商品をSupabaseへ即時反映する。
  * - 画面を閉じている間のGAS定期処理による変更は Cloud Scheduler -> POST /reconcile（5分周期）が差分同期する。
  */
 export const PRODUCTS_READ_API_URL = (
@@ -471,3 +474,101 @@ export async function updateDraftRecordStatusViaApi(
     }
   );
 }
+
+/**
+ * Phase 2 Unit 4: 単品AI下書き生成（Cloud Run -> Gemini Search Grounding + Supabase 正本保存 + Sheets互換ミラー）。
+ * 単品生成は常にスタッフ確認前のドラフト（auto_apply: false）として保存し、公開状態は変更しない。
+ */
+export async function generateProductAiDraftViaApi(
+  productId: string,
+  payload?: Record<string, unknown>
+): Promise<Response> {
+  const id = productId.trim();
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/ai-draft/generate`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...authHeaders,
+      },
+      body: JSON.stringify({
+        product_id: id,
+        ...(payload ?? {}),
+      }),
+    }
+  );
+}
+
+/**
+ * Phase 2 Unit 4: 単品AI下書き確定（Cloud Run -> Supabase 正本更新 + Sheets / 翻訳 / ポケカ / 指紋 互換ミラー）。
+ * 既存の下書き商品を確定更新するだけで、公開処理は行わない。
+ */
+export async function confirmProductAiDraftViaApi(
+  productId: string,
+  payload: Record<string, unknown>
+): Promise<Response> {
+  const id = productId.trim();
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/ai-draft/confirm`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...authHeaders,
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+/**
+ * Phase 2 Unit 4: 単品AI下書き取得（Cloud Run -> Supabase 正本参照、未同期時はGASからオンデマンド補完）。
+ */
+export async function getProductAiDraftViaApi(
+  productId: string,
+  draftId?: string
+): Promise<Response> {
+  const id = productId.trim();
+  const trimmedDraftId = (draftId ?? "").trim();
+  const query = trimmedDraftId
+    ? `?draft_id=${encodeURIComponent(trimmedDraftId)}`
+    : "";
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/ai-draft${query}`,
+    {
+      method: "GET",
+      headers: {
+        ...authHeaders,
+      },
+    }
+  );
+}
+
+/**
+ * Phase 2 Unit 4: AI解析用画像の選択保存（Cloud Run -> Drive実在検証 + Supabase 正本保存 + GAS一括生成向け互換ミラー）。
+ */
+export async function saveProductAiSelectedImagesViaApi(
+  productId: string,
+  selectedImageIds: string[]
+): Promise<Response> {
+  const id = productId.trim();
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/ai-selected-images`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...authHeaders,
+      },
+      body: JSON.stringify({
+        selected_image_ids: selectedImageIds,
+      }),
+    }
+  );
+}
+
