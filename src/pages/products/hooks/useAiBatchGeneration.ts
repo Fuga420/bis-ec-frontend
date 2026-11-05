@@ -4,7 +4,11 @@ import type {
   AiBatchOverallStatus,
   AiBatchTarget,
 } from "@/pages/products/types";
-import { syncProductToReadDb } from "@/config/productsApi";
+import {
+  PRODUCTS_READ_API_URL,
+  markDraftProductSyncedInSession,
+  syncProductToReadDb,
+} from "@/config/productsApi";
 import { AiRelayError } from "@/pages/register/lib/aiProduct";
 import {
   AI_BATCH_POLL_INTERVAL_MS,
@@ -293,7 +297,12 @@ export function useAiBatchGeneration() {
             !syncedBatchCompletedRef.current.has(item.product_id)
           ) {
             syncedBatchCompletedRef.current.add(item.product_id);
-            void syncProductToReadDb(item.product_id);
+            if (PRODUCTS_READ_API_URL) {
+              // Cloud Run + Supabase が書込正本のため、逆方向の syncProductToReadDb は呼ばずセッション未同期フラグのみクリアする
+              markDraftProductSyncedInSession(item.product_id);
+            } else {
+              void syncProductToReadDb(item.product_id);
+            }
           }
         });
         if (isTerminalBatchStatus(data.status)) {

@@ -428,8 +428,14 @@ export default function ProductsPage() {
     markProductListReturnPending(isArchived);
   }, [filter, sortKey, page, isArchived]);
 
-  // 一括選択・一括公開の状態
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // 一括選択・一括公開の状態（ページ移動しても選択を保持し、検索・並び替え・タブ切替で解除する）
+  const [selectedMap, setSelectedMap] = useState<Map<string, AdminProduct>>(
+    () => new Map()
+  );
+  const selectedIds = useMemo(
+    () => new Set(selectedMap.keys()),
+    [selectedMap]
+  );
   const [withPaymentLink, setWithPaymentLink] = useState(true);
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
@@ -482,23 +488,22 @@ export default function ProductsPage() {
     filter.publishStatus !== "" ||
     filter.inventoryStatus !== "";
 
-  // 条件変更時は1ページ目に戻し、選択済みの商品を解除する
-  // （一括操作は表示中ページの商品だけを対象にする）。
+  // 条件変更時は1ページ目に戻し、選択済みの商品を解除する。
+  // ページ切替時は選択を維持し、50件超（複数ページ横断）の一括AI生成にも対応できるようにする。
   const handleFilterChange = (next: ProductFilterValue) => {
     setFilter(next);
     setPage(1);
-    setSelectedIds(new Set());
+    setSelectedMap(new Map());
   };
 
   const handleSortChange = (next: ProductSortKey) => {
     setSortKey(next);
     setPage(1);
-    setSelectedIds(new Set());
+    setSelectedMap(new Map());
   };
 
   const handlePageChange = (next: number) => {
     setPage(next);
-    setSelectedIds(new Set());
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -510,13 +515,30 @@ export default function ProductsPage() {
       inventoryStatus: "",
     });
     setPage(1);
-    setSelectedIds(new Set());
+    setSelectedMap(new Map());
   };
 
   // タブ（通常／アーカイブ）を切り替えたら、前のタブの選択を持ち越さない
   useEffect(() => {
-    setSelectedIds(new Set());
+    setSelectedMap(new Map());
   }, [isArchived]);
+
+  // 表示中ページの商品情報が更新されたら、選択済みマップ内の商品データも最新へ更新する
+  useEffect(() => {
+    if (products.length === 0) return;
+    setSelectedMap((prev) => {
+      if (prev.size === 0) return prev;
+      let changed = false;
+      const next = new Map(prev);
+      for (const p of products) {
+        if (next.has(p.product_id) && next.get(p.product_id) !== p) {
+          next.set(p.product_id, p);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [products]);
 
   // 復元したページが、商品件数の減少などで存在しなくなっていた場合は
   // 既存のページング仕様に沿って最終ページ（1ページ以上）に収める。
@@ -583,8 +605,8 @@ export default function ProductsPage() {
   }, [pageSelectedCount, products.length]);
 
   const selectedProducts = useMemo(
-    () => products.filter((product) => selectedIds.has(product.product_id)),
-    [products, selectedIds]
+    () => Array.from(selectedMap.values()),
+    [selectedMap]
   );
 
   const plan = useMemo(
@@ -598,32 +620,33 @@ export default function ProductsPage() {
 
   const toggleSelect = (productId: string) => {
     if (isAnyBulkBusy) return;
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
+    const found = products.find((p) => p.product_id === productId);
+    setSelectedMap((prev) => {
+      const next = new Map(prev);
       if (next.has(productId)) {
         next.delete(productId);
-      } else {
-        next.add(productId);
+      } else if (found) {
+        next.set(productId, found);
       }
       return next;
     });
   };
 
   const clearSelection = () => {
-    setSelectedIds(new Set());
+    setSelectedMap(new Map());
   };
 
   const toggleSelectAll = () => {
     if (isAnyBulkBusy) return;
-    const ids = products.map((product) => product.product_id);
     const allSelected =
-      ids.length > 0 && ids.every((id) => selectedIds.has(id));
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
+      products.length > 0 &&
+      products.every((product) => selectedIds.has(product.product_id));
+    setSelectedMap((prev) => {
+      const next = new Map(prev);
       if (allSelected) {
-        ids.forEach((id) => next.delete(id));
+        products.forEach((product) => next.delete(product.product_id));
       } else {
-        ids.forEach((id) => next.add(id));
+        products.forEach((product) => next.set(product.product_id, product));
       }
       return next;
     });
