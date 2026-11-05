@@ -14,7 +14,9 @@ import { getBackendWriteAuthHeaders } from "@/lib/supabaseClient";
  * - Phase 2 Unit 4: 単品AI下書き生成（POST /products/:productId/ai-draft/generate）、
  *   単品AI下書き取得（GET /products/:productId/ai-draft）、単品AI下書き確定（POST /products/:productId/ai-draft/confirm）、
  *   およびAI解析用画像選択保存（POST /products/:productId/ai-selected-images）は Cloud Run + Supabase を正本とする。
- * - 公開登録・Square連携済み商品の操作・公開状態変更・完全削除・一括AI生成は引き続き既存経路（GAS / gas-ai-batch-relay）を利用し、
+ * - Phase 2 Unit 5: 手動AI一括生成の受付（POST /ai-batches）、進捗・結果取得（GET /ai-batches/:batchId）、
+ *   失敗分のみ再実行（POST /ai-batches/:batchId/retry）は Cloud Run + Supabase キューを正本とする。
+ * - 公開登録・Square連携済み商品の操作・公開状態変更・完全削除は引き続き既存経路（GAS）を利用し、
  *   GAS書込成功後に syncProductToReadDb() で該当1商品をSupabaseへ即時反映する。
  * - 画面を閉じている間のGAS定期処理による変更は Cloud Scheduler -> POST /reconcile（5分周期）が差分同期する。
  */
@@ -568,6 +570,65 @@ export async function saveProductAiSelectedImagesViaApi(
       body: JSON.stringify({
         selected_image_ids: selectedImageIds,
       }),
+    }
+  );
+}
+
+/**
+ * Phase 2 Unit 5: 手動AI一括生成の受付（Cloud Run -> 確定原価解決 + Supabase キュー登録 + 非同期ワーカー起動）。
+ * 成功商品はワーカーが下書き商品へ自動確定反映し、公開・Square登録は行わない。
+ */
+export async function createProductAiDraftBatchViaApi(
+  payload: Record<string, unknown>
+): Promise<Response> {
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(`${PRODUCTS_READ_API_URL}/ai-batches`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      ...authHeaders,
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * Phase 2 Unit 5: AI一括生成バッチの進捗・商品別結果取得（Cloud Run -> Supabase キュー参照）。
+ */
+export async function getProductAiDraftBatchViaApi(
+  batchId: string
+): Promise<Response> {
+  const id = batchId.trim();
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/ai-batches/${encodeURIComponent(id)}`,
+    {
+      method: "GET",
+      headers: {
+        ...authHeaders,
+      },
+    }
+  );
+}
+
+/**
+ * Phase 2 Unit 5: AI一括生成の失敗商品のみ再実行（Cloud Run -> Supabase キュー再投入 + 非同期ワーカー起動）。
+ */
+export async function retryProductAiDraftBatchViaApi(
+  batchId: string,
+  payload: Record<string, unknown>
+): Promise<Response> {
+  const id = batchId.trim();
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/ai-batches/${encodeURIComponent(id)}/retry`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...authHeaders,
+      },
+      body: JSON.stringify(payload),
     }
   );
 }

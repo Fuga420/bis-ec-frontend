@@ -119,7 +119,7 @@ export default function AiBatchResultModal({
 
         <p className="mt-3 flex items-start gap-1.5 rounded-md bg-background-100 px-3 py-2 text-xs leading-relaxed text-foreground-600">
           <i className="ri-information-line mt-0.5 w-4 h-4 flex items-center justify-center"></i>
-          完了した商品は、GAS側で同じ商品の下書き（商品情報・英文翻訳など）へ自動反映されます。商品ごとの確定操作は不要で、修正は商品詳細の「商品情報を編集」から行えます。
+          完了した商品は、サーバー側で同じ商品の下書き（商品情報・英文翻訳など）へ自動反映されます（公開・Square登録は行いません）。商品ごとの確定操作は不要で、修正は商品詳細の「商品情報を編集」から行えます。
         </p>
 
         {warning && (
