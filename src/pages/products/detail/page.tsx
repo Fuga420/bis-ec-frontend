@@ -61,6 +61,7 @@ import ProductDetailTabs, {
   type ProductDetailTabKey,
 } from "./components/ProductDetailTabs";
 import SalesManagementPanel from "./components/SalesManagementPanel";
+import CataloguePanelHeading from "./components/CataloguePanelHeading";
 import ProductDangerDialogs from "./components/ProductDangerDialogs";
 import SaveStatusMessage from "@/components/base/SaveStatusMessage";
 import BisImagePlaceholder from "@/components/base/BisImagePlaceholder";
@@ -192,6 +193,10 @@ export default function ProductDetailPage() {
   // 下部「仕入・書類」の両方で同じ結果を使う（二重加算・表示の食い違いを防ぐ）。
   const productCost = useProductCostDetail(product?.product_id);
   const costView = deriveProductCost(productCost.detail);
+  // 仕入台帳（来歴）で確定済みの仕入原価。商品編集フォームでは
+  // 手入力の「仕入価格」が未設定のときの参考表示にだけ使う（保存はしない）。
+  const ledgerCostForForm =
+    costView.hasLinks && costView.hasCostAmount ? costView.costTotal : null;
   // 詳細APIで取得できず、一覧APIの情報で表示しているか（部分表示の案内用）
   const [isPartialLoad, setIsPartialLoad] = useState(false);
   // AIドラフト（get_ai_product_draft）の candidate.price。
@@ -396,6 +401,14 @@ export default function ProductDetailPage() {
     setAutoLinkNotice(null);
   }, [id]);
 
+  // 商品詳細を開いたときは必ずページ先頭から表示する。
+  // 一覧をスクロールした状態で商品を開くと、ブラウザがスクロール位置を保持したまま
+  // 詳細画面を表示してしまい、画面の途中から始まって見えるため。
+  // 前後の商品へ移動（idの変更）でも同じように先頭へ戻す。
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [id]);
+
   // 商品詳細の取得結果（初回・再取得）からAI解析用画像の保存値を反映する。
   // 画像編集中はスタッフの未保存選択を上書きしないよう同期しない。
   useEffect(() => {
@@ -415,16 +428,22 @@ export default function ProductDetailPage() {
     );
   }, [imageCount]);
 
-  const handleSaveStatus = async () => {
+  // 公開状態を保存する。確認の帯で「変更する」が押された時点で呼ばれる。
+  // 失敗した場合は選択を元の状態（保存済みの値）に戻す。
+  const handleSaveStatus = async (targetStatus: string) => {
     if (!product || saveState === "saving") return;
+
+    const previousStatus = product.publish_status;
+    if (targetStatus === previousStatus) return;
 
     // 公開操作の前にスニーカーサイズを確認する（未入力なら公開しない）。
     // 下書き保存では未入力を許可する。
     if (
-      selectedStatus === "published" &&
+      targetStatus === "published" &&
       product.category === "sneaker" &&
       !hasSneakerSize(product.sneaker_size)
     ) {
+      setSelectedStatus(previousStatus);
       setMessage({
         type: "error",
         text: "公開前にサイズを入力してください。商品情報を編集してサイズを入力してから再度公開してください。",
@@ -434,6 +453,7 @@ export default function ProductDetailPage() {
 
     setSaveState("saving");
     setMessage(null);
+    setSelectedStatus(targetStatus);
 
     try {
       const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
@@ -444,7 +464,7 @@ export default function ProductDetailPage() {
         body: JSON.stringify({
           action: "update_publish_status",
           product_id: product.product_id,
-          publish_status: selectedStatus,
+          publish_status: targetStatus,
         }),
       });
       let data: PublishStatusUpdateResponse | null = null;
@@ -459,10 +479,15 @@ export default function ProductDetailPage() {
         );
       }
       await syncProductToReadDb(product.product_id);
-      setProduct({ ...product, publish_status: data.publish_status ?? selectedStatus });
-      setSelectedStatus(data.publish_status ?? selectedStatus);
+      setProduct({
+        ...product,
+        publish_status: data.publish_status ?? targetStatus,
+      });
+      setSelectedStatus(data.publish_status ?? targetStatus);
       setMessage({ type: "success", text: "公開状態を更新しました" });
     } catch (err) {
+      // 保存に失敗したら選択を元の状態に戻す
+      setSelectedStatus(previousStatus);
       setMessage({
         type: "error",
         text:
@@ -474,10 +499,17 @@ export default function ProductDetailPage() {
     }
   };
 
-  const handleSaveInventoryStatus = async () => {
+  // 在庫状態は選択した時点で即時保存する（確認なし）。
+  // 失敗した場合は選択を元の状態（保存済みの値）に戻す。
+  const handleSaveInventoryStatus = async (targetStatus: string) => {
     if (!product || inventorySaveState === "saving") return;
+
+    const previousStatus = product.inventory_status;
+    if (targetStatus === previousStatus) return;
+
     setInventorySaveState("saving");
     setInventoryMessage(null);
+    setSelectedInventoryStatus(targetStatus);
 
     const useCloudRun = canUseCloudRunDraftUpdate(product);
 
@@ -485,7 +517,7 @@ export default function ProductDetailPage() {
       const response = useCloudRun
         ? await updateDraftInventoryStatusViaApi(
             product.product_id,
-            selectedInventoryStatus
+            targetStatus
           )
         : await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
             method: "POST",
@@ -495,7 +527,7 @@ export default function ProductDetailPage() {
             body: JSON.stringify({
               action: "update_inventory_status",
               product_id: product.product_id,
-              inventory_status: selectedInventoryStatus,
+              inventory_status: targetStatus,
             }),
           });
       if (!response.ok) {
@@ -507,11 +539,9 @@ export default function ProductDetailPage() {
       }
       setProduct({
         ...product,
-        inventory_status: data.inventory_status ?? selectedInventoryStatus,
+        inventory_status: data.inventory_status ?? targetStatus,
       });
-      setSelectedInventoryStatus(
-        data.inventory_status ?? selectedInventoryStatus
-      );
+      setSelectedInventoryStatus(data.inventory_status ?? targetStatus);
       setInventoryMessage({ type: "success", text: "在庫状態を更新しました" });
       if (useCloudRun) {
         markDraftProductSyncedInSession(product.product_id);
@@ -528,6 +558,8 @@ export default function ProductDetailPage() {
         // 保存自体は成功しているため、再取得失敗は無視する
       }
     } catch {
+      // 保存に失敗したら選択を元の状態に戻す
+      setSelectedInventoryStatus(previousStatus);
       setInventoryMessage({
         type: "error",
         text: "在庫状態の更新に失敗しました",
@@ -1151,6 +1183,7 @@ export default function ProductDetailPage() {
                     saving={editSaveState === "saving"}
                     error={editMessage?.type === "error" ? editMessage.text : ""}
                     aiPriceSuggestion={aiDraftPrice}
+                    ledgerCost={ledgerCostForForm}
                     onCancel={handleCancelEdit}
                     onSave={handleSaveEdit}
                   />
@@ -1207,7 +1240,13 @@ export default function ProductDetailPage() {
                           setSelectedStatus(value);
                           setMessage(null);
                         },
-                        onSave: handleSaveStatus,
+                        onConfirmSave: () => {
+                          void handleSaveStatus(selectedStatus);
+                        },
+                        onCancel: () => {
+                          setSelectedStatus(product.publish_status);
+                          setMessage(null);
+                        },
                       }}
                       inventory={{
                         inventoryLabel,
@@ -1216,10 +1255,8 @@ export default function ProductDetailPage() {
                         saving: inventorySaveState === "saving",
                         message: inventoryMessage,
                         onSelect: (value) => {
-                          setSelectedInventoryStatus(value);
-                          setInventoryMessage(null);
+                          void handleSaveInventoryStatus(value);
                         },
-                        onSave: handleSaveInventoryStatus,
                       }}
                       record={{
                         recordStatus: product.record_status,
@@ -1279,30 +1316,50 @@ export default function ProductDetailPage() {
 
                 {/* 翻訳・外部連携（翻訳データの取得・表示条件は従来どおり） */}
                 {activeTab === "integration" && (
-                  <div className="tab-fade mt-5 flex flex-col gap-9">
-                    <div className="border-t border-[var(--cat-rule-soft)] pt-4">
-                      {product.category !== "pokemon_card" ? (
-                        <ProductTranslationSection
-                          productId={product.product_id}
-                          translation={product.translation}
-                          onTranslationChange={(translation) => {
-                            setProduct((prev) =>
-                              prev ? { ...prev, translation } : prev
-                            );
-                          }}
-                        />
-                      ) : (
-                        <p className="py-4 text-[12px] leading-relaxed text-[var(--cat-ink-soft)]">
-                          このカテゴリの商品は英語翻訳の対象外です
-                        </p>
-                      )}
-                    </div>
+                  <div className="tab-fade mt-4">
+                    <section>
+                      <CataloguePanelHeading
+                        number="02"
+                        title="翻訳・外部連携"
+                        eyebrow="Translation & Integrations"
+                        right={
+                          <span className="cat-mono text-[9px] tracking-[0.18em] text-[var(--cat-ink-soft)]">
+                            {isSquareLinked ? "SQUARE LINKED" : "SQUARE UNLINKED"}
+                          </span>
+                        }
+                      />
 
-                    {/* 外部連携（現時点ではSquareのみ） */}
-                    <SquareIntegrationSection
-                      product={product}
-                      onRefreshed={refreshProduct}
-                    />
+                      <p className="mt-3 max-w-[70ch] text-[11px] leading-[1.9] text-[var(--cat-ink-soft)]">
+                        越境販売のための英語翻訳と、外部販売チャネル（Square）の連携状態をまとめて扱います。
+                      </p>
+
+                      <div className="mt-6 flex flex-col gap-8">
+                        {/* 英語翻訳 */}
+                        <div className="border-t border-[var(--cat-rule-soft)] pt-5">
+                          {product.category !== "pokemon_card" ? (
+                            <ProductTranslationSection
+                              productId={product.product_id}
+                              translation={product.translation}
+                              onTranslationChange={(translation) => {
+                                setProduct((prev) =>
+                                  prev ? { ...prev, translation } : prev
+                                );
+                              }}
+                            />
+                          ) : (
+                            <p className="py-2 text-[12px] leading-relaxed text-[var(--cat-ink-soft)]">
+                              このカテゴリの商品は英語翻訳の対象外です
+                            </p>
+                          )}
+                        </div>
+
+                        {/* 外部連携（現時点ではSquareのみ） */}
+                        <SquareIntegrationSection
+                          product={product}
+                          onRefreshed={refreshProduct}
+                        />
+                      </div>
+                    </section>
                   </div>
                 )}
               </div>

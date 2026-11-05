@@ -4,13 +4,7 @@ import {
   extractRelayError,
   invokeAiRelay,
 } from "@/pages/register/lib/aiProduct";
-import {
-  PRODUCTS_READ_API_URL,
-  markDraftProductSyncedInSession,
-  saveProductAiSelectedImagesViaApi,
-  syncProductToReadDb,
-} from "@/config/productsApi";
-import { isBackendConnected } from "@/lib/supabaseClient";
+import { syncProductToReadDb } from "@/config/productsApi";
 import type {
   AiBatchCreateResponse,
   AiBatchDisplayItem,
@@ -355,7 +349,7 @@ export function classifyRetryFailure(err: unknown): RetryFailureClass {
 }
 
 /**
- * AI解析に使う画像（Drive の file_id）を保存する（POST /products/:productId/ai-selected-images）。
+ * AI解析に使う画像（Drive の file_id）を保存する。
  * 空配列 [] は指定解除。成功（success:true）を確認できない場合は例外にする
  * （保存されたように扱って生成を進めないため）。
  */
@@ -369,44 +363,14 @@ export async function saveProductAiSelectedImages(params: {
       "TOO_MANY_SELECTED_IMAGES"
     );
   }
-  if (!PRODUCTS_READ_API_URL) {
-    const data = await invokeAiRelay<Record<string, unknown>>(
-      {
-        action: AI_BATCH_ACTIONS.saveSelectedImages,
-        product_id: params.productId,
-        selected_image_ids: params.selectedImageIds,
-      },
-      AI_BATCH_RELAY_FUNCTION_NAME
-    );
-    if (!data || data.success !== true) {
-      const info = extractRelayError(
-        data as { error?: string; message?: string; error_code?: string } | null,
-        "AI解析用画像の保存に失敗しました。"
-      );
-      throw new AiRelayError(info.message, info.code);
-    }
-    await syncProductToReadDb(params.productId);
-    return;
-  }
-
-  if (!isBackendConnected()) {
-    throw new Error(
-      "バックエンド（Readdy Backend / SaaS Supabase）に接続されていません。管理者に接続を依頼してください。"
-    );
-  }
-  const response = await saveProductAiSelectedImagesViaApi(
-    params.productId,
-    params.selectedImageIds
+  const data = await invokeAiRelay<Record<string, unknown>>(
+    {
+      action: AI_BATCH_ACTIONS.saveSelectedImages,
+      product_id: params.productId,
+      selected_image_ids: params.selectedImageIds,
+    },
+    AI_BATCH_RELAY_FUNCTION_NAME
   );
-  let data: Record<string, unknown> | null = null;
-  try {
-    data = JSON.parse(await response.text()) as Record<string, unknown>;
-  } catch {
-    data = null;
-  }
-  if (!response.ok && (!data || data.success === undefined)) {
-    throw new Error(`AI解析用画像の保存に失敗しました (HTTP ${response.status})。`);
-  }
   if (!data || data.success !== true) {
     const info = extractRelayError(
       data as { error?: string; message?: string; error_code?: string } | null,
@@ -414,7 +378,7 @@ export async function saveProductAiSelectedImages(params: {
     );
     throw new AiRelayError(info.message, info.code);
   }
-  markDraftProductSyncedInSession(params.productId);
+  await syncProductToReadDb(params.productId);
 }
 
 function asNumberOrNull(value: unknown): number | null {

@@ -7,7 +7,7 @@ import type {
   ProductTranslationApproveResponse,
 } from "../../types";
 import SaveStatusMessage from "@/components/base/SaveStatusMessage";
-import CataloguePanelHeading from "./CataloguePanelHeading";
+import CatalogueSubHeading from "./CatalogueSubHeading";
 import CollapsibleText from "./CollapsibleText";
 
 type SyncState = "idle" | "generating" | "success" | "error";
@@ -191,7 +191,7 @@ export default function ProductTranslationSection({
 
   return (
     <div>
-      <CataloguePanelHeading
+      <CatalogueSubHeading
         title="英語翻訳"
         eyebrow="Localization"
         right={
@@ -206,45 +206,45 @@ export default function ProductTranslationSection({
       </p>
 
       {translationData ? (
-        <div className="mt-4 flex flex-col gap-3">
+        <div className="mt-4 flex flex-col gap-4">
           <div>
-            <p className="text-xs font-medium text-foreground-500">
+            <p className="cat-mono text-[9.5px] tracking-[0.16em] text-[var(--cat-ink-soft)]">
               英語タイトル
             </p>
-            <p className="mt-1 text-sm font-semibold text-foreground-900">
+            <p className="mt-1 text-[13.5px] font-semibold leading-relaxed text-[var(--cat-ink)]">
               {translationData.translated_title || "—"}
             </p>
           </div>
           {(translationData.translated_condition ||
             translationData.translated_box ||
             translationData.translated_accessories) && (
-            <dl className="grid grid-cols-1 gap-x-4 gap-y-2 rounded-lg border border-background-200 bg-background-50 px-3 py-2.5 sm:grid-cols-3">
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-3 border-y border-[var(--cat-rule-soft)] py-3 sm:grid-cols-3">
               {translationData.translated_condition && (
                 <div className="min-w-0">
-                  <dt className="text-[11px] leading-4 text-foreground-500">
+                  <dt className="cat-mono text-[9.5px] leading-4 tracking-[0.14em] text-[var(--cat-ink-soft)]">
                     Condition（状態）
                   </dt>
-                  <dd className="mt-0.5 text-[13px] font-medium leading-relaxed text-foreground-900">
+                  <dd className="mt-1 text-[12.5px] font-medium leading-relaxed text-[var(--cat-ink)]">
                     {translationData.translated_condition}
                   </dd>
                 </div>
               )}
               {translationData.translated_box && (
                 <div className="min-w-0">
-                  <dt className="text-[11px] leading-4 text-foreground-500">
+                  <dt className="cat-mono text-[9.5px] leading-4 tracking-[0.14em] text-[var(--cat-ink-soft)]">
                     Box（箱）
                   </dt>
-                  <dd className="mt-0.5 text-[13px] font-medium leading-relaxed text-foreground-900">
+                  <dd className="mt-1 text-[12.5px] font-medium leading-relaxed text-[var(--cat-ink)]">
                     {translationData.translated_box}
                   </dd>
                 </div>
               )}
               {translationData.translated_accessories && (
                 <div className="min-w-0">
-                  <dt className="text-[11px] leading-4 text-foreground-500">
+                  <dt className="cat-mono text-[9.5px] leading-4 tracking-[0.14em] text-[var(--cat-ink-soft)]">
                     Accessories（付属品）
                   </dt>
-                  <dd className="mt-0.5 text-[13px] font-medium leading-relaxed text-foreground-900">
+                  <dd className="mt-1 text-[12.5px] font-medium leading-relaxed text-[var(--cat-ink)]">
                     {translationData.translated_accessories}
                   </dd>
                 </div>
@@ -252,7 +252,7 @@ export default function ProductTranslationSection({
             </dl>
           )}
           <div>
-            <p className="text-xs font-medium text-foreground-500">
+            <p className="cat-mono text-[9.5px] tracking-[0.16em] text-[var(--cat-ink-soft)]">
               英語説明
             </p>
             {translationData.translated_description ? (
@@ -263,16 +263,18 @@ export default function ProductTranslationSection({
                 className="mt-1"
               />
             ) : (
-              <p className="mt-1 text-[13px] leading-relaxed text-foreground-300">
+              <p className="mt-1 text-[12.5px] leading-relaxed text-[var(--cat-ink-soft)]/60">
                 —
               </p>
             )}
           </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-background-100 pt-3 text-xs text-foreground-400">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-[var(--cat-rule-soft)] pt-2.5 text-[10.5px] text-[var(--cat-ink-soft)]">
             <span>ロケール：{translationData.locale || "—"}</span>
-            <span>生成日時：{formatGeneratedAt(translationData.generated_at)}</span>
+            <span className="cat-mono">
+              生成日時：{formatGeneratedAt(translationData.generated_at)}
+            </span>
             {status && (
-              <span className="font-medium text-foreground-500">
+              <span className="font-medium text-[var(--cat-ink)]">
                 ステータス：
                 {status === "approved" ? "承認済み" : "Draft"}
               </span>
@@ -280,11 +282,9 @@ export default function ProductTranslationSection({
           </div>
         </div>
       ) : (
-        <div className="mt-4 rounded-lg border border-dashed border-background-300 bg-background-50 px-3 py-6 text-center">
-          <p className="text-sm text-foreground-500">
-            まだ英語翻訳が生成されていません
-          </p>
-        </div>
+        <p className="mt-3 border-t border-dashed border-[var(--cat-rule-soft)] pt-3 text-[12px] leading-[1.9] text-[var(--cat-ink-soft)]">
+          まだ英語翻訳が生成されていません
+        </p>
       )}
 
       {translationData?.translation_status === "draft" && (
@@ -310,9 +310,9 @@ export default function ProductTranslationSection({
 
       {syncState === "generating" && (
         <div className="mt-3 flex flex-col gap-2">
-          <div className="h-3 w-3/4 animate-pulse rounded bg-background-100"></div>
-          <div className="h-3 w-full animate-pulse rounded bg-background-100"></div>
-          <div className="h-3 w-2/3 animate-pulse rounded bg-background-100"></div>
+          <div className="h-3 w-3/4 animate-pulse bg-[var(--cat-rule-soft)]/50"></div>
+          <div className="h-3 w-full animate-pulse bg-[var(--cat-rule-soft)]/50"></div>
+          <div className="h-3 w-2/3 animate-pulse bg-[var(--cat-rule-soft)]/50"></div>
         </div>
       )}
 

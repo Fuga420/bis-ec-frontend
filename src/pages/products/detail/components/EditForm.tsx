@@ -20,10 +20,22 @@ import {
   apparelBrands,
   fashionGoodsBrands,
   sneakerSizes,
+  boxOptions,
+  sneakerAccessories as accessoryOptions,
   type CategoryId,
 } from "@/mocks/productForm";
 import type { AdminProductDetail } from "@/pages/products/types";
 import SaveStatusMessage from "@/components/base/SaveStatusMessage";
+import {
+  normalizeBoxValue,
+  normalizeConditionValue,
+  normalizeSneakerSizeValue,
+  parseNumericValue,
+  splitAccessoriesValue,
+  toPriceInputValue,
+  toTextValue,
+  toYearValue,
+} from "../lib/formInitValues";
 
 interface EditFormProps {
   product: AdminProductDetail;
@@ -32,27 +44,19 @@ interface EditFormProps {
   // AIドラフト（get_ai_product_draft）の candidate.price。
   // 本票の販売予定価格が未設定のときだけ編集可能な初期値として提示する。
   aiPriceSuggestion?: number | null;
+  // 仕入台帳（来歴）で確定済みの仕入原価。手入力の「仕入価格」が未設定のときの
+  // 参考表示にだけ使い、欄の値・保存内容には反映しない。
+  ledgerCost?: number | null;
   onCancel: () => void;
   onSave: (payload: Record<string, unknown>) => void;
 }
 
-const toPriceStr = (value: number | null | undefined): string =>
-  value != null && value > 0 ? String(value) : "";
-
-const normalizeSneakerSize = (value: number | null | undefined): string => {
-  if (value == null) return "";
-  const str = String(value);
-  if (sneakerSizes.includes(str)) return str;
-  const dotted = `${value}.0`;
-  return sneakerSizes.includes(dotted) ? dotted : str;
-};
-
 const initialSneaker = (p: AdminProductDetail): SneakerValues => ({
-  sku: p.sneaker_sku ?? "",
-  size: normalizeSneakerSize(p.sneaker_size),
-  color: p.sneaker_colorway ?? "",
-  box: p.sneaker_box ?? "",
-  year: p.sneaker_release_year ?? "",
+  sku: toTextValue(p.sneaker_sku),
+  size: normalizeSneakerSizeValue(p.sneaker_size, sneakerSizes),
+  color: toTextValue(p.sneaker_colorway),
+  box: normalizeBoxValue(p.sneaker_box, boxOptions),
+  year: toYearValue(p.sneaker_release_year),
 });
 
 const initialJewelry = (p: AdminProductDetail): JewelryValues => ({
@@ -89,6 +93,7 @@ export default function EditForm({
   saving,
   error,
   aiPriceSuggestion = null,
+  ledgerCost = null,
   onCancel,
   onSave,
 }: EditFormProps) {
@@ -117,31 +122,35 @@ export default function EditForm({
       ? product.auction_item_number
       : ""
   );
-  const [brand, setBrand] = useState(product.brand ?? "");
+  const [brand, setBrand] = useState(toTextValue(product.brand));
   const [condition, setCondition] = useState(
-    conditions.find((c) => c.label === product.condition)?.id ??
-      product.condition ??
-      ""
+    normalizeConditionValue(product.condition, conditions)
   );
   const [purchasePrice, setPurchasePrice] = useState(
-    toPriceStr(product.purchase_price)
+    toPriceInputValue(product.purchase_price)
   );
   const [sellPrice, setSellPrice] = useState(
-    toPriceStr(product.planned_sale_price) ||
+    toPriceInputValue(product.planned_sale_price) ||
       (showAiPriceSuggestion ? String(aiPriceSuggestion) : "")
   );
   const [storageLocation, setStorageLocation] = useState(
-    product.storage_location ?? ""
+    toTextValue(product.storage_location)
   );
   const [description, setDescription] = useState(product.description ?? "");
   const [notes, setNotes] = useState(product.notes ?? "");
 
   const [sneaker, setSneaker] = useState<SneakerValues>(initialSneaker(product));
   const [sneakerAccessories, setSneakerAccessories] = useState<string[]>(
-    product.sneaker_accessories
-      ? product.sneaker_accessories.split(", ").filter(Boolean)
-      : []
+    splitAccessoriesValue(product.sneaker_accessories, accessoryOptions)
   );
+
+  // 手入力の仕入価格が未設定で、仕入台帳（来歴）に確定済みの原価がある場合の参考表示。
+  // 欄の値・保存内容には反映しない（台帳原価を手入力価格へ書き戻さない）。
+  const manualPurchasePrice = parseNumericValue(product.purchase_price);
+  const showLedgerCostNote =
+    (manualPurchasePrice === null || manualPurchasePrice <= 0) &&
+    ledgerCost != null &&
+    ledgerCost > 0;
   const [jewelry, setJewelry] = useState<JewelryValues>(initialJewelry(product));
   const [pokemonCard, setPokemonCard] = useState<PokemonCardValues>(
     initialPokemonCard(product)
@@ -428,6 +437,19 @@ export default function EditForm({
           </div>
         </FormField>
       </div>
+
+      {showLedgerCostNote && (
+        <p className="mt-3 flex items-start gap-1.5 rounded-lg border border-background-200 bg-background-100 px-3 py-2 text-[12px] leading-relaxed text-foreground-600">
+          <i className="ri-information-line mt-0.5 w-4 h-4 flex items-center justify-center shrink-0 text-foreground-400"></i>
+          <span className="min-w-0 flex-1">
+            仕入台帳（来歴）には
+            <strong className="mx-1 font-semibold text-foreground-900">
+              ¥{ledgerCost?.toLocaleString("ja-JP")}
+            </strong>
+            の原価が登録されています。上の「仕入価格」は手入力用の欄のため未設定のまま表示しています（台帳の金額は保存されません）。
+          </span>
+        </p>
+      )}
 
       {showAiPriceSuggestion && (
         <div className="mt-3 flex flex-col gap-2 rounded-lg border border-accent-300 bg-accent-50/70 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">

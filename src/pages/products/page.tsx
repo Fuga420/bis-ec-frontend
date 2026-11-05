@@ -680,11 +680,20 @@ export default function ProductsPage() {
       <header className="border-b border-background-200 bg-white">
         <div className="mx-auto flex w-full max-w-[1560px] flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 md:px-6 lg:px-8">
           <div className="min-w-0">
-            {/* 見出しは欧文ディスプレイ書体＋詰めた字間で一段大きく。
-                上に小さなラベルを置いて、ページタイトルとしての格を出す。 */}
-            <p className="admin-eyebrow text-[10px] font-semibold text-foreground-400">
-              Catalog
-            </p>
+            {/* BIS ロゴ（押すと商品一覧の先頭へ）。
+                以前の「Catalog」ラベルの位置に置き、見出し「商品管理」はそのまま残す。 */}
+            <Link
+              to="/products"
+              aria-label="BIS 商品一覧の先頭へ"
+              className="inline-flex items-baseline gap-1.5 whitespace-nowrap"
+            >
+              <span className="admin-display block text-[13px] font-semibold leading-none tracking-[0.3em] text-foreground-950">
+                BIS
+              </span>
+              <span className="admin-eyebrow block text-[9px] font-semibold leading-none tracking-[0.16em] text-foreground-400">
+                Collectibles Catalogue
+              </span>
+            </Link>
             <h1 className="admin-display mt-1 text-[26px] font-semibold leading-none text-foreground-950 md:text-[28px]">
               商品管理
             </h1>

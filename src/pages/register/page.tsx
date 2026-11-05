@@ -144,9 +144,10 @@ export default function RegisterPage() {
     []
   );
 
-  // 公開・Square連携オプション（MVP: 通常運用はデフォルトON）
-  const [publishOn, setPublishOn] = useState(true);
-  const [squareOn, setSquareOn] = useState(true);
+  // 公開・Square連携オプション（既定はどちらもOFF）
+  // 登録した瞬間に公開・Square本番公開が走らないよう、利用者が明示的にオンにした時だけ有効にする。
+  const [publishOn, setPublishOn] = useState(false);
+  const [squareOn, setSquareOn] = useState(false);
 
   // 登録〜Square連携の進捗表示
   const [progressSteps, setProgressSteps] = useState<string[]>([]);
@@ -783,8 +784,8 @@ export default function RegisterPage() {
     setErrors({});
     setSubmitError("");
     setProductId("");
-    setPublishOn(true);
-    setSquareOn(true);
+    setPublishOn(false);
+    setSquareOn(false);
     setProgressSteps([]);
     setProgressIndex(-1);
     setCompletion(null);
