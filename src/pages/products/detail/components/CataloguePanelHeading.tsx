@@ -1,47 +1,30 @@
 import type { ReactNode } from "react";
 
 interface CataloguePanelHeadingProps {
-  // 「01」「02」などの章番号（任意）。付けると管理セクションの番号付き見出しになる
+  // 旧・章番号（装飾的な番号表示は行わない）
   number?: string;
   // 和文の見出し（例: 販売管理 / 翻訳・外部連携）
   title: string;
-  // 英字の小見出し（例: Sales Control）
+  // 旧・英字小見出し（装飾的な英字ラベルは表示しない）
   eyebrow?: string;
-  // 右側の小さな操作・件数表示
+  // 右側の小さな操作・状態表示
   right?: ReactNode;
 }
 
 /**
- * 下段（管理セクション）の図録体裁の見出し。
- * 細い罫線の上に、等幅の章番号＋明朝の和文見出し＋英字小見出しを並べるだけ。
- * 白カードの見出し帯やアイコン丸は使わない（表示専用）。
+ * 管理セクションの見出し（商品一覧と統一した業務管理UI）。
+ * 和文の見出しと、右側の操作・状態表示だけを置く。表示専用。
  */
-export default function CataloguePanelHeading({
-  number,
-  title,
-  eyebrow,
-  right,
-}: CataloguePanelHeadingProps) {
+export default function CataloguePanelHeading(
+  props: CataloguePanelHeadingProps
+) {
+  const { title, right } = props;
   return (
-    <div className="border-t border-[var(--cat-rule)] pt-3.5">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
-        <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-          {number && (
-            <span className="cat-mono text-[13px] leading-none tracking-[0.16em] text-[var(--cat-green)]">
-              {number}
-            </span>
-          )}
-          <h2 className="cat-serif text-[17px] leading-tight tracking-[0.1em] text-[var(--cat-ink)]">
-            {title}
-          </h2>
-          {eyebrow && (
-            <p className="cat-mono text-[9px] uppercase leading-none tracking-[0.28em] text-[var(--cat-ink-soft)]">
-              {eyebrow}
-            </p>
-          )}
-        </div>
-        {right ? <div className="shrink-0">{right}</div> : null}
-      </div>
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+      <h3 className="text-[15px] font-semibold leading-tight text-foreground-950">
+        {title}
+      </h3>
+      {right ? <div className="shrink-0">{right}</div> : null}
     </div>
   );
 }

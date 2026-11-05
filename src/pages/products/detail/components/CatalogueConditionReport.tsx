@@ -43,8 +43,8 @@ interface CatalogueConditionReportProps {
 }
 
 /**
- * 図録体裁の「状態報告」。
- * 状態・使用歴・付属品だけを細い枠線のボックスにまとめる。
+ * 商品詳細の「状態報告」。
+ * 状態・使用歴・付属品だけを薄い罫線の表にまとめる。
  * 値が無い項目は行ごと出さない（空欄を並べない）。
  * 表示専用で、保存データには関与しない。
  */
@@ -78,17 +78,17 @@ export default function CatalogueConditionReport({
 
   return (
     <section>
-      <CatalogueSectionHeading eyebrow="Condition Report" title="状態報告" />
-      <dl className="mt-4 border border-[var(--cat-rule)]">
+      <CatalogueSectionHeading title="状態報告" />
+      <dl className="mt-2 divide-y divide-background-100">
         {rows.map((row) => (
           <div
             key={row.label}
-            className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-baseline sm:gap-6 sm:px-5 sm:py-3.5 [&:not(:first-child)]:border-t [&:not(:first-child)]:border-[var(--cat-rule-soft)]"
+            className="grid grid-cols-[72px_minmax(0,1fr)] items-baseline gap-3 py-2.5 sm:grid-cols-[96px_minmax(0,1fr)]"
           >
-            <dt className="shrink-0 text-[10.5px] leading-[1.6] tracking-[0.18em] text-[var(--cat-ink-soft)] sm:w-[92px]">
+            <dt className="text-[12px] leading-5 text-foreground-500">
               {row.label}
             </dt>
-            <dd className="min-w-0 flex-1 break-words text-[13px] leading-[1.9] text-[var(--cat-ink)]">
+            <dd className="min-w-0 break-words text-[13px] leading-6 text-foreground-800">
               {row.value}
             </dd>
           </div>

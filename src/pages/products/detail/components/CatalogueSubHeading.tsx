@@ -3,33 +3,23 @@ import type { ReactNode } from "react";
 interface CatalogueSubHeadingProps {
   // 和文の小見出し（例: 英語翻訳 / Square連携）
   title: string;
-  // 英字の小見出し（例: Localization / Integration）
+  // 旧・英字小見出し（装飾的な英字ラベルは表示しない）
   eyebrow?: string;
   // 右側に置く小さな状態表示（任意）
   right?: ReactNode;
 }
 
 /**
- * 図録体裁の「小見出し」。セクション内を罫線で分けるための見出し行。
- * 白カードや帯は使わず、細い罫線と余白だけで区切る（表示専用）。
+ * セクション内の小見出し（商品一覧と統一した業務管理UI）。
+ * 和文の見出しだけを置き、英字の小見出しは表示しない。表示専用。
  */
-export default function CatalogueSubHeading({
-  title,
-  eyebrow,
-  right,
-}: CatalogueSubHeadingProps) {
+export default function CatalogueSubHeading(props: CatalogueSubHeadingProps) {
+  const { title, right } = props;
   return (
-    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-      <div className="flex min-w-0 flex-wrap items-baseline gap-x-2.5 gap-y-1">
-        <h3 className="cat-serif text-[13.5px] leading-tight tracking-[0.1em] text-[var(--cat-ink)]">
-          {title}
-        </h3>
-        {eyebrow && (
-          <p className="cat-mono text-[8.5px] uppercase leading-none tracking-[0.26em] text-[var(--cat-ink-soft)]">
-            {eyebrow}
-          </p>
-        )}
-      </div>
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+      <h4 className="text-[13px] font-semibold leading-tight text-foreground-950">
+        {title}
+      </h4>
       {right ? <div className="shrink-0">{right}</div> : null}
     </div>
   );

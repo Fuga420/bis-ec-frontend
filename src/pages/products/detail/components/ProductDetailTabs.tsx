@@ -15,8 +15,7 @@ const TABS: Array<{ key: ProductDetailTabKey; label: string }> = [
 
 /**
  * 商品詳細の下段を切り替えるローカルタブ（URLは変えず、画面内の表示だけ切り替える）。
- * 図録体裁に合わせ、カードや塗りのタブは使わず、細罫線の上の文字タブにする。
- * 選択中だけ深緑の太字＋下線で示す（ステータス切替と同じ語彙）。
+ * 商品一覧のタブ切り替えと同じ「薄いグレーの溝＋白い選択中タブ」で統一する。
  * キーボード操作: ←→ で移動、Home/End で先頭・末尾へ移動（roving tabindex）。
  */
 export default function ProductDetailTabs({
@@ -64,7 +63,7 @@ export default function ProductDetailTabs({
       <div
         role="tablist"
         aria-label="商品詳細の情報切り替え"
-        className="flex w-max min-w-full items-center gap-x-7 border-b border-[var(--cat-rule)]"
+        className="inline-flex w-max min-w-0 items-center gap-1 rounded-lg bg-background-100 p-1"
       >
         {TABS.map((tab, index) => {
           const active = activeTab === tab.key;
@@ -80,10 +79,10 @@ export default function ProductDetailTabs({
               tabIndex={active ? 0 : -1}
               onClick={() => onChange(tab.key)}
               onKeyDown={(event) => handleKeyDown(event, index)}
-              className={`-mb-px cursor-pointer whitespace-nowrap border-b bg-transparent px-0 pb-2.5 pt-1 text-[12px] tracking-[0.16em] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cat-green)] ${
+              className={`cursor-pointer whitespace-nowrap rounded-md px-3 py-1.5 text-[12.5px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 ${
                 active
-                  ? "border-[var(--cat-green)] font-semibold text-[var(--cat-green)]"
-                  : "border-transparent text-[var(--cat-ink-soft)] hover:text-[var(--cat-ink)]"
+                  ? "bg-white text-foreground-950"
+                  : "text-foreground-600 hover:text-foreground-900"
               }`}
             >
               {tab.label}

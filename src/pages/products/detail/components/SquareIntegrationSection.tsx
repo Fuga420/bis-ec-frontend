@@ -372,65 +372,61 @@ export default function SquareIntegrationSection({
   ];
 
   return (
-    <div className="border-t border-[var(--cat-rule-soft)] pt-5">
-      {/* サービス単位の小見出し: 罫線と余白だけで区切り、白カードは使わない
-          （将来メルカリShops・スニダン等を追加する場合も同じ体裁で縦に並べる） */}
+    <div>
+      {/* サービス単位の小見出し（将来メルカリShops・スニダン等を追加する場合も同じ体裁で並べる） */}
       <CatalogueSubHeading
         title="Square 連携"
-        eyebrow="Integration"
         right={
           isProdLinked ? (
-            <span className="cat-mono inline-flex items-center gap-1 whitespace-nowrap text-[9.5px] tracking-[0.16em] text-[var(--cat-green)]">
-              <i className="ri-check-line w-3 h-3 flex items-center justify-center"></i>
+            <span className="st-badge st-publish">
+              <i className="ri-check-line text-[11px] leading-none"></i>
               連携済み
             </span>
           ) : (
-            <span className="cat-mono inline-flex items-center gap-1 whitespace-nowrap text-[9.5px] tracking-[0.16em] text-[#8f3f34]">
-              <i className="ri-error-warning-line w-3 h-3 flex items-center justify-center"></i>
+            <span className="st-badge st-muted">
+              <i className="ri-error-warning-line text-[11px] leading-none"></i>
               未連携
             </span>
           )
         }
       />
 
-      <p className="mt-2 text-[11px] leading-[1.9] text-[var(--cat-ink-soft)]">
+      <p className="mt-1.5 text-[12px] leading-relaxed text-foreground-500">
         本番環境の商品情報・在庫・決済リンクを連携します。
       </p>
 
       {/* 未連携のときは、何が揃えば連携できるかをチェックリストで示す */}
       {!isProdLinked && (
-        <div className="mt-3 border-t border-[var(--cat-rule-soft)] pt-3">
-          <p className="cat-mono text-[9px] uppercase tracking-[0.22em] text-[var(--cat-ink-soft)]">
+        <div className="mt-3 rounded-md bg-background-50 px-3 py-2.5">
+          <p className="text-[11px] font-medium text-foreground-600">
             連携に必要な条件
           </p>
-          <ul className="mt-2 flex flex-col gap-1.5">
+          <ul className="mt-1.5 flex flex-col gap-1.5">
             {requirements.map((req) => (
               <li
                 key={req.key}
-                className="flex items-baseline gap-2 text-[11.5px] leading-relaxed"
+                className="flex items-baseline gap-2 text-[12px] leading-relaxed"
               >
                 <i
                   className={`${
                     req.met ? "ri-check-line" : "ri-subtract-line"
-                  } w-3.5 h-3.5 flex shrink-0 items-center justify-center text-[11px] ${
-                    req.met
-                      ? "text-[var(--cat-green)]"
-                      : "text-[var(--cat-ink-soft)]"
+                  } w-3.5 h-3.5 flex shrink-0 items-center justify-center text-[12px] ${
+                    req.met ? "text-primary-700" : "text-foreground-400"
                   }`}
                   aria-hidden="true"
                 ></i>
                 <span
                   className={
                     req.met
-                      ? "text-[var(--cat-ink-soft)]"
-                      : "font-medium text-[var(--cat-ink)]"
+                      ? "text-foreground-600"
+                      : "font-medium text-foreground-900"
                   }
                 >
                   {req.label}
                 </span>
                 <span
-                  className={`cat-mono whitespace-nowrap text-[9px] tracking-[0.14em] ${
-                    req.met ? "text-[var(--cat-green)]" : "text-[#8f3f34]"
+                  className={`whitespace-nowrap text-[11px] font-medium ${
+                    req.met ? "text-primary-700" : "text-amber-700"
                   }`}
                 >
                   {req.met ? "済" : "未済"}
@@ -461,9 +457,9 @@ export default function SquareIntegrationSection({
       */}
 
       {hasProdCheckoutUrl && (
-        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[var(--cat-rule-soft)] pt-3">
-          <span className="cat-mono inline-flex items-center gap-1 whitespace-nowrap text-[9.5px] tracking-[0.16em] text-[var(--cat-green)]">
-            <i className="ri-secure-payment-line w-3 h-3 flex items-center justify-center"></i>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="st-badge st-publish">
+            <i className="ri-secure-payment-line text-[11px] leading-none"></i>
             決済リンク生成済み
           </span>
         </div>
@@ -471,7 +467,7 @@ export default function SquareIntegrationSection({
 
         {/* 復元後は Square が停止したままである旨の注意（自動再開はされない） */}
         {product.record_status === "active" && isProdLinked && (
-          <p className="mt-3 flex items-start gap-1.5 border-l border-[var(--cat-rule)] pl-2.5 text-[11px] leading-[1.9] text-[var(--cat-ink-soft)]">
+          <p className="mt-3 flex items-start gap-1.5 rounded-md bg-background-50 px-3 py-2 text-[11.5px] leading-relaxed text-foreground-600">
             <i className="ri-information-line mt-0.5 w-3.5 h-3.5 flex items-center justify-center"></i>
             <span>
               アーカイブから復元した商品は、Square側が停止したままです（復元では自動再開されません）。Squareで再開・再連携してください。
@@ -489,7 +485,7 @@ export default function SquareIntegrationSection({
                 setIsProdConfirmOpen(true);
               }}
               disabled={prodSyncState === "saving" || isProdReflectDisabled}
-              className="inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap border border-[var(--cat-ink)] px-3.5 py-1.5 text-[11px] tracking-[0.12em] text-[var(--cat-ink)] transition-colors hover:bg-[var(--cat-ink)] hover:text-[var(--cat-paper)] disabled:cursor-not-allowed disabled:border-[var(--cat-rule)] disabled:bg-transparent disabled:text-[var(--cat-ink-soft)] disabled:opacity-60"
+              className="inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary-500 px-3.5 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:bg-background-200 disabled:text-foreground-400"
             >
               <i className="ri-store-2-line w-3.5 h-3.5 flex items-center justify-center"></i>
               Square本番へ反映
@@ -502,7 +498,7 @@ export default function SquareIntegrationSection({
                 type="button"
                 onClick={handleGenerateSquarePaymentLink}
                 disabled={paymentLinkState === "saving" || isPaymentLinkDisabled}
-                className="inline-flex min-w-[140px] cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap border border-[var(--cat-green)] bg-[var(--cat-green)] px-3.5 py-1.5 text-[11px] tracking-[0.12em] text-[var(--cat-paper)] transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:border-[var(--cat-rule)] disabled:bg-transparent disabled:text-[var(--cat-ink-soft)] disabled:opacity-60"
+                className="inline-flex min-w-[140px] cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-primary-300 bg-white px-3.5 py-1.5 text-[12px] font-semibold text-primary-700 transition-colors hover:bg-primary-50 disabled:cursor-not-allowed disabled:border-background-300 disabled:bg-white disabled:text-foreground-400"
               >
                 {paymentLinkState === "saving" ? (
                   <>
@@ -516,7 +512,7 @@ export default function SquareIntegrationSection({
                   </>
                 )}
               </button>
-              <p className="text-[10.5px] leading-relaxed text-[var(--cat-ink-soft)]">
+              <p className="text-[11px] leading-relaxed text-foreground-500">
                 決済リンクが未生成です。復旧用に生成できます。
               </p>
             </div>
@@ -524,7 +520,7 @@ export default function SquareIntegrationSection({
         </div>
 
         {!hasProdVariationId && isProdReflectDisabled && (
-          <p className="mt-2 text-[10.5px] text-[var(--cat-ink-soft)]">
+          <p className="mt-2 text-[11px] text-foreground-500">
             アーカイブ済みの商品は本番反映できません
           </p>
         )}
@@ -532,13 +528,13 @@ export default function SquareIntegrationSection({
         {hasProdVariationId &&
           !hasProdCheckoutUrl &&
           paymentLinkDisabledReason && (
-            <p className="mt-2 text-[10.5px] text-[var(--cat-ink-soft)]">
+            <p className="mt-2 text-[11px] text-foreground-500">
               {paymentLinkDisabledReason}
             </p>
           )}
 
         {isProdLinkInvalid && (
-          <p className="mt-2 flex items-center gap-1 text-[10.5px] font-medium text-[#8f3f34]">
+          <p className="mt-2 flex items-center gap-1 text-[11px] font-medium text-amber-700">
             <i className="ri-error-warning-line w-3.5 h-3.5 flex items-center justify-center"></i>
             Square本番連携情報が不完全です
           </p>
@@ -562,7 +558,7 @@ export default function SquareIntegrationSection({
 
       {/* 技術的なIDと決済リンクは折りたたみ（通常は状態と操作だけを見せる） */}
       {!hasTechInfo ? (
-        <p className="mt-3 border-t border-[var(--cat-rule-soft)] pt-2 text-[10.5px] leading-[1.8] text-[var(--cat-ink-soft)]">
+        <p className="mt-3 border-t border-background-200 pt-2 text-[11px] leading-relaxed text-foreground-500">
           未連携のため、該当する情報はない
         </p>
       ) : (
@@ -571,24 +567,23 @@ export default function SquareIntegrationSection({
           onToggle={() => setTechOpen((open) => !open)}
           label="技術情報（Square）"
           count={techIds.length}
-          hint="Technical"
           className="mt-3"
         >
           <div>
             <dl className="flex flex-col gap-1.5">
               {techIds.map((item) => (
                 <div key={item.key} className="flex items-center gap-2">
-                  <dt className="w-[132px] shrink-0 text-[10px] text-[var(--cat-ink-soft)]">
+                  <dt className="w-[132px] shrink-0 text-[11px] text-foreground-500">
                     {item.label}
                   </dt>
-                  <dd className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-[var(--cat-ink)]">
+                  <dd className="admin-numeric min-w-0 flex-1 truncate text-[11px] text-foreground-800">
                     {item.value}
                   </dd>
                   <button
                     type="button"
                     onClick={() => handleCopyValue(item.key, item.value)}
                     aria-label={`${item.label}をコピー`}
-                    className="inline-flex shrink-0 cursor-pointer items-center gap-0.5 whitespace-nowrap border border-[var(--cat-rule)] px-1.5 py-0.5 text-[9.5px] text-[var(--cat-ink-soft)] transition-colors hover:border-[var(--cat-ink)] hover:text-[var(--cat-ink)]"
+                    className="inline-flex shrink-0 cursor-pointer items-center gap-0.5 whitespace-nowrap rounded border border-background-300 bg-white px-1.5 py-0.5 text-[10.5px] text-foreground-600 transition-colors hover:bg-background-100"
                   >
                     <i className="ri-file-copy-line w-3 h-3 flex items-center justify-center"></i>
                     {copiedKey === item.key ? "コピー済" : "コピー"}
@@ -599,14 +594,14 @@ export default function SquareIntegrationSection({
 
             {hasProdCheckoutUrl && (
               <div className="mt-2">
-                <p className="cat-mono text-[9px] uppercase tracking-[0.18em] text-[var(--cat-ink-soft)]">
+                <p className="text-[11px] text-foreground-500">
                   決済リンク（Checkout URL）
                 </p>
                 <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center">
                   <input
                     readOnly
                     value={product.square_checkout_url}
-                    className="min-w-0 flex-1 border border-[var(--cat-rule-soft)] bg-transparent px-2.5 py-1.5 font-mono text-[10.5px] text-[var(--cat-ink)]"
+                    className="min-w-0 flex-1 rounded-md border border-background-300 bg-white px-2.5 py-1.5 text-[11px] text-foreground-800"
                   />
                   <div className="flex shrink-0 gap-2">
                     <button
@@ -614,7 +609,7 @@ export default function SquareIntegrationSection({
                       onClick={() =>
                         handleCopyCheckoutUrl(product.square_checkout_url)
                       }
-                      className="inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap border border-[var(--cat-rule)] px-2.5 py-1.5 text-[10.5px] text-[var(--cat-ink-soft)] transition-colors hover:border-[var(--cat-ink)] hover:text-[var(--cat-ink)]"
+                      className="inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-background-300 bg-white px-2.5 py-1.5 text-[11px] font-medium text-foreground-600 transition-colors hover:bg-background-100"
                     >
                       <i className="ri-file-copy-line w-3.5 h-3.5 flex items-center justify-center"></i>
                       コピー
@@ -623,7 +618,7 @@ export default function SquareIntegrationSection({
                       href={product.square_checkout_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap border border-[var(--cat-green)] bg-[var(--cat-green)] px-2.5 py-1.5 text-[10.5px] text-[var(--cat-paper)] transition-colors hover:opacity-90"
+                      className="inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary-500 px-2.5 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-primary-600"
                     >
                       <i className="ri-external-link-line w-3.5 h-3.5 flex items-center justify-center"></i>
                       開く
@@ -631,7 +626,7 @@ export default function SquareIntegrationSection({
                   </div>
                 </div>
                 {checkoutCopyFeedback && (
-                  <p className="mt-1 text-[10.5px] font-medium text-[var(--cat-green)]">
+                  <p className="mt-1 text-[11px] font-medium text-primary-700">
                     {checkoutCopyFeedback}
                   </p>
                 )}

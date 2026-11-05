@@ -113,7 +113,7 @@ export default function AiBatchConfirmModal({
         ) : (
           <p className="mt-3 flex items-start gap-1.5 rounded-md bg-background-100 px-3 py-2 text-xs leading-relaxed text-foreground-600">
             <i className="ri-information-line mt-0.5 w-4 h-4 flex items-center justify-center"></i>
-            完了した商品は下書き商品へ自動反映されます（公開・Square登録は行いません）。約5秒間隔で進捗を確認し、失敗した商品のみ後から再実行できます。
+            生成結果は候補として保存されます（確定・公開・Square登録は行いません）。約5秒間隔で進捗を確認し、失敗した商品のみ後から再実行できます。
           </p>
         )}
 

@@ -46,13 +46,13 @@ const LINK_TYPE_LABELS: Record<string, string> = {
 };
 
 const ROW =
-  "flex flex-col gap-1.5 border-b border-[var(--cat-rule-soft)] py-3 sm:flex-row sm:items-baseline sm:gap-6";
+  "flex flex-col gap-1.5 border-t border-background-200 py-3 sm:flex-row sm:items-baseline sm:gap-6";
 const LABEL_CELL =
-  "w-full shrink-0 text-[10px] leading-5 tracking-[0.18em] text-[var(--cat-ink-soft)] sm:w-[104px]";
+  "w-full shrink-0 text-[12px] leading-5 text-foreground-500 sm:w-[104px]";
 const ACTION_LINK =
-  "inline-flex cursor-pointer items-center gap-1 whitespace-nowrap border-b border-transparent pb-0.5 text-[10.5px] tracking-[0.1em] text-[var(--cat-ink-soft)] transition-colors hover:border-[var(--cat-rule)] hover:text-[var(--cat-ink)]";
+  "inline-flex cursor-pointer items-center gap-1 whitespace-nowrap text-[11.5px] font-medium text-foreground-600 transition-colors hover:text-primary-700";
 const ACTION_UNLINK =
-  "inline-flex cursor-pointer items-center gap-1 whitespace-nowrap border-b border-transparent pb-0.5 text-[10.5px] tracking-[0.1em] text-[#8f3f34] transition-colors hover:border-[#8f3f34]";
+  "inline-flex cursor-pointer items-center gap-1 whitespace-nowrap text-[11.5px] font-medium text-red-700 transition-colors hover:text-red-800";
 
 function uniqueText(values: Array<string | null | undefined>): string[] {
   const seen = new Set<string>();
@@ -66,7 +66,7 @@ function uniqueText(values: Array<string | null | undefined>): string[] {
   return result;
 }
 
-/** 2026-10-12 → 2026.10.12（図録の日付表記） */
+/** 2026-10-12 → 2026.10.12 */
 function formatDate(value: string): string {
   const text = value.trim();
   const matched = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -74,7 +74,7 @@ function formatDate(value: string): string {
   return `${matched[1]}.${matched[2]}.${matched[3]}`;
 }
 
-/** 罫線テーブルの1行（左に小さな項目名、右に値） */
+/** 罫線テーブルの1行（左に項目名、右に値） */
 function Row({
   label,
   children,
@@ -88,7 +88,7 @@ function Row({
     <div className={ROW}>
       <dt className={LABEL_CELL}>{label}</dt>
       <dd
-        className={`min-w-0 flex-1 text-[12.5px] leading-[1.8] text-[var(--cat-ink)] ${
+        className={`min-w-0 flex-1 text-[13px] leading-6 text-foreground-800 ${
           align === "right" ? "sm:text-right" : "text-left"
         }`}
       >
@@ -124,31 +124,42 @@ function DocumentRow({
   const typeLabel = LINK_TYPE_LABELS[link.link_type] ?? link.link_type;
 
   return (
-    <li className="border-b border-[var(--cat-rule-soft)] py-2.5 last:border-b-0">
+    <li className="border-t border-background-100 py-2.5 first:border-t-0">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 text-left">
           <p
-            className="min-w-0 truncate text-[12px] leading-snug text-[var(--cat-ink)]"
+            className="min-w-0 truncate text-[12.5px] font-medium leading-snug text-foreground-900"
             title={primaryTitle}
           >
             {primaryTitle}
           </p>
-          <p className="cat-mono mt-1 flex flex-wrap items-center gap-x-2 text-[9px] tracking-[0.12em] text-[var(--cat-ink-soft)]">
-            <span className="text-[var(--cat-green)]">照合済</span>
-            <span>{typeLabel}</span>
-            {link.document_number && <span>{link.document_number}</span>}
-            {link.issue_date && <span>{formatDate(link.issue_date)}</span>}
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-foreground-500">
+            <span className="inline-flex items-center gap-0.5 whitespace-nowrap text-primary-700">
+              <i className="ri-check-line w-3 h-3 flex items-center justify-center"></i>
+              照合済み
+            </span>
+            <span className="whitespace-nowrap">{typeLabel}</span>
+            {link.document_number && (
+              <span className="admin-numeric whitespace-nowrap">
+                {link.document_number}
+              </span>
+            )}
+            {link.issue_date && (
+              <span className="admin-numeric whitespace-nowrap">
+                {formatDate(link.issue_date)}
+              </span>
+            )}
           </p>
         </div>
         <div className="flex shrink-0 items-baseline gap-3">
-          <span className="cat-mono whitespace-nowrap text-[12px] leading-none text-[var(--cat-ink)]">
+          <span className="admin-numeric whitespace-nowrap text-[12.5px] text-foreground-900">
             {formatYen(link.total_line_amount)}
           </span>
           <button
             type="button"
             onClick={onToggle}
             aria-expanded={expanded}
-            className="cat-mono cursor-pointer whitespace-nowrap border-b border-transparent pb-0.5 text-[9.5px] tracking-[0.12em] text-[var(--cat-ink-soft)] transition-colors hover:border-[var(--cat-rule)] hover:text-[var(--cat-ink)]"
+            className="cursor-pointer whitespace-nowrap text-[11.5px] font-medium text-foreground-500 transition-colors hover:text-primary-700"
           >
             {expanded ? "閉じる" : "明細"}
           </button>
@@ -156,12 +167,12 @@ function DocumentRow({
       </div>
 
       {expanded && (
-        <div className="tab-fade mt-2.5 border-t border-[var(--cat-rule-soft)] pt-2.5">
-          <dl className="flex flex-wrap items-baseline gap-x-5 gap-y-1 text-[10.5px] leading-[1.7] text-[var(--cat-ink-soft)]">
+        <div className="tab-fade mt-2.5 rounded-md bg-background-50 px-3 py-2.5">
+          <dl className="flex flex-wrap items-baseline gap-x-5 gap-y-1 text-[11.5px] leading-5 text-foreground-500">
             {link.reception_number && (
               <div className="inline-flex items-baseline gap-1">
                 <dt>受付番号</dt>
-                <dd className="cat-mono text-[var(--cat-ink)]">
+                <dd className="admin-numeric text-foreground-800">
                   {link.reception_number}
                 </dd>
               </div>
@@ -169,29 +180,29 @@ function DocumentRow({
             {link.supplier_name && (
               <div className="inline-flex min-w-0 items-baseline gap-1">
                 <dt>仕入先</dt>
-                <dd className="truncate text-[var(--cat-ink)]">
+                <dd className="truncate text-foreground-800">
                   {link.supplier_name}
                 </dd>
               </div>
             )}
           </dl>
 
-          <dl className="mt-1.5 flex flex-wrap items-baseline gap-x-5 gap-y-1 text-[10.5px]">
+          <dl className="mt-1.5 flex flex-wrap items-baseline gap-x-5 gap-y-1 text-[11.5px]">
             <div className="inline-flex items-baseline gap-1">
-              <dt className="text-[var(--cat-ink-soft)]">商品代金</dt>
-              <dd className="cat-mono text-[var(--cat-ink)]">
+              <dt className="text-foreground-500">商品代金</dt>
+              <dd className="admin-numeric text-foreground-800">
                 {formatYen(link.item_amount)}
               </dd>
             </div>
             <div className="inline-flex items-baseline gap-1">
-              <dt className="text-[var(--cat-ink-soft)]">落札手数料</dt>
-              <dd className="cat-mono text-[var(--cat-ink)]">
+              <dt className="text-foreground-500">落札手数料</dt>
+              <dd className="admin-numeric text-foreground-800">
                 {formatYen(link.fee_amount)}
               </dd>
             </div>
             <div className="inline-flex items-baseline gap-1">
-              <dt className="text-[var(--cat-ink-soft)]">明細（税込）</dt>
-              <dd className="cat-mono text-[var(--cat-ink)]">
+              <dt className="text-foreground-500">明細（税込）</dt>
+              <dd className="admin-numeric text-foreground-800">
                 {formatYen(link.total_line_amount)}
               </dd>
             </div>
@@ -209,7 +220,7 @@ function DocumentRow({
                 原本PDF
               </a>
             ) : (
-              <span className="inline-flex cursor-default items-center gap-1 whitespace-nowrap text-[10.5px] tracking-[0.1em] text-[var(--cat-rule)]">
+              <span className="inline-flex cursor-default items-center gap-1 whitespace-nowrap text-[11.5px] text-foreground-400">
                 <i className="ri-link-unlink w-3.5 h-3.5 flex items-center justify-center"></i>
                 原本なし
               </span>
@@ -229,8 +240,8 @@ function DocumentRow({
           </div>
 
           {confirming && (
-            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 border border-[#dcc0b9] px-3 py-2">
-              <p className="text-[11px] leading-relaxed text-[#8f3f34]">
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-red-200 bg-red-50 px-3 py-2">
+              <p className="text-[11.5px] leading-relaxed text-red-800">
                 この書類の紐付けを解除しますか？
               </p>
               <span className="min-w-0 flex-1" />
@@ -238,7 +249,7 @@ function DocumentRow({
                 type="button"
                 onClick={onConfirmUnlink}
                 disabled={busy}
-                className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap border border-[#8f3f34] px-2.5 py-1 text-[10px] tracking-[0.1em] text-[#8f3f34] transition-colors hover:bg-[#8f3f34] hover:text-[var(--cat-paper)] disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap rounded-md bg-red-600 px-2.5 py-1 text-[11.5px] font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy && (
                   <i className="ri-loader-4-line animate-spin w-3 h-3 flex items-center justify-center"></i>
@@ -249,7 +260,7 @@ function DocumentRow({
                 type="button"
                 onClick={onCancelUnlink}
                 disabled={busy}
-                className="inline-flex cursor-pointer items-center whitespace-nowrap border-b border-transparent pb-0.5 text-[10px] tracking-[0.1em] text-[var(--cat-ink-soft)] transition-colors hover:border-[var(--cat-rule)] hover:text-[var(--cat-ink)] disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex cursor-pointer items-center whitespace-nowrap rounded-md px-2 py-1 text-[11.5px] font-medium text-foreground-600 transition-colors hover:text-foreground-900 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 やめる
               </button>
@@ -265,8 +276,7 @@ function DocumentRow({
  * 商品詳細の「来歴・仕入」。
  *
  * 仕入先・請求日・受付番号・仕入書類（照合状態つき）・仕入内訳・仕入原価・想定粗利を
- * 罫線だけのテーブルに1行ずつ並べる（白カード・角丸・グラフは使わない）。
- * 金額と日付は等幅フォント。値の集計は deriveProductCost に任せ、
+ * 薄い罫線の表に1行ずつ並べる。値の集計は deriveProductCost に任せ、
  * 商品詳細ページが1回だけ取得した結果（上部サマリーと同じ）を使う。
  */
 export default function ProductLedgerSection({
@@ -354,11 +364,10 @@ export default function ProductLedgerSection({
     <section>
       <CataloguePanelHeading
         title="来歴・仕入"
-        eyebrow="Provenance & Purchase"
         right={
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-            <span className="cat-mono text-[9px] tracking-[0.16em] text-[var(--cat-ink-soft)]">
-              {loading ? "LOADING" : `${links.length} DOCUMENTS`}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <span className="text-[11.5px] text-foreground-500">
+              {loading ? "読み込み中" : `書類 ${links.length}件`}
             </span>
             <button
               type="button"
@@ -368,7 +377,7 @@ export default function ProductLedgerSection({
                 setUnlinkError("");
               }}
               aria-expanded={linkerOpen}
-              className="cat-mono inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap border border-[var(--cat-ink)] px-3 py-1.5 text-[10px] tracking-[0.12em] text-[var(--cat-ink)] transition-colors hover:bg-[var(--cat-ink)] hover:text-[var(--cat-paper)]"
+              className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border border-background-300 bg-white px-3 py-1.5 text-[12px] font-medium text-foreground-700 transition-colors hover:bg-background-100"
             >
               <i
                 className={`${
@@ -384,15 +393,15 @@ export default function ProductLedgerSection({
       {/* 自動照合の結果（登録・編集の成否とは別に表示する） */}
       {autoLinkNotice && (
         <div
-          className="mt-4 border-l-2 border-[var(--cat-rule)] pl-3"
+          className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5"
           role="status"
           aria-live="polite"
         >
-          <p className="text-[11.5px] leading-[1.9] text-[var(--cat-ink)]">
+          <p className="text-[12px] leading-relaxed text-amber-900">
             {autoLinkNotice.text}
           </p>
           {autoLinkNotice.needsManualLink && (
-            <p className="mt-1 text-[10.5px] leading-[1.8] text-[var(--cat-ink-soft)]">
+            <p className="mt-1 text-[11.5px] leading-relaxed text-amber-800">
               自動で別の明細を選んだり、既存の紐付けを付け替えたりはしていません。上の「明細を探して紐付け」から手動で紐付けてください。
             </p>
           )}
@@ -400,7 +409,7 @@ export default function ProductLedgerSection({
             <button
               type="button"
               onClick={onDismissAutoLinkNotice}
-              className="cat-mono mt-2 cursor-pointer border-b border-transparent pb-0.5 text-[9.5px] tracking-[0.14em] text-[var(--cat-ink-soft)] transition-colors hover:border-[var(--cat-rule)] hover:text-[var(--cat-ink)]"
+              className="mt-1.5 cursor-pointer text-[11.5px] font-medium text-amber-800 underline transition-colors hover:text-amber-900"
             >
               閉じる
             </button>
@@ -409,29 +418,29 @@ export default function ProductLedgerSection({
       )}
 
       {(notice || unlinkError) && (
-        <div className="mt-3 flex flex-col gap-1">
+        <div className="mt-2.5 flex flex-col gap-1">
           {notice && (
-            <p className="text-[11px] leading-relaxed text-[var(--cat-green)]">
+            <p className="text-[11.5px] leading-relaxed text-primary-700">
               {notice}
             </p>
           )}
           {unlinkError && (
-            <p className="text-[11px] leading-relaxed text-[#8f3f34]">
+            <p className="text-[11.5px] leading-relaxed text-red-700">
               {unlinkError}
             </p>
           )}
         </div>
       )}
 
-      <dl className="mt-4 border-t border-[var(--cat-rule-soft)]">
+      <dl className="mt-3">
         <Row label="仕入先">{joinOrDash(suppliers)}</Row>
         <Row label="請求日">
-          <span className="cat-mono text-[12px]">
+          <span className="admin-numeric text-[12.5px]">
             {joinOrDash(issueDates, formatDate)}
           </span>
         </Row>
         <Row label="受付番号">
-          <span className="cat-mono text-[12px]">
+          <span className="admin-numeric text-[12.5px]">
             {joinOrDash(receptionNumbers)}
           </span>
         </Row>
@@ -439,20 +448,18 @@ export default function ProductLedgerSection({
         {/* 仕入書類（照合状態を含む） */}
         <Row label="仕入書類" align="left">
           {loading && (
-            <p className="cat-mono text-[10.5px] tracking-[0.12em] text-[var(--cat-ink-soft)]">
-              読み込み中...
-            </p>
+            <p className="text-[12px] text-foreground-500">読み込み中...</p>
           )}
 
           {!loading && errorText && (
             <div className="flex flex-wrap items-center gap-3">
-              <p className="min-w-0 flex-1 text-[11px] leading-relaxed text-[var(--cat-ink-soft)]">
+              <p className="min-w-0 flex-1 text-[12px] leading-relaxed text-foreground-600">
                 {errorText}
               </p>
               <button
                 type="button"
                 onClick={retry}
-                className="cat-mono inline-flex cursor-pointer items-center gap-1 whitespace-nowrap border border-[var(--cat-rule)] px-2.5 py-1 text-[9.5px] tracking-[0.12em] text-[var(--cat-ink-soft)] transition-colors hover:border-[var(--cat-ink)] hover:text-[var(--cat-ink)]"
+                className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap rounded-md border border-background-300 bg-white px-2.5 py-1 text-[11.5px] font-medium text-foreground-600 transition-colors hover:bg-background-100"
               >
                 <i className="ri-refresh-line w-3 h-3 flex items-center justify-center"></i>
                 再読み込み
@@ -461,13 +468,13 @@ export default function ProductLedgerSection({
           )}
 
           {!loading && !errorText && links.length === 0 && (
-            <p className="text-[11px] leading-[1.9] text-[var(--cat-ink-soft)]">
+            <p className="text-[12px] leading-relaxed text-foreground-500">
               紐付いた書類明細はありません。「明細を探して紐付け」から受付番号・品目で検索して紐付けてください。
             </p>
           )}
 
           {!loading && !errorText && links.length > 0 && (
-            <ul className="border-t border-[var(--cat-rule-soft)]">
+            <ul className="rounded-md border border-background-200 px-3 py-1">
               {links.map((link) => (
                 <DocumentRow
                   key={link.link_id}
@@ -504,17 +511,17 @@ export default function ProductLedgerSection({
                   key={item.label}
                   className="flex items-baseline justify-between gap-4"
                 >
-                  <dt className="text-[10px] tracking-[0.12em] text-[var(--cat-ink-soft)]">
+                  <dt className="text-[11.5px] text-foreground-500">
                     {item.label}
                   </dt>
-                  <dd className="cat-mono whitespace-nowrap text-[12px] text-[var(--cat-ink)]">
+                  <dd className="admin-numeric whitespace-nowrap text-[12.5px] text-foreground-800">
                     {formatYen(item.value)}
                   </dd>
                 </div>
               ))}
             </dl>
           ) : (
-            <span className="text-[11px] text-[var(--cat-ink-soft)]">
+            <span className="text-[12px] text-foreground-500">
               {!show && !loading
                 ? "紐付いた書類がないため、金額はまだ集計されていません。"
                 : "—"}
@@ -523,32 +530,30 @@ export default function ProductLedgerSection({
         </Row>
 
         <Row label="仕入原価">
-          <span className="cat-mono text-[14px] tracking-[0.02em] text-[var(--cat-ink)]">
+          <span className="admin-numeric text-[14px] font-semibold text-foreground-950">
             {show && cost.hasCostAmount ? formatYen(cost.costTotal) : "—"}
           </span>
-          <span className="cat-mono ml-2 text-[9px] tracking-[0.14em] text-[var(--cat-ink-soft)]">
-            概算
-          </span>
+          <span className="ml-1.5 text-[11px] text-foreground-500">概算</span>
         </Row>
 
         <Row label="想定粗利">
           {show && canShowProfit ? (
-            <span className="cat-mono whitespace-nowrap text-[13px]">
+            <span className="admin-numeric whitespace-nowrap text-[13px]">
               <span
                 className={
                   profit >= 0
-                    ? "text-[var(--cat-green)]"
-                    : "text-[#8f3f34]"
+                    ? "font-semibold text-primary-700"
+                    : "font-semibold text-red-700"
                 }
               >
                 {formatYen(profit)}
               </span>
-              <span className="ml-3 text-[10.5px] tracking-[0.08em] text-[var(--cat-ink-soft)]">
+              <span className="ml-2 text-[11.5px] text-foreground-500">
                 （粗利率 {profitRate.toFixed(1)}%）
               </span>
             </span>
           ) : (
-            <span className="text-[11px] text-[var(--cat-ink-soft)]">
+            <span className="text-[12px] text-foreground-500">
               {show
                 ? "販売予定価格が未設定のため、想定粗利は算出していません。"
                 : "—"}
@@ -559,14 +564,14 @@ export default function ProductLedgerSection({
 
       {/* 誤解を避けるための注記（表の外に小さく置く） */}
       {show && (
-        <div className="mt-3 flex flex-col gap-1 text-[10px] leading-[1.9] text-[var(--cat-ink-soft)]">
+        <div className="mt-2 flex flex-col gap-1 text-[11px] leading-relaxed text-foreground-500">
           {cost.otherTotal > 0 && (
             <p>※ 送料・その他経費を仕入原価に含めています。</p>
           )}
           {cost.hasUnknownBreakdown && (
             <p>
               ※ 内訳（商品代金・落札手数料）が未取得の明細が{" "}
-              <span className="cat-mono">
+              <span className="admin-numeric">
                 {formatYen(cost.unknownBreakdownTotal)}
               </span>{" "}
               あります。この金額は商品代金には含めず、仕入原価にのみ算入しています。
@@ -579,7 +584,7 @@ export default function ProductLedgerSection({
       )}
 
       {linkerOpen && (
-        <div className="tab-fade mt-5 border border-[var(--cat-rule-soft)] px-3.5 py-3.5 md:px-4">
+        <div className="tab-fade mt-4">
           <ProductLedgerLinker
             productId={productId}
             productName={productName}

@@ -1,12 +1,9 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import AiBatchConfirmModal, {
-  parseMinMarkupPercent,
-} from "@/pages/products/components/AiBatchConfirmModal";
+import AiBatchConfirmModal from "@/pages/products/components/AiBatchConfirmModal";
 import { useAiBatch } from "@/pages/products/context/AiBatchProvider";
 import {
   AI_BATCH_STATUS_LABELS,
-  DEFAULT_MIN_COST_MARKUP_RATE,
   MAX_AI_BATCH_SIZE,
 } from "@/pages/products/lib/aiBatch";
 import type { AiBatchTarget } from "@/pages/products/types";
@@ -20,9 +17,10 @@ interface ImportBatchSectionProps {
 
 /**
  * 画像だけ取込（/import）で下書き取込に成功した商品を一覧表示し、
- * 一括AI生成（Cloud Run + Supabase キュー）へ進む導線を提供する。
+ * 既存の一括AI生成（gas-ai-batch-relay 経由。新しいAI生成APIは作らない）へ進む導線を提供する。
  *
- * 1回の受付上限は MAX_AI_BATCH_SIZE（500件）。それを超える場合のみグループ単位で区切る。
+ * 契約上、1回の受付は最大 MAX_AI_BATCH_SIZE（20件）のため、
+ * 20件を超える場合は画面上で 20件ずつに区切ってグループ表示し、グループ単位で実行する。
  * 進捗は既存のフック（ポーリング・再読込復帰・失敗分のみ再実行）をそのまま使う。
  */
 export default function ImportBatchSection({
@@ -33,11 +31,8 @@ export default function ImportBatchSection({
   const batch = useAiBatch();
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [pendingTargets, setPendingTargets] = useState<AiBatchTarget[]>([]);
-  const [minMarkupPercent, setMinMarkupPercent] = useState(
-    String(Math.round(DEFAULT_MIN_COST_MARKUP_RATE * 100))
-  );
 
-  // MAX_AI_BATCH_SIZE 件ずつに区切る。上限以下なら1グループで一括受付する。
+  // 20件ずつに区切る。20件以下なら1グループ。
   const groups = useMemo(() => {
     const out: AiBatchTarget[][] = [];
     for (let i = 0; i < products.length; i += MAX_AI_BATCH_SIZE) {
@@ -58,11 +53,8 @@ export default function ImportBatchSection({
 
   const confirmStart = async () => {
     if (batch.isBusy || pendingTargets.length === 0) return;
-    const percent = parseMinMarkupPercent(minMarkupPercent);
-    if (percent === null) return;
     setIsConfirmOpen(false);
-    const rate = Math.round((percent / 100) * 10000) / 10000;
-    await batch.start(pendingTargets, rate);
+    await batch.start(pendingTargets);
   };
 
   return (
@@ -201,8 +193,6 @@ export default function ImportBatchSection({
         count={pendingTargets.length}
         isBusy={batch.isBusy}
         errorMessage={batch.errorMessage}
-        minMarkupPercent={minMarkupPercent}
-        onMinMarkupPercentChange={setMinMarkupPercent}
         onCancel={() => setIsConfirmOpen(false)}
         onConfirm={confirmStart}
       />

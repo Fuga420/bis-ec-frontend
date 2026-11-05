@@ -6,10 +6,7 @@ import {
 } from "@/pages/register/lib/aiProduct";
 import {
   PRODUCTS_READ_API_URL,
-  createProductAiDraftBatchViaApi,
-  getProductAiDraftBatchViaApi,
   markDraftProductSyncedInSession,
-  retryProductAiDraftBatchViaApi,
   saveProductAiSelectedImagesViaApi,
   syncProductToReadDb,
 } from "@/config/productsApi";
@@ -51,8 +48,8 @@ export function isCostMarkupFloorBasis(basis?: string | null): boolean {
 // AI解析に使う画像の最大枚数（サーバー・GASと一致）
 export const MAX_AI_ANALYSIS_IMAGES = 3;
 
-// Cloud Run + Supabase キュー移行後: 1リクエストあたり最大500件（旧20件上限は撤廃）
-export const MAX_AI_BATCH_SIZE = 500;
+// 契約 2.1: 1リクエストあたり最大20件
+export const MAX_AI_BATCH_SIZE = 20;
 
 // 進捗取得の間隔（約5秒）
 export const AI_BATCH_POLL_INTERVAL_MS = 5000;
@@ -218,35 +215,6 @@ export function createRequestId(prefix = "REQ_BATCH"): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-async function parseCloudRunBatchJson<T>(
-  response: Response
-): Promise<
-  | (T & {
-      success?: boolean;
-      error?: string;
-      message?: string;
-      error_code?: string;
-    })
-  | null
-> {
-  try {
-    const text = await response.text();
-    if (!text) return null;
-    const parsed = JSON.parse(text);
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function assertBackendConnectedForBatch(): void {
-  if (!isBackendConnected()) {
-    throw new Error(
-      "バックエンド（Readdy Backend / SaaS Supabase）に接続されていません。管理者に接続を依頼してください。"
-    );
-  }
-}
-
 /**
  * 一括生成の受付。batch_id を即時返却する（非同期受付）。
  * 応答の success / batch_id を確認できない場合は成功扱いにしない。
@@ -268,31 +236,17 @@ export async function createAiProductDraftBatch(params: {
   if (params.forceRegenerate !== undefined) {
     body.force_regenerate = params.forceRegenerate;
   }
-  // product_costs は送らない。原価はサーバー側が確定済み照合（documents-relay）から取得する
+  // product_costs は送らない。原価は中継サーバーが確定済み照合から取得して GAS へ渡す
   // （ブラウザ送信値を原価の正本として採用しない）。
-  // model_name は送らない。モデルの選択は常にサーバー既定に委ねる。
+  // model_name は送らない。旧モデル（gemini-3.5-flash-lite 等）を明示送信すると、
+  // サーバー側で指定される検索付き生成モデルを上書きしてしまうため、
+  // モデルの選択は常にサーバー既定（GAS側）に委ねる。
 
-  if (!PRODUCTS_READ_API_URL) {
-    const data = await invokeAiRelay<AiBatchCreateResponse>(
-      body,
-      AI_BATCH_RELAY_FUNCTION_NAME
-    );
-    if (!data || data.success !== true || !asString(data.batch_id)) {
-      const info = extractRelayError(data, "一括AI生成の受付に失敗しました。");
-      throw new AiRelayError(info.message, info.code);
-    }
-    return data;
-  }
-
-  assertBackendConnectedForBatch();
-  const response = await createProductAiDraftBatchViaApi(body);
-  const data = await parseCloudRunBatchJson<AiBatchCreateResponse>(response);
-  if (!data) {
-    throw new Error(
-      `一括AI生成の受付応答を取得できませんでした (HTTP ${response.status})。`
-    );
-  }
-  if (!response.ok || data.success !== true || !asString(data.batch_id)) {
+  const data = await invokeAiRelay<AiBatchCreateResponse>(
+    body,
+    AI_BATCH_RELAY_FUNCTION_NAME
+  );
+  if (!data || data.success !== true || !asString(data.batch_id)) {
     const info = extractRelayError(data, "一括AI生成の受付に失敗しました。");
     throw new AiRelayError(info.message, info.code);
   }
@@ -305,33 +259,14 @@ export async function createAiProductDraftBatch(params: {
 export async function getAiProductDraftBatch(
   batchId: string
 ): Promise<AiBatchProgressResponse> {
-  if (!PRODUCTS_READ_API_URL) {
-    const data = await invokeAiRelay<AiBatchProgressResponse>(
-      {
-        action: AI_BATCH_ACTIONS.get,
-        batch_id: batchId,
-      },
-      AI_BATCH_RELAY_FUNCTION_NAME
-    );
-    if (!data || data.success !== true) {
-      const info = extractRelayError(
-        data,
-        "一括AI生成の進捗を取得できませんでした。"
-      );
-      throw new AiRelayError(info.message, info.code);
-    }
-    return data;
-  }
-
-  assertBackendConnectedForBatch();
-  const response = await getProductAiDraftBatchViaApi(batchId);
-  const data = await parseCloudRunBatchJson<AiBatchProgressResponse>(response);
-  if (!data) {
-    throw new Error(
-      `一括AI生成の進捗を取得できませんでした (HTTP ${response.status})。`
-    );
-  }
-  if (!response.ok || data.success !== true) {
+  const data = await invokeAiRelay<AiBatchProgressResponse>(
+    {
+      action: AI_BATCH_ACTIONS.get,
+      batch_id: batchId,
+    },
+    AI_BATCH_RELAY_FUNCTION_NAME
+  );
+  if (!data || data.success !== true) {
     const info = extractRelayError(
       data,
       "一括AI生成の進捗を取得できませんでした。"
@@ -351,51 +286,25 @@ export async function retryAiProductDraftBatch(params: {
   batchId: string;
   requestId: string;
 }): Promise<AiBatchRetryResponse> {
-  if (!PRODUCTS_READ_API_URL) {
-    const data = await invokeAiRelay<AiBatchRetryResponse>(
-      {
-        action: AI_BATCH_ACTIONS.retry,
-        batch_id: params.batchId,
-        request_id: params.requestId,
-      },
-      AI_BATCH_RELAY_FUNCTION_NAME
-    );
-    if (!data) {
-      // 応答本体を解析できていない（空応答等）＝受付済みか判断できない。
-      // AiRelayError にせず素の Error で伝え、呼び出し側が request_id を保持できるようにする。
-      throw new Error(
-        "失敗分の再実行の応答を取得できませんでした。時間をおいて再度お試しください。"
-      );
-    }
-    if (data.success !== true) {
-      // success:false の代表は NO_FAILED_ITEMS（失敗商品なし）。
-      // error_code をそのまま保持して AiRelayError で伝え、呼び出し側が
-      // 「受付されなかったことが確定できるコード」かどうかを判定できるようにする。
-      const info = extractRelayError(data, "失敗分の再実行に失敗しました。");
-      throw new AiRelayError(info.message, info.code);
-    }
-    return data;
-  }
-
-  assertBackendConnectedForBatch();
-  const response = await retryProductAiDraftBatchViaApi(params.batchId, {
-    request_id: params.requestId,
-  });
-  const data = await parseCloudRunBatchJson<AiBatchRetryResponse>(response);
+  const data = await invokeAiRelay<AiBatchRetryResponse>(
+    {
+      action: AI_BATCH_ACTIONS.retry,
+      batch_id: params.batchId,
+      request_id: params.requestId,
+    },
+    AI_BATCH_RELAY_FUNCTION_NAME
+  );
   if (!data) {
-    // 応答本体を解析できていない（空応答・プロキシ502等）＝受付済みか判断できない。
+    // 応答本体を解析できていない（空応答等）＝受付済みか判断できない。
+    // AiRelayError にせず素の Error で伝え、呼び出し側が request_id を保持できるようにする。
     throw new Error(
       "失敗分の再実行の応答を取得できませんでした。時間をおいて再度お試しください。"
     );
   }
-  if (!response.ok || data.success !== true) {
-    if (response.status >= 500 && !data.error_code) {
-      throw new Error(
-        data.message ||
-          data.error ||
-          `失敗分の再実行に失敗しました (HTTP ${response.status})。`
-      );
-    }
+  if (data.success !== true) {
+    // success:false の代表は NO_FAILED_ITEMS（失敗商品なし）。
+    // error_code をそのまま保持して AiRelayError で伝え、呼び出し側が
+    // 「受付されなかったことが確定できるコード」かどうかを判定できるようにする。
     const info = extractRelayError(data, "失敗分の再実行に失敗しました。");
     throw new AiRelayError(info.message, info.code);
   }
@@ -403,8 +312,8 @@ export async function retryAiProductDraftBatch(params: {
 }
 
 /**
- * 「受付されなかったことが確定できる」応答の error_code。
- * 受付前に弾かれる検証・原価取得エラーと、再試行対象が無いエラーだけを列挙する。
+ * 「受付されなかったことが確定できる」GAS応答の error_code。
+ * 契約 2.1〜2.3 に定義された、受付前に弾かれる検証エラーと、再試行対象が無いエラーだけを列挙する。
  * これらは retry が登録されていないことが確定しているため、request_id を破棄してよい。
  *
  * 一覧に無いコード（未知コード・判定不能なエラー）は「受付済みか判断できない」ため保持する。
@@ -413,12 +322,9 @@ const DEFINITIVE_REJECTION_CODES: ReadonlySet<string> = new Set([
   // retry 固有：失敗商品なし／対象バッチなし（＝再試行は登録されていない）
   "NO_FAILED_ITEMS",
   "BATCH_NOT_FOUND",
-  // 受付前の入力・認証・確定原価解決バリデーション（＝キュー更新に到達していない）
+  // 受付前の入力・認証バリデーション（＝処理に到達していない）
   "BATCH_ID_REQUIRED",
   "REQUEST_ID_REQUIRED",
-  "PRODUCT_COST_FETCH_FAILED",
-  "UNAUTHORIZED",
-  "FORBIDDEN",
   "UNAUTHORIZED_ADMIN_ACCESS",
 ]);
 

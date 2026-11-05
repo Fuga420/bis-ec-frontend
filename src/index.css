@@ -502,47 +502,47 @@ button:disabled.bg-accent-500:hover {
 }
 
 /* ========================================================================
-   商品詳細：オークション図録（カタログ）調の土台
+   商品詳細：商品一覧と統一した業務管理UIの土台
    ------------------------------------------------------------------------
-   生成りの紙色の上に、細い罫線と余白だけで情報を組み立てる。
-   白いカード・角丸・影は使わない。色は5色だけに固定する。
-     紙 #FAF8F2 / 本文 #1D1B16 / 補助 #4F4B42 / 罫線 #BDB49C / 深緑 #12502C
-   書体は 見出し（欧文）= Cormorant Garamond、和文 = しっぽり明朝、
-   数字・ID・日付 = IBM Plex Mono（等幅）。
-   このクラスは商品詳細ページのルート要素にだけ付ける（他の画面に影響させない）。
+   装飾（セリフ体・英字ラベル・二重罫・ベージュ紙色）は使わず、
+   商品一覧と同じニュートラルな白・グレーと、落ち着いた深緑だけで組む。
+     背景 #F9FAFB / カード #FFFFFF / 本文 #111827
+     補助 #6B7280 / 境界線 #E5E7EB / アクセント #166534
+   ここで定義する変数は商品詳細サブツリー専用（他の画面には影響させない）。
    ======================================================================== */
 .catalogue {
-  --cat-paper: #faf8f2;
-  --cat-ink: #1d1b16;
-  --cat-ink-soft: #4f4b42;
-  --cat-rule: #bdb49c;
-  --cat-rule-soft: #d9d3c1;
-  --cat-green: #12502c;
+  --cat-paper: #f9fafb;
+  --cat-ink: #111827;
+  --cat-ink-soft: #6b7280;
+  --cat-rule: #e5e7eb;
+  --cat-rule-soft: #f3f4f6;
+  --cat-green: #166534;
 
   background-color: var(--cat-paper);
   color: var(--cat-ink);
-  font-family: 'Shippori Mincho', 'Noto Sans JP', serif;
-  letter-spacing: 0.01em;
+  font-family: 'Inter', 'Noto Sans JP', system-ui, -apple-system,
+    'Segoe UI', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', Meiryo, sans-serif;
+  letter-spacing: -0.011em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* 欧文の見出し（Cormorant Garamond） */
+/* 見出し・本文・数字はすべてサンセリフに統一する（旧セリフ体は廃止） */
 .catalogue .cat-display {
-  font-family: 'Cormorant Garamond', 'Shippori Mincho', serif;
-  font-weight: 500;
-  letter-spacing: 0.01em;
-}
-
-/* 和文の見出し・本文（しっぽり明朝） */
-.catalogue .cat-serif {
-  font-family: 'Shippori Mincho', 'Noto Sans JP', serif;
+  font-family: inherit;
   font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
-/* 数字・ID・日付・型番（IBM Plex Mono・等幅） */
+.catalogue .cat-serif {
+  font-family: inherit;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
 .catalogue .cat-mono {
-  font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: inherit;
   font-variant-numeric: tabular-nums lining-nums;
   font-feature-settings: 'tnum' 1, 'lnum' 1;
+  letter-spacing: 0;
 }

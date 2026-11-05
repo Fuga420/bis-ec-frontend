@@ -109,8 +109,7 @@ export default function ProductTranslationSection({
         throw new Error(data?.error ?? "Invalid response");
       }
 
-      const next =
-        data.translation ?? data.save_result?.data ?? null;
+      const next = data.translation ?? data.save_result?.data ?? null;
       setTranslationData(next);
       if (onTranslationChange) {
         onTranslationChange(next);
@@ -161,7 +160,9 @@ export default function ProductTranslationSection({
       const next =
         data.translation ??
         data.save_result?.data ??
-        (translationData ? { ...translationData, translation_status: "approved" } : null);
+        (translationData
+          ? { ...translationData, translation_status: "approved" }
+          : null);
       setTranslationData(next);
       if (onTranslationChange) {
         onTranslationChange(next);
@@ -193,58 +194,51 @@ export default function ProductTranslationSection({
     <div>
       <CatalogueSubHeading
         title="英語翻訳"
-        eyebrow="Localization"
-        right={
-          <span className="cat-mono whitespace-nowrap text-[9px] tracking-[0.16em] text-[var(--cat-ink-soft)]">
-            {badge.label}
-          </span>
-        }
+        right={<span className={`st-badge ${badge.className}`}>{badge.label}</span>}
       />
 
-      <p className="mt-2 text-[11px] leading-[1.9] text-[var(--cat-ink-soft)]">
+      <p className="mt-1.5 text-[12px] leading-relaxed text-foreground-500">
         越境EC向けに英語の商品説明を生成します。
       </p>
 
       {translationData ? (
-        <div className="mt-4 flex flex-col gap-4">
+        <div className="mt-3.5 flex flex-col gap-3.5">
           <div>
-            <p className="cat-mono text-[9.5px] tracking-[0.16em] text-[var(--cat-ink-soft)]">
-              英語タイトル
-            </p>
-            <p className="mt-1 text-[13.5px] font-semibold leading-relaxed text-[var(--cat-ink)]">
+            <p className="text-[11px] text-foreground-500">英語タイトル</p>
+            <p className="mt-0.5 text-[13.5px] font-semibold leading-relaxed text-foreground-900">
               {translationData.translated_title || "—"}
             </p>
           </div>
           {(translationData.translated_condition ||
             translationData.translated_box ||
             translationData.translated_accessories) && (
-            <dl className="grid grid-cols-1 gap-x-6 gap-y-3 border-y border-[var(--cat-rule-soft)] py-3 sm:grid-cols-3">
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-3 rounded-md bg-background-50 px-3 py-3 sm:grid-cols-3">
               {translationData.translated_condition && (
                 <div className="min-w-0">
-                  <dt className="cat-mono text-[9.5px] leading-4 tracking-[0.14em] text-[var(--cat-ink-soft)]">
-                    Condition（状態）
+                  <dt className="text-[11px] leading-4 text-foreground-500">
+                    状態（英語）
                   </dt>
-                  <dd className="mt-1 text-[12.5px] font-medium leading-relaxed text-[var(--cat-ink)]">
+                  <dd className="mt-1 text-[12.5px] font-medium leading-relaxed text-foreground-800">
                     {translationData.translated_condition}
                   </dd>
                 </div>
               )}
               {translationData.translated_box && (
                 <div className="min-w-0">
-                  <dt className="cat-mono text-[9.5px] leading-4 tracking-[0.14em] text-[var(--cat-ink-soft)]">
-                    Box（箱）
+                  <dt className="text-[11px] leading-4 text-foreground-500">
+                    箱（英語）
                   </dt>
-                  <dd className="mt-1 text-[12.5px] font-medium leading-relaxed text-[var(--cat-ink)]">
+                  <dd className="mt-1 text-[12.5px] font-medium leading-relaxed text-foreground-800">
                     {translationData.translated_box}
                   </dd>
                 </div>
               )}
               {translationData.translated_accessories && (
                 <div className="min-w-0">
-                  <dt className="cat-mono text-[9.5px] leading-4 tracking-[0.14em] text-[var(--cat-ink-soft)]">
-                    Accessories（付属品）
+                  <dt className="text-[11px] leading-4 text-foreground-500">
+                    付属品（英語）
                   </dt>
-                  <dd className="mt-1 text-[12.5px] font-medium leading-relaxed text-[var(--cat-ink)]">
+                  <dd className="mt-1 text-[12.5px] font-medium leading-relaxed text-foreground-800">
                     {translationData.translated_accessories}
                   </dd>
                 </div>
@@ -252,9 +246,7 @@ export default function ProductTranslationSection({
             </dl>
           )}
           <div>
-            <p className="cat-mono text-[9.5px] tracking-[0.16em] text-[var(--cat-ink-soft)]">
-              英語説明
-            </p>
+            <p className="text-[11px] text-foreground-500">英語説明</p>
             {translationData.translated_description ? (
               <CollapsibleText
                 text={translationData.translated_description}
@@ -263,18 +255,16 @@ export default function ProductTranslationSection({
                 className="mt-1"
               />
             ) : (
-              <p className="mt-1 text-[12.5px] leading-relaxed text-[var(--cat-ink-soft)]/60">
+              <p className="mt-1 text-[12.5px] leading-relaxed text-foreground-400">
                 —
               </p>
             )}
           </div>
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-[var(--cat-rule-soft)] pt-2.5 text-[10.5px] text-[var(--cat-ink-soft)]">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-background-200 pt-2.5 text-[11.5px] text-foreground-500">
             <span>ロケール：{translationData.locale || "—"}</span>
-            <span className="cat-mono">
-              生成日時：{formatGeneratedAt(translationData.generated_at)}
-            </span>
+            <span>生成日時：{formatGeneratedAt(translationData.generated_at)}</span>
             {status && (
-              <span className="font-medium text-[var(--cat-ink)]">
+              <span className="font-medium text-foreground-800">
                 ステータス：
                 {status === "approved" ? "承認済み" : "Draft"}
               </span>
@@ -282,7 +272,7 @@ export default function ProductTranslationSection({
           </div>
         </div>
       ) : (
-        <p className="mt-3 border-t border-dashed border-[var(--cat-rule-soft)] pt-3 text-[12px] leading-[1.9] text-[var(--cat-ink-soft)]">
+        <p className="mt-2.5 rounded-md bg-background-50 px-3 py-2.5 text-[12px] leading-relaxed text-foreground-500">
           まだ英語翻訳が生成されていません
         </p>
       )}
@@ -292,17 +282,17 @@ export default function ProductTranslationSection({
           type="button"
           onClick={handleApprove}
           disabled={approveState === "approving"}
-          className="cat-mono mt-4 inline-flex min-w-[148px] cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap border border-[var(--cat-green)] px-4 py-2 text-[10.5px] tracking-[0.14em] text-[var(--cat-green)] transition-colors hover:bg-[var(--cat-green)] hover:text-[var(--cat-paper)] disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-3.5 inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-primary-300 bg-white px-3.5 py-1.5 text-[12px] font-semibold text-primary-700 transition-colors hover:bg-primary-50 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {approveState === "approving" ? (
             <>
-              <i className="ri-loader-4-line animate-spin w-4 h-4 flex items-center justify-center"></i>
+              <i className="ri-loader-4-line animate-spin w-3.5 h-3.5 flex items-center justify-center"></i>
               承認中...
             </>
           ) : (
             <>
-              <i className="ri-check-double-line w-4 h-4 flex items-center justify-center"></i>
-              承認する（Approve）
+              <i className="ri-check-double-line w-3.5 h-3.5 flex items-center justify-center"></i>
+              承認する
             </>
           )}
         </button>
@@ -310,9 +300,9 @@ export default function ProductTranslationSection({
 
       {syncState === "generating" && (
         <div className="mt-3 flex flex-col gap-2">
-          <div className="h-3 w-3/4 animate-pulse bg-[var(--cat-rule-soft)]/50"></div>
-          <div className="h-3 w-full animate-pulse bg-[var(--cat-rule-soft)]/50"></div>
-          <div className="h-3 w-2/3 animate-pulse bg-[var(--cat-rule-soft)]/50"></div>
+          <div className="h-3 w-3/4 animate-pulse rounded bg-background-100"></div>
+          <div className="h-3 w-full animate-pulse rounded bg-background-100"></div>
+          <div className="h-3 w-2/3 animate-pulse rounded bg-background-100"></div>
         </div>
       )}
 

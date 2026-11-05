@@ -2,9 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
 import { syncProductToReadDb } from "@/config/productsApi";
-import ProductRow, {
+import ProductRow from "./components/ProductRow";
+import {
   ACTION_COLUMN_WIDTH,
-} from "./components/ProductRow";
+  COL_CATEGORY,
+  COL_IMAGE,
+  COL_INVENTORY,
+  COL_LEDGER,
+  COL_NAME,
+  COL_PRICE,
+  COL_PUBLISH,
+} from "./components/productTableColumns";
 import ProductFilterBar, {
   type ProductFilterValue,
 } from "./components/ProductFilterBar";
@@ -420,14 +428,8 @@ export default function ProductsPage() {
     markProductListReturnPending(isArchived);
   }, [filter, sortKey, page, isArchived]);
 
-  // 一括選択・一括公開の状態（ページ移動しても選択を保持し、検索・並び替え・タブ切替で解除する）
-  const [selectedMap, setSelectedMap] = useState<Map<string, AdminProduct>>(
-    () => new Map()
-  );
-  const selectedIds = useMemo(
-    () => new Set(selectedMap.keys()),
-    [selectedMap]
-  );
+  // 一括選択・一括公開の状態
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [withPaymentLink, setWithPaymentLink] = useState(true);
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
@@ -436,6 +438,20 @@ export default function ProductsPage() {
     null
   );
   const selectAllRef = useRef<HTMLInputElement>(null);
+
+  // 列見出しの固定表示用の要素。
+  // 横スクロールしているのはデータ領域（tableScrollRef）だけなので、
+  // その scrollLeft をヘッダーへそのままコピーして列ズレを防ぐ。
+  // sticky の位置をJavaScriptで計算する処理は持たない（CSSのみで固定）。
+  const stickyHeaderRef = useRef<HTMLDivElement>(null);
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+
+  const handleTableScroll = () => {
+    const header = stickyHeaderRef.current;
+    const body = tableScrollRef.current;
+    if (!header || !body) return;
+    header.scrollLeft = body.scrollLeft;
+  };
 
   // 一括AI生成の状態（バッチ受付＋進捗ポーリング。一括公開・決済リンク処理とは別操作）
   // 状態は管理画面共通のプロバイダーが保持する。ここで独自にポーリングしない。
@@ -466,22 +482,23 @@ export default function ProductsPage() {
     filter.publishStatus !== "" ||
     filter.inventoryStatus !== "";
 
-  // 条件変更時は1ページ目に戻し、選択済みの商品を解除する。
-  // ページ切替時は選択を維持し、50件超（複数ページ横断）の一括AI生成にも対応できるようにする。
+  // 条件変更時は1ページ目に戻し、選択済みの商品を解除する
+  // （一括操作は表示中ページの商品だけを対象にする）。
   const handleFilterChange = (next: ProductFilterValue) => {
     setFilter(next);
     setPage(1);
-    setSelectedMap(new Map());
+    setSelectedIds(new Set());
   };
 
   const handleSortChange = (next: ProductSortKey) => {
     setSortKey(next);
     setPage(1);
-    setSelectedMap(new Map());
+    setSelectedIds(new Set());
   };
 
   const handlePageChange = (next: number) => {
     setPage(next);
+    setSelectedIds(new Set());
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -493,30 +510,13 @@ export default function ProductsPage() {
       inventoryStatus: "",
     });
     setPage(1);
-    setSelectedMap(new Map());
+    setSelectedIds(new Set());
   };
 
   // タブ（通常／アーカイブ）を切り替えたら、前のタブの選択を持ち越さない
   useEffect(() => {
-    setSelectedMap(new Map());
+    setSelectedIds(new Set());
   }, [isArchived]);
-
-  // 表示中ページの商品情報が更新されたら、選択済みマップ内の商品データも最新へ更新する
-  useEffect(() => {
-    if (products.length === 0) return;
-    setSelectedMap((prev) => {
-      if (prev.size === 0) return prev;
-      let changed = false;
-      const next = new Map(prev);
-      for (const p of products) {
-        if (next.has(p.product_id) && next.get(p.product_id) !== p) {
-          next.set(p.product_id, p);
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [products]);
 
   // 復元したページが、商品件数の減少などで存在しなくなっていた場合は
   // 既存のページング仕様に沿って最終ページ（1ページ以上）に収める。
@@ -583,8 +583,8 @@ export default function ProductsPage() {
   }, [pageSelectedCount, products.length]);
 
   const selectedProducts = useMemo(
-    () => Array.from(selectedMap.values()),
-    [selectedMap]
+    () => products.filter((product) => selectedIds.has(product.product_id)),
+    [products, selectedIds]
   );
 
   const plan = useMemo(
@@ -598,33 +598,32 @@ export default function ProductsPage() {
 
   const toggleSelect = (productId: string) => {
     if (isAnyBulkBusy) return;
-    const found = products.find((p) => p.product_id === productId);
-    setSelectedMap((prev) => {
-      const next = new Map(prev);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
       if (next.has(productId)) {
         next.delete(productId);
-      } else if (found) {
-        next.set(productId, found);
+      } else {
+        next.add(productId);
       }
       return next;
     });
   };
 
   const clearSelection = () => {
-    setSelectedMap(new Map());
+    setSelectedIds(new Set());
   };
 
   const toggleSelectAll = () => {
     if (isAnyBulkBusy) return;
+    const ids = products.map((product) => product.product_id);
     const allSelected =
-      products.length > 0 &&
-      products.every((product) => selectedIds.has(product.product_id));
-    setSelectedMap((prev) => {
-      const next = new Map(prev);
+      ids.length > 0 && ids.every((id) => selectedIds.has(id));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
       if (allSelected) {
-        products.forEach((product) => next.delete(product.product_id));
+        ids.forEach((id) => next.delete(id));
       } else {
-        products.forEach((product) => next.set(product.product_id, product));
+        ids.forEach((id) => next.add(id));
       }
       return next;
     });
@@ -701,7 +700,9 @@ export default function ProductsPage() {
   return (
     <div className="admin-font products-theme min-h-screen bg-background-50">
       <header className="border-b border-background-200 bg-white">
-        <div className="mx-auto flex w-full max-w-[1560px] flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 md:px-6 lg:px-8">
+        {/* 一覧画面のヘッダーは本文と同じ横幅基準（全幅・左右24〜32px）に揃える。
+            高さを抑えるため、ロゴ＋見出しの間隔と見出しサイズを控えめにする。 */}
+        <div className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-2.5 md:px-6 lg:px-8">
           <div className="min-w-0">
             {/* BIS ロゴ（押すと商品一覧の先頭へ）。
                 以前の「Catalog」ラベルの位置に置き、見出し「商品管理」はそのまま残す。 */}
@@ -710,35 +711,35 @@ export default function ProductsPage() {
               aria-label="BIS 商品一覧の先頭へ"
               className="inline-flex items-baseline gap-1.5 whitespace-nowrap"
             >
-              <span className="admin-display block text-[13px] font-semibold leading-none tracking-[0.3em] text-foreground-950">
+              <span className="admin-display block text-[12px] font-semibold leading-none tracking-[0.3em] text-foreground-950">
                 BIS
               </span>
               <span className="admin-eyebrow block text-[9px] font-semibold leading-none tracking-[0.16em] text-foreground-400">
                 Collectibles Catalogue
               </span>
             </Link>
-            <h1 className="admin-display mt-1 text-[26px] font-semibold leading-none text-foreground-950 md:text-[28px]">
+            <h1 className="admin-display mt-1 text-[22px] font-semibold leading-none text-foreground-950 md:text-[24px]">
               商品管理
             </h1>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link
               to="/import"
-              className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-background-300 bg-white px-4 py-2 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100"
+              className="flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg border border-background-300 bg-white px-3.5 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100"
             >
               <i className="ri-image-add-line w-4 h-4 flex items-center justify-center"></i>
               画像だけ取込
             </Link>
             <Link
               to="/documents"
-              className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-background-300 bg-white px-4 py-2 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100"
+              className="flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg border border-background-300 bg-white px-3.5 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100"
             >
               <i className="ri-file-list-3-line w-4 h-4 flex items-center justify-center"></i>
               書類管理
             </Link>
             <Link
               to="/register"
-              className="flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-600"
+              className="flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-3.5 text-sm font-semibold text-white transition-colors hover:bg-primary-600"
             >
               <i className="ri-add-line w-4 h-4 flex items-center justify-center"></i>
               新しい商品を登録
@@ -747,13 +748,14 @@ export default function ProductsPage() {
         </div>
       </header>
 
-      {/* 一覧系の画面はワイド幅（最大1560px・左右32px）。詳細／登録／画像取込のフォーム系は従来の幅のまま。 */}
-      <main className="page-fade mx-auto w-full max-w-[1560px] px-4 py-4 md:px-6 lg:px-8">
-        {/* 一覧切り替えタブ */}
-        <div className="mb-6 inline-flex items-center gap-1 rounded-lg bg-background-100 p-1">
+      {/* 一覧系の画面は横幅を最大限使うフルワイド（最大幅の制限なし・左右24〜32px）。
+          詳細／登録／画像取込のフォーム系は従来の幅のまま変更しない。 */}
+      <main className="page-fade w-full px-4 py-4 md:px-6 md:py-5 lg:px-8">
+        {/* 一覧切り替えタブ（左揃え・高さ36px前後。上下余白は詰める） */}
+        <div className="mb-4 inline-flex items-center gap-1 rounded-lg bg-background-100 p-1">
           <Link
             to="/products"
-            className={`whitespace-nowrap rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+            className={`flex h-8 items-center whitespace-nowrap rounded-md px-4 text-[13px] font-medium transition-colors ${
               !isArchived
                 ? "bg-white text-foreground-950"
                 : "text-foreground-600 hover:text-foreground-900"
@@ -763,7 +765,7 @@ export default function ProductsPage() {
           </Link>
           <Link
             to="/products?record_status=archived"
-            className={`whitespace-nowrap rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+            className={`flex h-8 items-center whitespace-nowrap rounded-md px-4 text-[13px] font-medium transition-colors ${
               isArchived
                 ? "bg-white text-foreground-950"
                 : "text-foreground-600 hover:text-foreground-900"
@@ -774,7 +776,7 @@ export default function ProductsPage() {
         </div>
 
         {locationDeleteMessage && (
-          <p className="mb-6 flex items-center gap-1.5 text-sm font-medium text-primary-700">
+          <p className="mb-4 flex items-center gap-1.5 text-sm font-medium text-primary-700">
             <i className="ri-checkbox-circle-line w-4 h-4 flex items-center justify-center"></i>
             {locationDeleteMessage}
           </p>
@@ -795,10 +797,11 @@ export default function ProductsPage() {
                   disabled={isAnyBulkBusy}
                 />
 
-                {/* 件数表示と並び替えを1行にまとめる（検索・フィルター・並び替えに追従） */}
-                <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                {/* 件数表示と並び替えをテーブル直上のツールバー1行にまとめる
+                    （検索・フィルターとの間に余計な空白を作らない） */}
+                <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm text-foreground-500">
+                    <p className="text-[13px] text-foreground-500">
                       {hasFilter ? (
                         <>
                           該当{" "}
@@ -934,16 +937,20 @@ export default function ProductsPage() {
             ) : (
               <div
                 aria-busy={isRefreshing}
-                className={`ui-card overflow-hidden rounded-lg transition-opacity duration-150 ${
+                className={`ui-card w-full rounded-lg transition-opacity duration-150 ${
                   isRefreshing ? "opacity-60" : "opacity-100"
                 }`}
               >
-                {/* 横幅が不足する場合は重ねずに横スクロールで対応する */}
-                <div className="overflow-x-auto">
-                  <div className="min-w-full lg:min-w-[1170px]">
-                    {/* ヘッダー行（デスクトップ） */}
-                    <div className="hidden items-center border-b border-background-200 bg-background-50 py-2.5 lg:flex">
-                      <div className="flex w-10 shrink-0 items-center justify-center lg:w-9">
+                {/* 列見出しはページの縦スクロールに追従して固定する（デスクトップのみ）。
+                    祖先に overflow のスクロールコンテナを置くと sticky が効かなくなるため、
+                    カード自体は overflow を付けず、横スクロールはデータ領域側だけで行う。
+                    固定中もデータと重ならないよう、不透明な白背景＋1pxの境界線で区切る。 */}
+                <div
+                  ref={stickyHeaderRef}
+                  className="sticky top-0 z-20 hidden overflow-x-hidden rounded-t-lg border-b border-background-200 bg-white lg:block"
+                >
+                  <div className="flex w-full min-w-full items-center py-2.5 lg:min-w-[1240px]">
+                      <div className="flex w-11 shrink-0 items-center justify-center">
                         <label className="product-checkbox">
                           <input
                             ref={selectAllRef}
@@ -967,33 +974,42 @@ export default function ProductsPage() {
                           </span>
                         </label>
                       </div>
-                      <div className="flex min-w-0 flex-1 items-center gap-4 px-4">
-                        <span className="w-28 shrink-0 text-xs font-medium text-foreground-500">
+                      <div className="flex min-w-0 flex-1 items-center gap-3 px-4">
+                        <span className={`${COL_IMAGE} text-xs font-medium text-foreground-500`}>
                           画像
                         </span>
-                        <span className="min-w-[240px] flex-1 text-xs font-medium text-foreground-500">
+                        <span className={`${COL_NAME} text-xs font-medium text-foreground-500`}>
                           商品名
                         </span>
-                        <span className="w-[110px] shrink-0 text-xs font-medium text-foreground-500">
+                        <span className={`${COL_CATEGORY} text-xs font-medium text-foreground-500`}>
                           カテゴリ
                         </span>
-                        <span className="w-[120px] shrink-0 text-right text-xs font-medium text-foreground-500">
+                        <span className={`${COL_PRICE} text-right text-xs font-medium text-foreground-500`}>
                           販売予定価格
                         </span>
-                        <span className="w-[92px] shrink-0 text-xs font-medium text-foreground-500">
+                        <span className={`${COL_PUBLISH} text-xs font-medium text-foreground-500`}>
                           公開状態
                         </span>
-                        <span className="w-[104px] shrink-0 text-xs font-medium text-foreground-500">
+                        <span className={`${COL_INVENTORY} text-xs font-medium text-foreground-500`}>
                           在庫状態
                         </span>
-                        <span className="w-[120px] shrink-0 text-xs font-medium text-foreground-500">
+                        <span className={`${COL_LEDGER} text-xs font-medium text-foreground-500`}>
                           仕入照合
                         </span>
                       </div>
                       {/* 行の右端操作列（詳細・別タブ・編集）と同じ幅を確保して桁を揃える */}
                       <div className={`${ACTION_COLUMN_WIDTH} shrink-0`}></div>
                     </div>
+                  </div>
 
+                  {/* データ行。横幅が不足する場合はこの領域だけが横スクロールする
+                      （ページ全体の横スクロールは発生させない）。 */}
+                  <div
+                    ref={tableScrollRef}
+                    onScroll={handleTableScroll}
+                    className="overflow-x-auto"
+                  >
+                    <div className="min-w-full lg:min-w-[1240px]">
                     {products.map((product) => (
                       <ProductRow
                         key={product.product_id}

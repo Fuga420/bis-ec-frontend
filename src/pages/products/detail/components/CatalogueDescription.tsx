@@ -30,9 +30,9 @@ function splitAttentionLines(text: string): { body: string; notes: string[] } {
 }
 
 /**
- * 図録体裁の「商品説明」。
- * 本文は明朝で行間を広く取り、長い文章は5行で折りたたむ。
- * 注意事項（※書き）は本文と混ぜず、細い罫線で区切って小さい文字で下に置く。
+ * 商品詳細の「商品説明」。
+ * 本文は13.5pxで行間を確保し、長い文章は5行で折りたたむ。
+ * 注意事項（※書き）は本文と混ぜず、薄い罫線で区切って小さい文字で下に置く。
  * 表示専用（保存データは変更しない）。
  */
 export default function CatalogueDescription({
@@ -55,7 +55,9 @@ export default function CatalogueDescription({
 
   const body = split.body;
   const hasBody = hasText(body);
-  const needsToggle = body.trim().length > 180;
+  // 文字数だけでなく行数でも判定する（改行の多い説明が初期表示で長くなりすぎないように）
+  const needsToggle =
+    body.trim().length > 180 || body.trim().split("\n").length > 6;
   const hasTags = parsed.hashtags.length > 0;
 
   // 本文の※書きと備考欄の両方を、注意事項としてまとめて下に出す
@@ -70,30 +72,27 @@ export default function CatalogueDescription({
   return (
     <section>
       <CatalogueSectionHeading
-        eyebrow="Description"
         title="商品説明"
         right={
           !hasAny ? (
-            <span className="cat-mono text-[9px] tracking-[0.2em] text-[var(--cat-ink-soft)]">
-              未入力
-            </span>
+            <span className="text-[11px] text-foreground-400">未入力</span>
           ) : undefined
         }
       />
 
       {hasAny ? (
-        <div className="mt-4">
+        <div className="mt-2">
           {otherFields.length > 0 && (
-            <dl className="mb-5 flex flex-wrap gap-x-8 gap-y-2 border-b border-[var(--cat-rule-soft)] pb-4">
+            <dl className="mb-3 flex flex-wrap gap-x-8 gap-y-1.5 border-b border-background-100 pb-3">
               {otherFields.map((field) => (
                 <div
                   key={field.label}
                   className="flex min-w-0 items-baseline gap-2"
                 >
-                  <dt className="shrink-0 text-[10px] tracking-[0.16em] text-[var(--cat-ink-soft)]">
+                  <dt className="shrink-0 text-[11px] text-foreground-500">
                     {field.label}
                   </dt>
-                  <dd className="min-w-0 break-words text-[12.5px] leading-[1.8] text-[var(--cat-ink)]">
+                  <dd className="min-w-0 break-words text-[13px] leading-6 text-foreground-800">
                     {field.values.join(" / ")}
                   </dd>
                 </div>
@@ -104,8 +103,8 @@ export default function CatalogueDescription({
           {hasBody && (
             <div>
               <p
-                className={`whitespace-pre-line break-words text-[14px] leading-[2.05] tracking-[0.02em] text-[var(--cat-ink)] ${
-                  needsToggle && !expanded ? "line-clamp-5" : ""
+                className={`whitespace-pre-line break-words text-[13.5px] leading-[1.9] text-foreground-800 ${
+                  needsToggle && !expanded ? "line-clamp-6" : ""
                 }`}
               >
                 {body.trim()}
@@ -115,12 +114,12 @@ export default function CatalogueDescription({
                   type="button"
                   onClick={() => setExpanded((prev) => !prev)}
                   aria-expanded={expanded}
-                  className="mt-2 inline-flex cursor-pointer items-center gap-1 border-b border-[var(--cat-rule)] pb-0.5 text-[10.5px] tracking-[0.14em] text-[var(--cat-ink-soft)] transition-colors hover:border-[var(--cat-ink)] hover:text-[var(--cat-ink)]"
+                  className="mt-1.5 inline-flex cursor-pointer items-center gap-1 whitespace-nowrap text-[12px] font-medium text-primary-700 transition-colors hover:text-primary-800"
                 >
                   <i
                     className={`${
                       expanded ? "ri-arrow-up-s-line" : "ri-arrow-down-s-line"
-                    } w-3 h-3 flex items-center justify-center text-[11px]`}
+                    } w-3.5 h-3.5 flex items-center justify-center`}
                     aria-hidden="true"
                   ></i>
                   {expanded ? "閉じる" : "全文を表示"}
@@ -130,11 +129,11 @@ export default function CatalogueDescription({
           )}
 
           {hasTags && (
-            <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1.5">
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
               {parsed.hashtags.map((tag) => (
                 <span
                   key={tag}
-                  className="cat-mono inline-flex max-w-full items-center border border-[var(--cat-rule-soft)] px-2 py-0.5 text-[10.5px] leading-5 text-[var(--cat-ink-soft)]"
+                  className="inline-flex max-w-full items-center rounded-md bg-background-100 px-2 py-0.5 text-[11px] leading-5 text-foreground-600"
                 >
                   {tag}
                 </span>
@@ -143,23 +142,18 @@ export default function CatalogueDescription({
           )}
 
           {hasNotes && (
-            <div className="mt-6 border-t border-[var(--cat-rule-soft)] pt-3">
-              <p className="flex flex-wrap items-baseline gap-x-2.5 text-[var(--cat-ink-soft)]">
-                <span className="cat-mono text-[9px] uppercase leading-none tracking-[0.24em]">
-                  Notes
-                </span>
-                <span className="cat-serif text-[11px] leading-none tracking-[0.12em]">
-                  注意事項
-                </span>
+            <div className="mt-4 border-t border-background-100 pt-3">
+              <p className="text-[11px] font-medium text-foreground-500">
+                注意事項
               </p>
-              <p className="mt-2 whitespace-pre-line break-words text-[11.5px] leading-[1.95] text-[var(--cat-ink-soft)]">
+              <p className="mt-1 whitespace-pre-line break-words text-[12px] leading-[1.9] text-foreground-600">
                 {noteText}
               </p>
             </div>
           )}
         </div>
       ) : (
-        <p className="mt-4 text-[12px] leading-relaxed text-[var(--cat-ink-soft)]">
+        <p className="mt-2.5 text-[12px] leading-relaxed text-foreground-500">
           商品説明・備考はまだ入力されていません。「商品情報を編集」から追加できます。
         </p>
       )}

@@ -8,6 +8,16 @@ import type { LedgerMatchStatus } from "../lib/ledgerMatch";
 import { CATEGORY_LABELS, PUBLISH_STATUS_LABELS, INVENTORY_STATUS_LABELS, RECORD_STATUS_LABELS, SQUARE_LINK_LABELS } from "../types";
 import { getProductDisplayTitle } from "../lib/productTitle";
 import type { InlineEditDraft } from "../lib/inlineEdit";
+import {
+  ACTION_COLUMN_WIDTH,
+  COL_CATEGORY,
+  COL_IMAGE,
+  COL_INVENTORY,
+  COL_LEDGER,
+  COL_NAME,
+  COL_PRICE,
+  COL_PUBLISH,
+} from "./productTableColumns";
 
 interface ProductRowProps {
   product: AdminProduct;
@@ -39,10 +49,6 @@ const badgeBase = "st-badge";
 // 商品詳細への遷移と編集はどちらもこの見た目で並べ、アイコンとアクセシブル名で区別する。
 const actionIconBase =
   "flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-background-300 bg-white text-base text-foreground-500 transition-colors hover:border-background-400 hover:bg-background-100 hover:text-foreground-800 focus:outline-none focus-visible:border-primary-400 focus-visible:ring-2 focus-visible:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-background-300 disabled:hover:bg-white";
-
-// 右端の操作列幅（詳細36 + 間隔4 + 別タブ36 + 間隔4 + 編集36 + 右余白8 = 124px）。
-// ヘッダー側と合わせて桁を固定する。
-export const ACTION_COLUMN_WIDTH = "w-[124px]";
 
 // 色は「ドメイン」で固定する（index.css の .st-* を参照）。
 // 公開状態 = 緑 / 在庫 = 青グレー / 照合 = 黄 / 連携 = グレー。
@@ -224,7 +230,7 @@ export default function ProductRow({
     </span>
   );
 
-  // ブランドは 12px のグレー文字。未設定なら要素自体を出さず、空行を作らない。
+  // ブランドは 10px のグレー文字。未設定なら要素自体を出さず、空行を作らない。
   const brandText = (product.brand ?? "").toString().trim();
   const hasBrand = brandText !== "";
 
@@ -278,7 +284,7 @@ export default function ProductRow({
         }`}
       >
         {/* チェックボックスは Link の外に配置し、操作時に詳細へ遷移しないようにする */}
-        <div className="flex w-10 shrink-0 items-center justify-center lg:w-9">
+        <div className="flex w-11 shrink-0 items-center justify-center">
           <label className="product-checkbox">
             <input
               type="checkbox"
@@ -299,77 +305,86 @@ export default function ProductRow({
           className="block min-w-0 flex-1 cursor-pointer rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-400"
         >
           {/* デスクトップ（一覧表）
-              画像を主役にするためサムネイルを112pxに拡大し、行の最小高さも画像に合わせる。
-              画面幅を1024pxに統一したので、商品ID・商品の状態・登録日時は独立した列をやめ、
-              商品名の下の1行（薄いメタ情報）にまとめた。
-              視線は「画像 → 商品名 → 価格」の順に流れる。 */}
-          <div className="hidden items-center gap-4 px-4 py-4 lg:flex lg:min-h-[152px]">
-            <ProductThumbnail
-              src={product.main_image_display_url}
-              alt={name}
-              size="lg"
-            />
-            {/* 商品情報セル: 商品名 → ブランド → 補助バッジ → メタ情報 の順で整理する。
-                幅が足りない場合はセル内で折り返し、隣の列にはみ出さない。 */}
-            {/* 商品名列だけを可変幅にする（最小240px・残りの横幅はすべてここが吸収する）。
-                これにより ID・日時の行が切り捨てられず、時刻まで表示できる。 */}
-            <div className="min-w-[240px] flex-1">
-              {/* 商品名は最大2行まで表示し、超過分は末尾を省略する。
-                  欧文書体（Archivo→Inter）を当てて字間を詰め、見出しとしての密度を出す。 */}
+              情報密度を優先し、画像64px・上下余白12pxの行（標準80px前後）に揃える。
+              商品ID・ブランド・商品の状態・登録日時・補助バッジは、商品名の下の1行に
+              まとめて折り返す。視線は「画像 → 商品名 → 価格」の順に流れる。 */}
+          <div className="hidden items-center gap-3 px-4 py-3 lg:flex lg:min-h-[80px]">
+            {/* 画像列はヘッダーの「画像」ラベルと同じ幅（64px）に固定する */}
+            <span className={`flex items-center ${COL_IMAGE}`}>
+              <ProductThumbnail
+                src={product.main_image_display_url}
+                alt={name}
+                size="lg"
+              />
+            </span>
+            {/* 商品情報列は最小320pxを確保しつつ、余剰幅を最も多く受け取る。
+                ただし他列にも比率で余剰幅を配分するため、右側の状態列が
+                端に寄って詰まることはない（列幅は productTableColumns に集約）。 */}
+            <div className={COL_NAME}>
+              {/* 商品名は最大2行（13〜14px / 600）。超過分は末尾を省略し、
+                  全文は商品詳細で確認できる。行の高さが商品名で伸びすぎないよう行間も詰める。
+                  商品名未入力は「情報待ちの下書き」でありエラーではないため、
+                  色を薄く・ウェイトを1段落として（500）控えめに置き、通常の商品名を主役にする。 */}
               <p
-                className={`admin-title line-clamp-2 text-[16px] font-semibold leading-snug ${
-                  isNameMissing ? "text-foreground-400" : "text-foreground-950"
+                className={`admin-title line-clamp-2 text-[13.5px] leading-snug ${
+                  isNameMissing
+                    ? "font-medium text-foreground-400"
+                    : "font-semibold text-foreground-950"
                 }`}
               >
                 {displayName}
               </p>
-              {hasBrand && (
-                <p className="admin-eyebrow mt-1.5 truncate text-[10px] font-semibold leading-none text-foreground-400">
-                  {brandText}
-                </p>
-              )}
-              {hasBadges && (
-                <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
-                  {/* 並び順は全画面で統一: 公開 → 在庫 → 照合 → 連携 → 補助情報 */}
-                  {squareBadge}
-                  {recordStatusBadge}
-                  {sneakerSizeBadge}
-                </div>
-              )}
-              {/* 商品ID・商品の状態・登録日時は、視線の主役ではないため一段弱いトーンに落とす。
-                  ID と日時は省略しない（商品名列の可変幅で吸収し、収まらない場合だけ日時を2行目へ折り返す）。 */}
-              <p className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-foreground-400">
+              {/* 補助情報（ブランド・商品ID・状態・登録日時・補助バッジ）は1行にまとめ、
+                  収まらない場合だけ折り返す。縦の間隔を詰めて行の高さを一定に保つ。 */}
+              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] leading-none text-foreground-400">
+                {hasBrand && (
+                  <span className="admin-eyebrow max-w-[160px] shrink-0 truncate text-[10px] font-semibold uppercase">
+                    {brandText}
+                  </span>
+                )}
                 <span className="shrink-0 whitespace-nowrap font-mono tabular-nums">
                   {product.product_id}
                 </span>
                 {conditionText && (
-                  <span className="min-w-0 truncate">{conditionText}</span>
+                  <span className="min-w-0 max-w-[160px] truncate">
+                    {conditionText}
+                  </span>
                 )}
                 <span className="shrink-0 whitespace-nowrap tabular-nums">
                   {formatDate(product.created_at)}
                 </span>
-              </p>
+                {hasBadges && (
+                  <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+                    {/* 並び順は全画面で統一: 公開 → 在庫 → 照合 → 連携 → 補助情報 */}
+                    {squareBadge}
+                    {recordStatusBadge}
+                    {sneakerSizeBadge}
+                  </span>
+                )}
+              </div>
             </div>
-            <span className="w-[110px] shrink-0 truncate text-xs text-foreground-500">
+            <span className={`${COL_CATEGORY} truncate text-xs text-foreground-500`}>
               {categoryLabel}
             </span>
+            {/* 価格未設定は「¥0」ではなく補助テキストとして淡く置く。
+                入力済みの価格（15px / 700）との差で、価格の有無が一目で分かる。 */}
             <span
-              className={`admin-numeric w-[120px] shrink-0 whitespace-nowrap text-right tracking-tight ${
+              className={`admin-numeric ${COL_PRICE} whitespace-nowrap text-right tracking-tight ${
                 hasPrice
-                  ? "text-[17px] font-bold text-foreground-950"
-                  : "text-[14px] font-medium text-foreground-400"
+                  ? "text-[15px] font-bold text-foreground-950"
+                  : "text-[12.5px] font-normal text-foreground-400"
               }`}
             >
               {priceText}
             </span>
-            <span className="flex w-[92px] shrink-0 overflow-hidden">
+            <span className={`flex ${COL_PUBLISH} overflow-hidden`}>
               {statusBadge}
             </span>
-            <span className="flex w-[104px] shrink-0 overflow-hidden">
+            <span className={`flex ${COL_INVENTORY} overflow-hidden`}>
               {inventoryBadge}
             </span>
             {/* 仕入照合: 紐付け先の仕入書類が照合済みかどうか（一覧表示用） */}
-            <span className="flex w-[120px] shrink-0 overflow-hidden">
+            <span className={`flex ${COL_LEDGER} overflow-hidden`}>
               <LedgerMatchCell
                 status={ledgerMatch}
                 loading={ledgerMatchLoading}
@@ -377,7 +392,7 @@ export default function ProductRow({
             </span>
           </div>
 
-          {/* モバイル（画像88pxで、デスクトップと同じ階層感を保つ） */}
+          {/* モバイル（画像72pxで、デスクトップと同じ階層感を保つ） */}
           <div className="flex items-center gap-3 px-4 py-3 lg:hidden">
             <ProductThumbnail
               src={product.main_image_display_url}
@@ -386,8 +401,10 @@ export default function ProductRow({
             />
             <div className="min-w-0 flex-1">
               <p
-                className={`admin-title line-clamp-2 text-[15px] font-semibold leading-snug ${
-                  isNameMissing ? "text-foreground-400" : "text-foreground-950"
+                className={`admin-title line-clamp-2 text-[15px] leading-snug ${
+                  isNameMissing
+                    ? "font-medium text-foreground-400"
+                    : "font-semibold text-foreground-950"
                 }`}
               >
                 {displayName}
@@ -418,7 +435,7 @@ export default function ProductRow({
                 className={`admin-numeric whitespace-nowrap tracking-tight ${
                   hasPrice
                     ? "text-base font-bold text-foreground-950"
-                    : "text-[13px] font-medium text-foreground-400"
+                    : "text-[12.5px] font-normal text-foreground-400"
                 }`}
               >
                 {priceText}
@@ -429,7 +446,7 @@ export default function ProductRow({
         </Link>
 
         {/* 右端の操作列（Link の外に置き、行クリック＝詳細／編集ボタン＝編集で競合させない）。
-            デスクトップは「詳細」「別タブ」「編集」の3スロット固定幅。編集不可の行も空スロットを確保し、
+            デスクトップは「詳細」「別タブ」「編集」の3スロット固定幅（128px）。編集不可の行も空スロットを確保し、
             アイコンの左右位置が行ごとにずれないようにする。 */}
         <div
           className={`hidden ${ACTION_COLUMN_WIDTH} shrink-0 items-center justify-end gap-1 pr-2 lg:flex`}

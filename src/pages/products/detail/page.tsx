@@ -51,12 +51,12 @@ import ProductLedgerSection, {
 import { autoLinkProductByItemNumber } from "@/pages/documents/lib/productAutoLink";
 import { useProductCostDetail } from "./hooks/useProductCostDetail";
 import { deriveProductCost } from "./lib/productCost";
-import CatalogueMasthead from "./components/CatalogueMasthead";
-import CatalogueLotHeader from "./components/CatalogueLotHeader";
+import ProductDetailHeader from "./components/ProductDetailHeader";
+import ProductSummaryHeader from "./components/ProductSummaryHeader";
+import ProductDetailNav from "./components/ProductDetailNav";
 import CatalogueSpecPanel from "./components/CatalogueSpecPanel";
 import CatalogueDescription from "./components/CatalogueDescription";
 import CatalogueConditionReport from "./components/CatalogueConditionReport";
-import CatalogueFooter from "./components/CatalogueFooter";
 import ProductDetailTabs, {
   type ProductDetailTabKey,
 } from "./components/ProductDetailTabs";
@@ -73,14 +73,6 @@ const INVENTORY_STATUS_LABELS: Record<string, string> = {
   in_stock: "在庫あり",
   reserved: "取り置き / 商談中",
   sold: "売却済み",
-};
-
-// 公開状態は「公開ドメイン」の緑で固定（index.css の .st-*）。
-// 公開中だけ塗り、下書き・非公開は枠線のみで表す。
-const statusStyles: Record<string, string> = {
-  draft: "st-publish-off",
-  published: "st-publish",
-  hidden: "st-publish-off",
 };
 
 // 一覧API（mode=admin）の商品情報から、詳細画面表示に必要な最小限の情報を組み立てる。
@@ -1046,9 +1038,6 @@ export default function ProductDetailPage() {
     ? PUBLISH_STATUS_LABELS[product.publish_status] ??
       (product.publish_status || "—")
     : "—";
-  const statusClass = product
-    ? statusStyles[product.publish_status] ?? "st-publish-off"
-    : "st-publish-off";
   const inventoryLabel = product
     ? INVENTORY_STATUS_LABELS[product.inventory_status] ??
       (product.inventory_status || "—")
@@ -1075,10 +1064,10 @@ export default function ProductDetailPage() {
   );
 
   return (
-    <div className="catalogue products-theme min-h-screen">
-      <CatalogueMasthead listPath={listPath} />
+    <div className="catalogue products-theme admin-font min-h-screen">
+      <ProductDetailHeader listPath={listPath} />
 
-      <main className="page-fade mx-auto w-full max-w-5xl px-4 pb-12 pt-6 md:px-6 md:pt-7">
+      <main className="page-fade mx-auto w-full max-w-5xl px-4 pb-10 pt-4 md:px-6">
         {loadState === "loading" && <ProductDetailSkeleton />}
 
         {loadState === "error" && (
@@ -1107,8 +1096,8 @@ export default function ProductDetailPage() {
 
         {loadState === "success" && product && (
           <>
-            {/* 図録体裁のヘッダー: LOT番号・英字タイトル・価格・状態・編集導線 */}
-            <CatalogueLotHeader
+            {/* 商品の見出し: 状態・商品名・商品ID・価格・編集導線（商品一覧と統一） */}
+            <ProductSummaryHeader
               product={product}
               categoryLabel={categoryLabel}
               statusLabel={statusLabel}
@@ -1118,9 +1107,15 @@ export default function ProductDetailPage() {
               onStartEdit={handleStartEdit}
             />
 
-            {/* 商品画像 + 商品スペック（図録体裁: 画像を大きく、罫線だけで構成） */}
-            <div className="mt-7 flex flex-col gap-7 lg:flex-row lg:gap-8">
-              <div className="w-full lg:w-[52%] lg:shrink-0">
+            {/* 商品画像 + 商品情報（画像編集中は横幅を広く使う） */}
+            <div
+              className={`mt-4 grid grid-cols-1 gap-4 ${
+                isImageEditing
+                  ? ""
+                  : "lg:grid-cols-[minmax(0,296px)_minmax(0,1fr)] lg:items-start"
+              }`}
+            >
+              <div className="rounded-lg border border-background-200 bg-white p-3">
                 {isImageEditing ? (
                   <ImageEditor
                     existingImages={product.images ?? []}
@@ -1145,7 +1140,7 @@ export default function ProductDetailPage() {
                       onOpen={() => setIsLightboxOpen(true)}
                     />
                     {thumbnails.length > 0 && (
-                      <div className="mt-3 flex flex-wrap gap-2.5">
+                      <div className="mt-2.5 flex flex-wrap gap-2">
                         {thumbnails.map((img, idx) => (
                           <Thumbnail
                             key={idx}
@@ -1160,9 +1155,9 @@ export default function ProductDetailPage() {
                     <button
                       type="button"
                       onClick={handleStartImageEdit}
-                      className="cat-mono mt-4 inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap border border-[var(--cat-rule)] px-4 py-2 text-[10.5px] tracking-[0.14em] text-[var(--cat-ink)] transition-colors hover:bg-[var(--cat-ink)] hover:text-[var(--cat-paper)]"
+                      className="mt-2.5 inline-flex w-full cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-background-300 bg-white px-3.5 py-1.5 text-[12.5px] font-medium text-foreground-700 transition-colors hover:bg-background-100"
                     >
-                      <i className="ri-image-edit-line w-3.5 h-3.5 flex items-center justify-center"></i>
+                      <i className="ri-image-edit-line w-4 h-4 flex items-center justify-center"></i>
                       画像を編集
                     </button>
                     {imageMessage && imageMessage.type === "success" && (
@@ -1176,7 +1171,7 @@ export default function ProductDetailPage() {
                 )}
               </div>
 
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 rounded-lg border border-background-200 bg-white p-4 md:p-5">
                 {isEditing ? (
                   <EditForm
                     product={product}
@@ -1205,7 +1200,7 @@ export default function ProductDetailPage() {
 
             {/* 商品説明・状態報告はタブから独立して常時表示する */}
             {!isEditing && (
-              <div className="mt-9 flex flex-col gap-9">
+              <div className="mt-5 flex flex-col gap-4 rounded-lg border border-background-200 bg-white p-4 md:p-5">
                 <CatalogueDescription product={product} />
                 <CatalogueConditionReport product={product} />
               </div>
@@ -1220,15 +1215,16 @@ export default function ProductDetailPage() {
                 </span>
               </p>
             ) : (
-              <div className="mt-12">
+              <div className="mt-5">
                 <ProductDetailTabs
                   activeTab={activeTab}
                   onChange={setActiveTab}
                 />
 
+                <div className="mt-3 rounded-lg border border-background-200 bg-white p-4 md:p-5">
                 {/* 販売管理 */}
                 {activeTab === "sales" && (
-                  <div className="tab-fade mt-4">
+                  <div className="tab-fade">
                     <SalesManagementPanel
                       publish={{
                         statusLabel,
@@ -1282,11 +1278,9 @@ export default function ProductDetailPage() {
                         },
                       }}
                       workflow={{
-                        imported: true,
                         aiGenerated: aiDraftPrice != null,
                         reviewed: workflowReviewed,
                         published: product.publish_status === "published",
-                        squareLinked: isSquareLinked,
                       }}
                     />
                   </div>
@@ -1294,7 +1288,7 @@ export default function ProductDetailPage() {
 
                 {/* 来歴・仕入 */}
                 {activeTab === "purchase" && (
-                  <div className="tab-fade mt-4 flex flex-col gap-4">
+                  <div className="tab-fade flex flex-col gap-4">
                     <ProductLedgerSection
                       productId={product.product_id}
                       productName={product.product_name}
@@ -1307,7 +1301,7 @@ export default function ProductDetailPage() {
                       onDismissAutoLinkNotice={() => setAutoLinkNotice(null)}
                     />
                     {hasAttachedDocument(product.document) && (
-                      <div className="border-t border-[var(--cat-rule)] pt-4">
+                      <div className="border-t border-background-200 pt-4">
                         <ProductDocumentSection doc={product.document} />
                       </div>
                     )}
@@ -1316,26 +1310,28 @@ export default function ProductDetailPage() {
 
                 {/* 翻訳・外部連携（翻訳データの取得・表示条件は従来どおり） */}
                 {activeTab === "integration" && (
-                  <div className="tab-fade mt-4">
+                  <div className="tab-fade">
                     <section>
                       <CataloguePanelHeading
-                        number="02"
                         title="翻訳・外部連携"
-                        eyebrow="Translation & Integrations"
                         right={
-                          <span className="cat-mono text-[9px] tracking-[0.18em] text-[var(--cat-ink-soft)]">
-                            {isSquareLinked ? "SQUARE LINKED" : "SQUARE UNLINKED"}
+                          <span
+                            className={`st-badge ${
+                              isSquareLinked ? "st-publish" : "st-muted"
+                            }`}
+                          >
+                            Square {isSquareLinked ? "連携済み" : "未連携"}
                           </span>
                         }
                       />
 
-                      <p className="mt-3 max-w-[70ch] text-[11px] leading-[1.9] text-[var(--cat-ink-soft)]">
+                      <p className="mt-1.5 max-w-[70ch] text-[12px] leading-relaxed text-foreground-500">
                         越境販売のための英語翻訳と、外部販売チャネル（Square）の連携状態をまとめて扱います。
                       </p>
 
-                      <div className="mt-6 flex flex-col gap-8">
+                      <div className="mt-4 flex flex-col gap-5">
                         {/* 英語翻訳 */}
-                        <div className="border-t border-[var(--cat-rule-soft)] pt-5">
+                        <div className="border-t border-background-200 pt-4">
                           {product.category !== "pokemon_card" ? (
                             <ProductTranslationSection
                               productId={product.product_id}
@@ -1347,21 +1343,24 @@ export default function ProductDetailPage() {
                               }}
                             />
                           ) : (
-                            <p className="py-2 text-[12px] leading-relaxed text-[var(--cat-ink-soft)]">
+                            <p className="py-1 text-[12px] leading-relaxed text-foreground-500">
                               このカテゴリの商品は英語翻訳の対象外です
                             </p>
                           )}
                         </div>
 
                         {/* 外部連携（現時点ではSquareのみ） */}
-                        <SquareIntegrationSection
-                          product={product}
-                          onRefreshed={refreshProduct}
-                        />
+                        <div className="border-t border-background-200 pt-4">
+                          <SquareIntegrationSection
+                            product={product}
+                            onRefreshed={refreshProduct}
+                          />
+                        </div>
                       </div>
                     </section>
                   </div>
                 )}
+                </div>
               </div>
             )}
 
@@ -1412,8 +1411,8 @@ export default function ProductDetailPage() {
                 onNavigate={setSelectedImageIndex}
               />
             )}
-            {/* 最下部: 前後の商品への参照（図録のページ送り） */}
-            <CatalogueFooter productId={product.product_id} listPath={listPath} />
+            {/* 最下部: 前後の商品への移動 */}
+            <ProductDetailNav productId={product.product_id} listPath={listPath} />
           </>
         )}
       </main>
@@ -1450,7 +1449,7 @@ function MainImage({
       type="button"
       onClick={onOpen}
       aria-label={`${alt} の画像を拡大表示`}
-      className="group relative block w-full cursor-zoom-in overflow-hidden focus:outline-none"
+      className="group relative block w-full cursor-zoom-in overflow-hidden rounded-md border border-background-200 focus:outline-none"
     >
       <img
         key={src}
@@ -1459,9 +1458,8 @@ function MainImage({
         onError={() => setFailed(true)}
         className="main-image-fade aspect-square w-full object-cover object-top"
       />
-      <span className="cat-mono pointer-events-none absolute bottom-2 right-2 flex items-center gap-1 bg-[var(--cat-paper)] px-1.5 py-0.5 text-[9px] tracking-[0.14em] text-[var(--cat-ink-soft)] opacity-0 transition-opacity group-hover:opacity-100">
-        <i className="ri-zoom-in-line text-[11px] leading-none"></i>
-        ZOOM
+      <span className="pointer-events-none absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-md bg-white/90 text-foreground-600 opacity-0 transition-opacity group-hover:opacity-100">
+        <i className="ri-zoom-in-line text-[14px] leading-none"></i>
       </span>
     </button>
   );
@@ -1481,15 +1479,17 @@ function Thumbnail({
   const [failed, setFailed] = useState(false);
   const showPlaceholder = !src || failed;
 
-  // 図録体裁: 画像自体に枠・角丸は付けず、選択中のサムネイルだけ下に深緑の細い線を引く
+  // 選択中のサムネイルだけ枠線を深緑にして、現在の表示位置を示す
   return (
     <button
       type="button"
       onClick={onClick}
       aria-label={alt}
       aria-current={selected ? "true" : undefined}
-      className={`relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden transition-opacity focus:outline-none ${
-        selected ? "opacity-100" : "opacity-45 hover:opacity-80"
+      className={`relative h-14 w-14 shrink-0 cursor-pointer overflow-hidden rounded-md border transition-colors focus:outline-none ${
+        selected
+          ? "border-primary-500"
+          : "border-background-200 hover:border-background-400"
       }`}
     >
       {showPlaceholder ? (
@@ -1502,11 +1502,6 @@ function Thumbnail({
           className="h-full w-full object-cover object-top"
         />
       )}
-      <span
-        className={`absolute inset-x-0 bottom-0 h-[2px] ${
-          selected ? "bg-[var(--cat-green)]" : "bg-transparent"
-        }`}
-      />
     </button>
   );
 }
