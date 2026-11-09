@@ -344,30 +344,39 @@ export interface AiBatchTarget {
   is_test?: boolean;
 }
 
-// バッチ全体ステータス（契約 3.1）
+// バッチ全体ステータス（即時実行および日時指定予約の統合表示）
 export type AiBatchOverallStatus =
+  | "scheduled"
+  | "starting"
+  | "dispatch_retry"
   | "queued"
   | "processing"
   | "completed"
   | "partially_failed"
-  | "failed";
+  | "failed"
+  | "cancelled";
 
-// 商品別ステータス（契約 3.2 の item.status）
+// 商品別ステータス（契約 3.2 の item.status ＋ 予約時の事前除外・取消）
 export type AiBatchItemStatus =
   | "pending"
   | "processing"
   | "completed"
-  | "failed";
+  | "failed"
+  | "excluded"
+  | "cancelled";
 
 // 表示用ステータス（pending かつ retry_count>0 を「再試行待ち」として区別する）
+// excluded: 予約後に公開済み・アーカイブ済み・画像0枚等になり実行対象外となった商品
+// cancelled: 開始前に予約取消された商品
 // contract_violation: GAS 契約外応答（status:"completed" と error_code の同時返却）。
-// 成功表示はしないが、GAS 側は completed のため retry 対象に含まれない可能性がある。
 export type AiBatchDisplayStatus =
   | "pending"
   | "retry_wait"
   | "processing"
   | "success"
   | "failed"
+  | "excluded"
+  | "cancelled"
   | "contract_violation";
 
 // create_ai_product_draft_batch の応答
@@ -378,17 +387,20 @@ export interface AiBatchCreateResponse {
   status?: AiBatchOverallStatus;
   total_count?: number;
   is_reused?: boolean;
+  force_regenerate?: boolean;
   test_only?: boolean;
   non_test_product_ids?: string[];
+  conflicting_product_ids?: string[];
   created_at?: string;
   error?: string;
   error_code?: string;
   message?: string;
 }
 
-// get_ai_product_draft_batch の items[] 要素
+// get_ai_product_draft_batch / get_ai_batch_schedule の items[] 要素
 export interface AiBatchItem {
   product_id?: string;
+  product_name?: string;
   status?: string;
   draft_id?: string | null;
   draft_version?: number | null;
@@ -402,6 +414,109 @@ export interface AiBatchItem {
   // GAS v103: 価格根拠の種別。"cost_markup_floor" は「原価上乗せ下限」を採用したことを示す。
   price_basis?: string | null;
   source_image_ids?: string[];
+}
+
+export interface AiBatchExcludedItem {
+  product_id: string;
+  product_name: string;
+  error_code: string;
+  error_message: string;
+}
+
+export interface AiBatchScheduleSummary {
+  schedule_id: string;
+  request_id: string;
+  schedule_status: string;
+  overall_status: AiBatchOverallStatus;
+  can_cancel: boolean;
+  all_excluded?: boolean;
+  test_only: boolean;
+  scheduled_at: string;
+  scheduled_at_jst?: string | null;
+  started_at?: string | null;
+  cancelled_at?: string | null;
+  completed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  batch_id: string | null;
+  min_cost_markup_rate: number;
+  cost_markup_multiplier?: number;
+  total_reserved_count: number;
+  eligible_count: number;
+  completed_count: number;
+  failed_count: number;
+  processing_count: number;
+  pending_count: number;
+  excluded_count: number;
+  dispatch_retry_count?: number;
+  next_dispatch_retry_at?: string | null;
+  dispatch_error_code?: string | null;
+  dispatch_error_message?: string | null;
+  product_ids: string[];
+  excluded_items: AiBatchExcludedItem[];
+}
+
+export interface AiBatchScheduleDetailResponse extends AiBatchScheduleSummary {
+  success: boolean;
+  is_reused?: boolean;
+  force_regenerate?: boolean;
+  conflicting_product_ids?: string[];
+  items?: AiBatchItem[];
+  error?: string;
+  error_code?: string;
+  message?: string;
+}
+
+export interface AiBatchScheduleListResponse {
+  success: boolean;
+  test_only: boolean;
+  count: number;
+  schedules: AiBatchScheduleSummary[];
+  error?: string;
+  error_code?: string;
+  message?: string;
+}
+
+export type AiBatchRunType = "immediate" | "scheduled";
+
+export interface AiBatchRunSummary {
+  run_key: string;
+  run_type: AiBatchRunType;
+  schedule_id: string | null;
+  batch_id: string | null;
+  job_source: string;
+  overall_status: AiBatchOverallStatus;
+  is_active: boolean;
+  can_cancel: boolean;
+  all_excluded?: boolean;
+  test_only: boolean;
+  force_regenerate?: boolean;
+  scheduled_at: string | null;
+  scheduled_at_jst?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  created_at: string;
+  created_at_jst?: string | null;
+  updated_at: string;
+  total_count: number;
+  eligible_count: number;
+  completed_count: number;
+  failed_count: number;
+  processing_count: number;
+  pending_count: number;
+  excluded_count: number;
+  min_cost_markup_rate: number;
+  dispatch_error_message?: string | null;
+}
+
+export interface AiBatchRunListResponse {
+  success: boolean;
+  test_only: boolean;
+  count: number;
+  runs: AiBatchRunSummary[];
+  error?: string;
+  error_code?: string;
+  message?: string;
 }
 
 // get_ai_product_draft_batch の応答

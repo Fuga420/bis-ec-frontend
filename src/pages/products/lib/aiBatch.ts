@@ -6,8 +6,13 @@ import {
 } from "@/pages/register/lib/aiProduct";
 import {
   PRODUCTS_READ_API_URL,
+  cancelAiBatchScheduleViaApi,
+  createAiBatchScheduleViaApi,
   createProductAiDraftBatchViaApi,
+  getAiBatchScheduleViaApi,
   getProductAiDraftBatchViaApi,
+  listAiBatchRunsViaApi,
+  listAiBatchSchedulesViaApi,
   markDraftProductSyncedInSession,
   retryProductAiDraftBatchViaApi,
   saveProductAiSelectedImagesViaApi,
@@ -23,6 +28,9 @@ import type {
   AiBatchOverallStatus,
   AiBatchProgressResponse,
   AiBatchRetryResponse,
+  AiBatchRunListResponse,
+  AiBatchScheduleDetailResponse,
+  AiBatchScheduleListResponse,
 } from "@/pages/products/types";
 
 // 中継（gas-ai-batch-relay）が扱うaction名。GAS/契約と一致させる。
@@ -54,8 +62,9 @@ export const MAX_AI_ANALYSIS_IMAGES = 3;
 // Cloud Run + Supabase キュー移行後: 1リクエストあたり最大500件（旧20件上限は撤廃）
 export const MAX_AI_BATCH_SIZE = 500;
 
-// 進捗取得の間隔（約5秒）
+// 進捗取得の間隔（約5秒）。開始前の予約状態は15秒間隔で確認する。
 export const AI_BATCH_POLL_INTERVAL_MS = 5000;
+export const AI_SCHEDULE_IDLE_POLL_INTERVAL_MS = 15000;
 
 // 復元したバッチ状態を追跡する上限（受付から24時間）。
 // これを超えた保存状態は、サーバー側に残っていても復元しない。
@@ -68,7 +77,7 @@ export const AI_BATCH_MAX_CONSECUTIVE_POLL_FAILURES = 30;
 /**
  * 進捗取得（get）で「再送しても結果が変わらない確定エラー」の error_code。
  *
- * 保存済み batch_id がサーバーに存在しない場合（BATCH_NOT_FOUND）や、
+ * 保存済み batch_id / schedule_id がサーバーに存在しない場合や、
  * 権限・入力の不足で取得自体が成立しない場合は、ポーリングを続けても
  * 状態は変わらないため、追跡を終了してローカルの保存状態を破棄する。
  * ここに無いコード（HTTP 5xx・タイムアウト・未知コード）は一時的エラーとして扱う。
@@ -76,6 +85,8 @@ export const AI_BATCH_MAX_CONSECUTIVE_POLL_FAILURES = 30;
 const DEFINITIVE_BATCH_POLL_ERROR_CODES: ReadonlySet<string> = new Set([
   "BATCH_NOT_FOUND",
   "BATCH_ID_REQUIRED",
+  "SCHEDULE_NOT_FOUND",
+  "SCHEDULE_ID_REQUIRED",
   "UNAUTHORIZED",
   "FORBIDDEN",
   "UNAUTHORIZED_ADMIN_ACCESS",
@@ -92,17 +103,22 @@ export function isDefinitiveBatchPollError(err: unknown): boolean {
 
 // バッチ全体ステータスの表示ラベル
 export const AI_BATCH_STATUS_LABELS: Record<AiBatchOverallStatus, string> = {
+  scheduled: "予約済み",
+  starting: "開始処理中",
+  dispatch_retry: "開始再試行待ち",
   queued: "受付済み",
   processing: "処理中",
   completed: "全件反映完了",
   partially_failed: "一部失敗",
   failed: "失敗",
+  cancelled: "予約取消済み",
 };
 
 const TERMINAL_BATCH_STATUSES: AiBatchOverallStatus[] = [
   "completed",
   "partially_failed",
   "failed",
+  "cancelled",
 ];
 
 // 完了後は定期取得を停止する判定
@@ -117,6 +133,8 @@ const ITEM_STATUSES: AiBatchItemStatus[] = [
   "processing",
   "completed",
   "failed",
+  "excluded",
+  "cancelled",
 ];
 
 // 契約外の値が来ても「成功」と誤認しない。想定外は pending として保持する。
@@ -134,11 +152,9 @@ export function deriveAiBatchDisplayStatus(item: {
   retry_count: number;
   error_code?: string | null;
 }): AiBatchDisplayStatus {
+  if (item.status === "excluded") return "excluded";
+  if (item.status === "cancelled") return "cancelled";
   // GAS 契約外応答: status:"completed" と error_code が同時に返るケース。
-  // 検索未実行・参照元なし・MAX_TOKENS・429 などは、契約上 completed で返っても
-  // 「下書き反映完了（成功）」として表示しない。
-  // ただし GAS 側の status は completed のため、GAS の retry 対象に含まれない
-  // 可能性がある。GAS も failed の「失敗」とは区別し、「要確認（契約外）」として扱う。
   if (item.status === "completed" && item.error_code) {
     return "contract_violation";
   }
@@ -201,6 +217,39 @@ export function explainAiBatchError(
 ): string {
   const upper = (code ?? "").trim().toUpperCase();
   if (upper) {
+    if (upper === "PUBLISHED_PRODUCT_NOT_ALLOWED") {
+      return message || "公開済み（または非公開）商品のため対象外になりました。";
+    }
+    if (upper === "INACTIVE_PRODUCT_NOT_ALLOWED") {
+      return message || "アーカイブ済み商品のため対象外になりました。";
+    }
+    if (upper === "SQUARE_LINKED_PRODUCT_NOT_ALLOWED") {
+      return message || "Square連携済み商品のため対象外になりました。";
+    }
+    if (upper === "NO_IMAGES_FOUND") {
+      return message || "商品画像が0枚のため対象外になりました。";
+    }
+    if (upper === "SELECTED_IMAGE_DELETED" || upper === "IMAGE_COUNT_EXCEEDED") {
+      return message || "選択されていたAI解析用画像が不整合となったため対象外になりました。";
+    }
+    if (upper === "PRODUCT_NOT_FOUND") {
+      return message || "商品が見つからないため対象外になりました。";
+    }
+    if (upper === "NON_TEST_PRODUCT_INCLUDED" || upper === "TEST_PRODUCT_INCLUDED") {
+      return message || "動作モード（通常／テスト）と一致しないため対象外になりました。";
+    }
+    if (upper === "PRODUCT_ALREADY_IN_ACTIVE_AI_BATCH") {
+      return (
+        message ||
+        "別のAI一括生成ジョブで予約中または処理待ち・処理中のため対象外になりました。"
+      );
+    }
+    if (upper === "CONFIRMED_DRAFT_EXISTS") {
+      return "すでに確定済みのAI下書きが存在するため再生成しませんでした。再生成する場合は確認画面で「生成済みのAI下書きがある商品も再生成する」を選択して実行してください。";
+    }
+    if (upper === "PRODUCT_COST_FETCH_FAILED") {
+      return message || "確定済み仕入原価の取得に失敗したため、安全のため生成を中断しました。";
+    }
     if (upper.includes("MAX_TOKENS") || upper.includes("MAX_OUTPUT")) {
       return "生成内容が長すぎて上限（MAX_TOKENS）に達し、出力が完了しませんでした。時間をおいて「失敗のみ再実行」してください。";
     }
@@ -228,6 +277,119 @@ export function explainAiBatchError(
   }
   if (message) return message;
   return "生成に失敗しました。時間をおいて「失敗のみ再実行」してください。";
+}
+
+// =============================================================================
+// 日本時間（JST / UTC+09:00 固定）日時ユーティリティ
+// OSのタイムゾーン設定に関わらず、常に入力・表示を日本時間（Asia/Tokyo）として扱う。
+// =============================================================================
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+/**
+ * ISO文字列（またはDate）を「YYYY/MM/DD(曜) HH:mm（日本時間）」で整形する。
+ */
+export function formatJstDateTime(
+  value?: string | Date | null,
+  options?: { withSuffix?: boolean }
+): string {
+  if (!value) return "";
+  const ms = value instanceof Date ? value.getTime() : Date.parse(String(value));
+  if (!Number.isFinite(ms)) return "";
+  const jst = new Date(ms + JST_OFFSET_MS);
+  const yyyy = jst.getUTCFullYear();
+  const mm = String(jst.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(jst.getUTCDate()).padStart(2, "0");
+  const hh = String(jst.getUTCHours()).padStart(2, "0");
+  const min = String(jst.getUTCMinutes()).padStart(2, "0");
+  const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
+  const wd = weekdays[jst.getUTCDay()] ?? "";
+  const suffix = options?.withSuffix === false ? "" : "（日本時間）";
+  return `${yyyy}/${mm}/${dd}(${wd}) ${hh}:${min}${suffix}`;
+}
+
+/**
+ * 指定ミリ秒を `<input type="datetime-local">` 用の日本時間文字列 `YYYY-MM-DDTHH:mm` に変換する。
+ */
+export function toJstDateTimeLocalValue(ms: number): string {
+  const jst = new Date(ms + JST_OFFSET_MS);
+  const yyyy = jst.getUTCFullYear();
+  const mm = String(jst.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(jst.getUTCDate()).padStart(2, "0");
+  const hh = String(jst.getUTCHours()).padStart(2, "0");
+  const min = String(jst.getUTCMinutes()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+}
+
+/**
+ * 初期値として現在時刻の30分後（5分単位切り上げ）の日本時間 `YYYY-MM-DDTHH:mm` を返す。
+ */
+export function buildDefaultJstDateTimeLocal(now = new Date()): string {
+  const stepMs = 5 * 60 * 1000;
+  const rounded = Math.ceil((now.getTime() + 30 * 60 * 1000) / stepMs) * stepMs;
+  return toJstDateTimeLocalValue(rounded);
+}
+
+/**
+ * よく使う予約時刻プリセット（日本時間）を生成する。
+ */
+export function buildPresetJstDateTimeLocal(
+  preset: "in_10m" | "tonight_23" | "next_02",
+  now = new Date()
+): string {
+  const nowMs = now.getTime();
+  if (preset === "in_10m") {
+    const stepMs = 60 * 1000;
+    return toJstDateTimeLocalValue(Math.ceil((nowMs + 10 * 60 * 1000) / stepMs) * stepMs);
+  }
+  const jstNow = new Date(nowMs + JST_OFFSET_MS);
+  const y = jstNow.getUTCFullYear();
+  const m = jstNow.getUTCMonth();
+  const d = jstNow.getUTCDate();
+
+  if (preset === "tonight_23") {
+    let targetUtcMs = Date.UTC(y, m, d, 23, 0, 0) - JST_OFFSET_MS;
+    if (targetUtcMs <= nowMs + 60 * 1000) {
+      targetUtcMs += 24 * 60 * 60 * 1000;
+    }
+    return toJstDateTimeLocalValue(targetUtcMs);
+  }
+
+  // preset === "next_02": 次の午前02:00（JST）
+  let target02UtcMs = Date.UTC(y, m, d, 2, 0, 0) - JST_OFFSET_MS;
+  if (target02UtcMs <= nowMs + 60 * 1000) {
+    target02UtcMs += 24 * 60 * 60 * 1000;
+  }
+  return toJstDateTimeLocalValue(target02UtcMs);
+}
+
+/**
+ * `<input type="datetime-local">` の入力値（`YYYY-MM-DDTHH:mm`）を常に日本時間（+09:00）として解釈し、
+ * UTC ISO文字列へ変換する。過去日時の場合はエラー理由も返す。
+ */
+export function parseJstDateTimeLocalToIso(
+  rawValue: string,
+  now = new Date()
+): { iso: string | null; error: string } {
+  const trimmed = (rawValue ?? "").trim();
+  if (!trimmed) {
+    return { iso: null, error: "開始日時（日本時間）を入力してください。" };
+  }
+  const match = trimmed.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::(\d{2}))?$/);
+  if (!match) {
+    return { iso: null, error: "開始日時の形式が正しくありません。" };
+  }
+  const sec = match[3] ?? "00";
+  const parsedMs = Date.parse(`${match[1]}T${match[2]}:${sec}+09:00`);
+  if (!Number.isFinite(parsedMs)) {
+    return { iso: null, error: "有効な開始日時を入力してください。" };
+  }
+  if (parsedMs < now.getTime() - 60 * 1000) {
+    return {
+      iso: null,
+      error: "開始日時は現在以降の日時（日本時間）を指定してください。",
+    };
+  }
+  return { iso: new Date(parsedMs).toISOString(), error: "" };
 }
 
 function asString(value: unknown): string {
@@ -341,7 +503,8 @@ export async function createAiProductDraftBatch(params: {
  * バッチの進捗・結果取得。API取得失敗は成功として扱わず例外を投げる。
  */
 export async function getAiProductDraftBatch(
-  batchId: string
+  batchId: string,
+  testOnly?: boolean
 ): Promise<AiBatchProgressResponse> {
   if (!PRODUCTS_READ_API_URL) {
     const data = await invokeAiRelay<AiBatchProgressResponse>(
@@ -362,7 +525,7 @@ export async function getAiProductDraftBatch(
   }
 
   assertBackendConnectedForBatch();
-  const response = await getProductAiDraftBatchViaApi(batchId);
+  const response = await getProductAiDraftBatchViaApi(batchId, testOnly);
   const data = await parseCloudRunBatchJson<AiBatchProgressResponse>(response);
   if (!data) {
     throw new Error(
@@ -399,16 +562,11 @@ export async function retryAiProductDraftBatch(params: {
       AI_BATCH_RELAY_FUNCTION_NAME
     );
     if (!data) {
-      // 応答本体を解析できていない（空応答等）＝受付済みか判断できない。
-      // AiRelayError にせず素の Error で伝え、呼び出し側が request_id を保持できるようにする。
       throw new Error(
         "失敗分の再実行の応答を取得できませんでした。時間をおいて再度お試しください。"
       );
     }
     if (data.success !== true) {
-      // success:false の代表は NO_FAILED_ITEMS（失敗商品なし）。
-      // error_code をそのまま保持して AiRelayError で伝え、呼び出し側が
-      // 「受付されなかったことが確定できるコード」かどうかを判定できるようにする。
       const info = extractRelayError(data, "失敗分の再実行に失敗しました。");
       throw new AiRelayError(info.message, info.code);
     }
@@ -421,7 +579,6 @@ export async function retryAiProductDraftBatch(params: {
   });
   const data = await parseCloudRunBatchJson<AiBatchRetryResponse>(response);
   if (!data) {
-    // 応答本体を解析できていない（空応答・プロキシ502等）＝受付済みか判断できない。
     throw new Error(
       "失敗分の再実行の応答を取得できませんでした。時間をおいて再度お試しください。"
     );
@@ -459,32 +616,24 @@ const DEFINITIVE_REJECTION_CODES: ReadonlySet<string> = new Set([
   "FORBIDDEN",
   "UNAUTHORIZED_ADMIN_ACCESS",
   "NON_TEST_PRODUCT_INCLUDED",
+  "TEST_PRODUCT_INCLUDED",
+  "PRODUCT_NOT_FOUND",
+  "PRODUCT_ALREADY_IN_ACTIVE_AI_BATCH",
   "INVALID_TEST_ONLY_FLAG",
+  "INVALID_FORCE_REGENERATE_FLAG",
   "INVALID_PRODUCT_IDS",
+  "INVALID_SCHEDULED_AT",
+  "SCHEDULED_AT_IN_PAST",
+  "SCHEDULE_NOT_FOUND",
+  "SCHEDULE_ALREADY_STARTED",
   "BATCH_SIZE_EXCEEDED",
   "INVALID_MIN_COST_MARKUP_RATE",
 ]);
 
-/**
- * 失敗分再実行（retry）の送信後エラーを分類する（契約 2.3 の冪等性キー運用）。
- *
- * request_id を破棄してよいのは「受付されなかったことが確定した応答」だけ:
- *   - 成功応答（呼び出し側で成功として別途処理する）
- *   - 受付されなかったことが確定できる GAS エラーコード（NO_FAILED_ITEMS /
- *     BATCH_NOT_FOUND など、DEFINITIVE_REJECTION_CODES に列挙したもの）
- *
- * これら以外はすべて「GASが受付済みか判断できない」ため request_id を保持して再送する:
- *   - 中継のタイムアウト / 転送失敗 / HTTP 5xx（＝素の Error。JSON応答を解析できていない）
- *   - 応答解析失敗（中継がGAS本体を解析できず GAS_INVALID_RESPONSE を返した場合）
- *   - 上記の確定コードに該当しない、未知・判定不能なエラーコード
- */
 export type RetryFailureClass = "definitive_rejection" | "unknown";
 
 export function classifyRetryFailure(err: unknown): RetryFailureClass {
-  // 素の Error は「JSON応答を解析できていない」状態（タイムアウト・転送失敗・5xx等）→ 保持。
   if (!(err instanceof AiRelayError)) return "unknown";
-  // 受付されなかったことが確定できるコードだけを破棄対象にする（allowlist）。
-  // それ以外（GAS_INVALID_RESPONSE・未知コードなど）は受付済みの可能性を排除できないため保持。
   const code = err.code ?? "";
   return DEFINITIVE_REJECTION_CODES.has(code)
     ? "definitive_rejection"
@@ -560,7 +709,7 @@ function asNumberOrNull(value: unknown): number | null {
 
 /**
  * 契約の items[] を画面表示用アイテムへ変換する。
- * product_name は受付時に保持した名前マップから復元する（APIは名前を返さないため）。
+ * product_name はサーバー返却値または受付時に保持した名前マップから復元する。
  */
 export function toAiBatchDisplayItems(
   apiItems: AiBatchItem[] | undefined,
@@ -573,24 +722,186 @@ export function toAiBatchDisplayItems(
   return (apiItems ?? []).map((api) => {
     const productId = asString(api.product_id);
     const prev = prevMap.get(productId);
+    const apiName = api.product_name ? asString(api.product_name).trim() : "";
     return {
       product_id: productId,
       product_name:
-        nameMap[productId] ?? prev?.product_name ?? productId,
+        apiName || nameMap[productId] || prev?.product_name || productId,
       status: normalizeBatchItemStatus(api.status),
       retry_count:
         typeof api.retry_count === "number" ? api.retry_count : 0,
       error_code: api.error_code ? asString(api.error_code) : null,
       error_message: api.error_message ? asString(api.error_message) : null,
-      // 完了時に返る draft 識別子を保持する（表示・遷移の補助。表示名の生成には使わない）。
       draft_id: api.draft_id ? asString(api.draft_id) : null,
       draft_version:
         typeof api.draft_version === "number" ? api.draft_version : null,
-      // GAS v102以降: 提案価格と価格根拠（price_note）。未返却なら null のまま保持する。
       proposed_price: asNumberOrNull(api.proposed_price),
       price_note: api.price_note ? asString(api.price_note) : null,
-      // GAS v103: 価格根拠の種別（"cost_markup_floor" = 原価上乗せ下限を採用）
       price_basis: api.price_basis ? asString(api.price_basis) : null,
     };
   });
+}
+
+/**
+ * 日時指定のAI一括生成予約を作成する（選択済み商品IDを固定保存）。
+ */
+export async function createAiBatchSchedule(params: {
+  requestId: string;
+  scheduledAtIso: string;
+  productIds: string[];
+  productNames?: Record<string, string>;
+  minCostMarkupRate?: number;
+  testOnly?: boolean;
+  forceRegenerate?: boolean;
+}): Promise<AiBatchScheduleDetailResponse> {
+  if (!PRODUCTS_READ_API_URL) {
+    throw new Error(
+      "予約機能を利用するには Cloud Run 商品API（VITE_PRODUCTS_READ_API_URL）の設定が必要です。"
+    );
+  }
+  assertBackendConnectedForBatch();
+
+  const body: Record<string, unknown> = {
+    request_id: params.requestId,
+    scheduled_at: params.scheduledAtIso,
+    product_ids: params.productIds,
+    min_cost_markup_rate:
+      params.minCostMarkupRate ?? DEFAULT_MIN_COST_MARKUP_RATE,
+    test_only: params.testOnly === true,
+  };
+  if (params.forceRegenerate !== undefined) {
+    body.force_regenerate = params.forceRegenerate;
+  }
+  if (params.productNames) {
+    body.product_names = params.productNames;
+  }
+
+  const response = await createAiBatchScheduleViaApi(body);
+  const data =
+    await parseCloudRunBatchJson<AiBatchScheduleDetailResponse>(response);
+  if (!data) {
+    throw new Error(
+      `AI一括生成の予約応答を取得できませんでした (HTTP ${response.status})。`
+    );
+  }
+  if (!response.ok || data.success !== true || !asString(data.schedule_id)) {
+    const info = extractRelayError(data, "AI一括生成の予約に失敗しました。");
+    throw new AiRelayError(info.message, info.code);
+  }
+  return data;
+}
+
+/**
+ * 即時実行・日時指定予約の両方を含む統合ジョブ一覧を取得する（マルチデバイス進捗・結果表示用）。
+ */
+export async function listAiBatchRuns(params: {
+  testOnly?: boolean;
+  limit?: number;
+}): Promise<AiBatchRunListResponse> {
+  if (!PRODUCTS_READ_API_URL || !isBackendConnected()) {
+    return {
+      success: true,
+      test_only: params.testOnly === true,
+      count: 0,
+      runs: [],
+    };
+  }
+  const response = await listAiBatchRunsViaApi(params);
+  const data =
+    await parseCloudRunBatchJson<AiBatchRunListResponse>(response);
+  if (!data || !response.ok || data.success !== true) {
+    const info = extractRelayError(
+      data,
+      "AI一括生成の実行履歴・予約一覧を取得できませんでした。"
+    );
+    throw new AiRelayError(info.message, info.code);
+  }
+  return data;
+}
+
+/**
+ * サーバー側に保存されている予約一覧・進捗サマリーを取得する（ブラウザ再起動後の復元用）。
+ */
+export async function listAiBatchSchedules(params: {
+  testOnly?: boolean;
+  limit?: number;
+}): Promise<AiBatchScheduleListResponse> {
+  if (!PRODUCTS_READ_API_URL || !isBackendConnected()) {
+    return {
+      success: true,
+      test_only: params.testOnly === true,
+      count: 0,
+      schedules: [],
+    };
+  }
+  const response = await listAiBatchSchedulesViaApi(params);
+  const data =
+    await parseCloudRunBatchJson<AiBatchScheduleListResponse>(response);
+  if (!data || !response.ok || data.success !== true) {
+    const info = extractRelayError(
+      data,
+      "AI一括生成の予約一覧を取得できませんでした。"
+    );
+    throw new AiRelayError(info.message, info.code);
+  }
+  return data;
+}
+
+/**
+ * 単一のAI一括生成予約の詳細・除外商品・商品別結果を取得する。
+ */
+export async function getAiBatchSchedule(
+  scheduleId: string,
+  testOnly?: boolean
+): Promise<AiBatchScheduleDetailResponse> {
+  if (!PRODUCTS_READ_API_URL) {
+    throw new Error(
+      "予約詳細を取得するには Cloud Run 商品APIの設定が必要です。"
+    );
+  }
+  assertBackendConnectedForBatch();
+  const response = await getAiBatchScheduleViaApi(scheduleId, testOnly);
+  const data =
+    await parseCloudRunBatchJson<AiBatchScheduleDetailResponse>(response);
+  if (!data) {
+    throw new Error(
+      `AI一括生成の予約詳細を取得できませんでした (HTTP ${response.status})。`
+    );
+  }
+  if (!response.ok || data.success !== true) {
+    const info = extractRelayError(
+      data,
+      "AI一括生成の予約詳細を取得できませんでした。"
+    );
+    throw new AiRelayError(info.message, info.code);
+  }
+  return data;
+}
+
+/**
+ * 開始前のAI一括生成予約を取り消す。
+ */
+export async function cancelAiBatchSchedule(
+  scheduleId: string,
+  testOnly?: boolean
+): Promise<AiBatchScheduleDetailResponse> {
+  if (!PRODUCTS_READ_API_URL) {
+    throw new Error(
+      "予約を取り消すには Cloud Run 商品APIの設定が必要です。"
+    );
+  }
+  assertBackendConnectedForBatch();
+  const response = await cancelAiBatchScheduleViaApi(scheduleId, testOnly);
+  const data =
+    await parseCloudRunBatchJson<AiBatchScheduleDetailResponse>(response);
+  if (!data) {
+    throw new Error(
+      `予約取消の応答を取得できませんでした (HTTP ${response.status})。`
+    );
+  }
+  if (!response.ok || data.success !== true) {
+    const info = extractRelayError(data, "予約の取り消しに失敗しました。");
+    throw new AiRelayError(info.message, info.code);
+  }
+  return data;
 }

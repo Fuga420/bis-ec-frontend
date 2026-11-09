@@ -21,6 +21,8 @@ export const AI_BATCH_DISPLAY_STATUS_LABELS: Record<
   // 契約上 completed は「生成および下書き自動反映完了」を意味する
   success: "反映完了",
   failed: "失敗",
+  excluded: "対象外",
+  cancelled: "予約取消",
   // GAS 契約外応答（completed と error_code の同時返却）
   contract_violation: "要確認",
 };
@@ -32,6 +34,8 @@ const DISPLAY_STATUS_TEXT_STYLES: Record<AiBatchDisplayStatus, string> = {
   processing: "text-foreground-600",
   success: "text-primary-700",
   failed: "text-amber-700",
+  excluded: "text-foreground-500",
+  cancelled: "text-foreground-400",
   contract_violation: "text-amber-700",
 };
 
@@ -91,6 +95,13 @@ function AiBatchResultRow({ item }: AiBatchResultRowProps) {
         {display === "failed" && (item.error_code || item.error_message) && (
           <p className="mt-1 break-words text-[11px] leading-relaxed text-amber-800">
             {explainAiBatchError(item.error_code, item.error_message)}
+            {item.error_code ? `（コード: ${item.error_code}）` : ""}
+          </p>
+        )}
+
+        {display === "excluded" && (item.error_code || item.error_message) && (
+          <p className="mt-1 break-words text-[11px] leading-relaxed text-foreground-600">
+            対象外理由: {explainAiBatchError(item.error_code, item.error_message)}
             {item.error_code ? `（コード: ${item.error_code}）` : ""}
           </p>
         )}

@@ -6,33 +6,31 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import AiBatchResultModal from "@/pages/products/components/AiBatchResultModal";
 import { useOperatingMode } from "@/context/OperatingModeProvider";
 import { adminThemeClass } from "@/lib/adminTheme";
+import AiBatchResultModal from "@/pages/products/components/AiBatchResultModal";
 import { useAiBatchGeneration } from "@/pages/products/hooks/useAiBatchGeneration";
 import { isTerminalBatchStatus } from "@/pages/products/lib/aiBatch";
 import type {
   AiBatchDisplayItem,
   AiBatchOverallStatus,
+  AiBatchRunSummary,
   AiBatchTarget,
 } from "@/pages/products/types";
 
-/**
- * AI一括生成のバッチ状態を「管理画面全体」で共有するためのコンテキスト。
- *
- * これまで商品一覧ページのローカルフックだったため、別画面へ移動すると
- * 進捗ポーリングがアンマウントされて途切れていた。プロバイダーをアプリ直下に
- * 1つだけ置くことで、
- *   - ポーリングは常に1系統（二重ポーリングしない）
- *   - 画面移動しても進捗が継続する
- *   - タブを閉じて開き直しても localStorage の batch_id / request_id から復帰する
- * を満たす。フック本体（useAiBatchGeneration）のロジックは変更しない。
- */
 export interface AiBatchContextValue {
   items: AiBatchDisplayItem[] | null;
   batchStatus: AiBatchOverallStatus | null;
   batchId: string | null;
+  scheduleId: string | null;
+  activeRunKey: string | null;
+  scheduledAt: string | null;
+  createdAt: string | null;
+  canCancelSchedule: boolean;
+  dispatchErrorMessage: string;
+  runs: AiBatchRunSummary[];
   isSubmitting: boolean;
+  isCancelling: boolean;
   isPolling: boolean;
   isBusy: boolean;
   /** 進捗を取得できず状態を断定できない（ポーリングは継続中） */
@@ -44,27 +42,27 @@ export interface AiBatchContextValue {
   hasActiveBatch: boolean;
   errorMessage: string;
   pollError: string;
-  /** 結果モーダルが開いているか */
   isResultOpen: boolean;
-  /**
-   * 一括生成を開始する（受付直後だけ結果モーダルを自動表示する）。
-   * minCostMarkupRate は概算原価への最低上乗せ率（0より大きく5.0以下の小数）。
-   * 未指定は 0.30（30%）。
-   */
+  clearError: () => void;
+  /** 通知メッセージを閉じる */
+  clearNoticeMessage: () => void;
   start: (
     targets: AiBatchTarget[],
     minCostMarkupRate?: number,
-    options?: { testOnly?: boolean }
-  ) => Promise<void>;
-  /** 失敗分のみ再実行 */
+    options?: { testOnly?: boolean; forceRegenerate?: boolean }
+  ) => Promise<boolean>;
+  schedule: (
+    targets: AiBatchTarget[],
+    scheduledAtIso: string,
+    minCostMarkupRate?: number,
+    options?: { testOnly?: boolean; forceRegenerate?: boolean }
+  ) => Promise<boolean>;
+  cancelSchedule: (targetScheduleId?: string) => Promise<void>;
+  selectRun: (runKey: string) => Promise<void>;
+  openRunHistory: () => Promise<void>;
   retryFailed: () => Promise<void>;
-  /** バッチ状態を破棄する（保存済みIDも削除） */
   dismiss: () => void;
-  /** 通知メッセージを閉じる */
-  clearNoticeMessage: () => void;
-  /** 結果モーダルを開く */
   openResult: () => void;
-  /** 結果モーダルを閉じる（終了状態なら破棄する） */
   closeResult: () => void;
 }
 
@@ -76,7 +74,15 @@ export function AiBatchProvider({ children }: { children: ReactNode }) {
     items,
     batchStatus,
     batchId,
+    scheduleId,
+    activeRunKey,
+    scheduledAt,
+    createdAt,
+    canCancelSchedule,
+    dispatchErrorMessage,
+    runs,
     isSubmitting,
+    isCancelling,
     isPolling,
     isBusy,
     isTrackingUnknown,
@@ -85,38 +91,71 @@ export function AiBatchProvider({ children }: { children: ReactNode }) {
     hasActiveBatch,
     errorMessage,
     pollError,
+    clearError,
+    clearNoticeMessage,
     start: startBatch,
+    schedule: scheduleBatch,
+    cancelSchedule,
+    selectRun,
+    refreshRuns,
     retryFailed,
     dismiss,
-    clearNoticeMessage,
-  } = useAiBatchGeneration();
+  } = useAiBatchGeneration(isTestMode);
 
   const [isResultOpen, setIsResultOpen] = useState(false);
 
-  // 受付開始時だけ結果モーダルを自動表示する。
-  // 画面移動や再読込で復帰したときは自動で開かない（上部の進捗表示から開ける）。
   const start = useCallback(
     async (
       targets: AiBatchTarget[],
       minCostMarkupRate?: number,
-      options?: { testOnly?: boolean }
-    ) => {
-      // items は start 内で同期的に用意されるため、先に開いても空表示にはならない。
-      // 受付に失敗した場合もモーダル内で理由を確認できる。
-      setIsResultOpen(true);
-      await startBatch(targets, minCostMarkupRate, options);
+      options?: { testOnly?: boolean; forceRegenerate?: boolean }
+    ): Promise<boolean> => {
+      const ok = await startBatch(targets, minCostMarkupRate, options);
+      if (ok) {
+        setIsResultOpen(true);
+      }
+      return ok;
     },
     [startBatch]
+  );
+
+  const schedule = useCallback(
+    async (
+      targets: AiBatchTarget[],
+      scheduledAtIso: string,
+      minCostMarkupRate?: number,
+      options?: { testOnly?: boolean; forceRegenerate?: boolean }
+    ): Promise<boolean> => {
+      const ok = await scheduleBatch(
+        targets,
+        scheduledAtIso,
+        minCostMarkupRate,
+        options
+      );
+      if (ok) {
+        setIsResultOpen(true);
+      }
+      return ok;
+    },
+    [scheduleBatch]
   );
 
   const openResult = useCallback(() => {
     setIsResultOpen(true);
   }, []);
 
+  const openRunHistory = useCallback(async () => {
+    const list = await refreshRuns(isTestMode);
+    const targetKey = activeRunKey || list[0]?.run_key;
+    if (targetKey) {
+      await selectRun(targetKey);
+      setIsResultOpen(true);
+    }
+  }, [refreshRuns, isTestMode, activeRunKey, selectRun]);
+
+  // 完了後に閉じたら上部の進捗帯を閉じ、「AI生成履歴・予約」からいつでも再閲覧可能にする
   const closeResult = useCallback(() => {
     setIsResultOpen(false);
-    // 終了状態ならバッチ状態を破棄する。処理中は破棄せず裏で継続させる
-    // （保存済み batch_id から再読込でも復帰できる）。
     if (isTerminalBatchStatus(batchStatus)) {
       dismiss();
     }
@@ -127,7 +166,15 @@ export function AiBatchProvider({ children }: { children: ReactNode }) {
       items,
       batchStatus,
       batchId,
+      scheduleId,
+      activeRunKey,
+      scheduledAt,
+      createdAt,
+      canCancelSchedule,
+      dispatchErrorMessage,
+      runs,
       isSubmitting,
+      isCancelling,
       isPolling,
       isBusy,
       isTrackingUnknown,
@@ -137,10 +184,15 @@ export function AiBatchProvider({ children }: { children: ReactNode }) {
       errorMessage,
       pollError,
       isResultOpen,
+      clearError,
+      clearNoticeMessage,
       start,
+      schedule,
+      cancelSchedule,
+      selectRun,
+      openRunHistory,
       retryFailed,
       dismiss,
-      clearNoticeMessage,
       openResult,
       closeResult,
     }),
@@ -148,7 +200,15 @@ export function AiBatchProvider({ children }: { children: ReactNode }) {
       items,
       batchStatus,
       batchId,
+      scheduleId,
+      activeRunKey,
+      scheduledAt,
+      createdAt,
+      canCancelSchedule,
+      dispatchErrorMessage,
+      runs,
       isSubmitting,
+      isCancelling,
       isPolling,
       isBusy,
       isTrackingUnknown,
@@ -158,10 +218,15 @@ export function AiBatchProvider({ children }: { children: ReactNode }) {
       errorMessage,
       pollError,
       isResultOpen,
+      clearError,
+      clearNoticeMessage,
       start,
+      schedule,
+      cancelSchedule,
+      selectRun,
+      openRunHistory,
       retryFailed,
       dismiss,
-      clearNoticeMessage,
       openResult,
       closeResult,
     ]
@@ -170,15 +235,26 @@ export function AiBatchProvider({ children }: { children: ReactNode }) {
   return (
     <AiBatchContext.Provider value={value}>
       {children}
-      {/* 進捗・結果モーダルは共通化し、どの管理画面からでも開けるようにする */}
+      {/* モーダルはアプリ直下に1つだけ置き、どの画面・どのデバイスからでも即時実行と予約の両方を開ける */}
       <AiBatchResultModal
         open={isResultOpen}
         items={items}
         batchStatus={batchStatus}
+        batchId={batchId}
+        scheduleId={scheduleId}
+        activeRunKey={activeRunKey}
+        scheduledAt={scheduledAt}
+        createdAt={createdAt}
+        canCancelSchedule={canCancelSchedule}
+        dispatchErrorMessage={dispatchErrorMessage}
+        runs={runs}
         isPolling={isPolling}
         isSubmitting={isSubmitting}
+        isCancelling={isCancelling}
         pollError={pollError}
         errorMessage={errorMessage}
+        onSelectRun={selectRun}
+        onCancelSchedule={cancelSchedule}
         onRetryFailed={retryFailed}
         onClose={closeResult}
       />
@@ -215,7 +291,7 @@ export function AiBatchProvider({ children }: { children: ReactNode }) {
 export function useAiBatch(): AiBatchContextValue {
   const ctx = useContext(AiBatchContext);
   if (!ctx) {
-    throw new Error("useAiBatch は AiBatchProvider の中で使用してください。");
+    throw new Error("useAiBatch must be used within AiBatchProvider");
   }
   return ctx;
 }

@@ -600,7 +600,9 @@ export default function ProductsPage() {
   // 最新の商品名・説明・価格等を表示するため、一覧を再取得する。
   const prevAiTerminal = useRef(false);
   useEffect(() => {
-    const terminal = isTerminalBatchStatus(aiBatch.batchStatus);
+    const terminal =
+      isTerminalBatchStatus(aiBatch.batchStatus) &&
+      aiBatch.batchStatus !== "cancelled";
     if (terminal && !prevAiTerminal.current) {
       setReloadKey((k) => k + 1);
     }
@@ -727,23 +729,51 @@ export default function ProductsPage() {
     return counts;
   }, [bulkResults]);
 
-  // 一括AI生成を「一括受付＋進捗取得」で開始する（ブラウザからの直列生成ループは使わない）
-  const startAiBatch = async () => {
-    if (aiBatch.isBusy || selectedProducts.length === 0) return;
+  // 結果モーダル・確認ダイアログの表示名は「一覧に表示している商品名」に合わせる。
+  // スニーカーで product_name が空でも translated_title を表示している場合は、
+  // その同じ名前を使う（product_id のみが受付・予約固定に使われ、表示名は補助情報）。
+  const aiConfirmTargets = useMemo(
+    () =>
+      selectedProducts.map((product) => ({
+        product_id: product.product_id,
+        product_name: getProductDisplayTitle(product),
+      })),
+    [selectedProducts]
+  );
+
+  // 一括AI生成を「一括受付＋進捗取得」で開始する（重複商品で409拒否された場合は確認画面を閉じずに重複IDを表示）
+  const startAiBatch = async (forceRegenerate = false) => {
+    if (aiBatch.isSubmitting || aiConfirmTargets.length === 0) return;
     const percent = parseMinMarkupPercent(minMarkupPercent);
-    // 未入力・範囲外は確認ダイアログ側にエラーを表示しているので、送信しない。
     if (percent === null) return;
-    setIsAiConfirmOpen(false);
-    // スタッフが入力した％を小数（0より大きく5.0以下）へ変換して送信する。
     const rate = Math.round((percent / 100) * 10000) / 10000;
-    // 結果モーダルの表示名は「一覧に表示している商品名」に合わせる。
-    // スニーカーで product_name が空でも translated_title を表示している場合は、
-    // その同じ名前を使う（product_id のみが受付に使われ、表示名は補助情報）。
-    const targets = selectedProducts.map((product) => ({
-      product_id: product.product_id,
-      product_name: getProductDisplayTitle(product),
-    }));
-    await aiBatch.start(targets, rate, { testOnly: isTestMode });
+    const ok = await aiBatch.start(aiConfirmTargets, rate, {
+      testOnly: isTestMode,
+      forceRegenerate,
+    });
+    if (ok) {
+      setIsAiConfirmOpen(false);
+      clearSelection();
+    }
+  };
+
+  // 日時指定予約：選択した product_id を固定してサーバーに保存し、指定時刻以降に Cloud Run が開始する
+  const startScheduledAiBatch = async (
+    scheduledAtIso: string,
+    forceRegenerate = false
+  ) => {
+    if (aiBatch.isSubmitting || aiConfirmTargets.length === 0) return;
+    const percent = parseMinMarkupPercent(minMarkupPercent);
+    if (percent === null) return;
+    const rate = Math.round((percent / 100) * 10000) / 10000;
+    const ok = await aiBatch.schedule(aiConfirmTargets, scheduledAtIso, rate, {
+      testOnly: isTestMode,
+      forceRegenerate,
+    });
+    if (ok) {
+      setIsAiConfirmOpen(false);
+      clearSelection();
+    }
   };
 
   const hasSelection = selectedIds.size > 0;
@@ -809,28 +839,40 @@ export default function ProductsPage() {
       {/* 一覧系の画面は横幅を最大限使うフルワイド（最大幅の制限なし・左右24〜32px）。
           詳細／登録／画像取込のフォーム系は従来の幅のまま変更しない。 */}
       <main className="page-fade w-full px-4 py-4 md:px-6 md:py-5 lg:px-8">
-        {/* 一覧切り替えタブ（左揃え・高さ36px前後。上下余白は詰める） */}
-        <div className="mb-4 inline-flex items-center gap-1 rounded-lg bg-background-100 p-1">
-          <Link
-            to="/products"
-            className={`flex h-8 items-center whitespace-nowrap rounded-md px-4 text-[13px] font-medium transition-colors ${
-              !isArchived
-                ? "bg-white text-foreground-950"
-                : "text-foreground-600 hover:text-foreground-900"
-            }`}
-          >
-            商品一覧
-          </Link>
-          <Link
-            to="/products?record_status=archived"
-            className={`flex h-8 items-center whitespace-nowrap rounded-md px-4 text-[13px] font-medium transition-colors ${
-              isArchived
-                ? "bg-white text-foreground-950"
-                : "text-foreground-600 hover:text-foreground-900"
-            }`}
-          >
-            アーカイブ済み
-          </Link>
+        {/* 一覧切り替えタブ（左揃え・高さ36px前後。上下余白は詰める）＋サーバー保存のAI予約・結果確認 */}
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <div className="inline-flex items-center gap-1 rounded-lg bg-background-100 p-1">
+            <Link
+              to="/products"
+              className={`flex h-8 items-center whitespace-nowrap rounded-md px-4 text-[13px] font-medium transition-colors ${
+                !isArchived
+                  ? "bg-white text-foreground-950"
+                  : "text-foreground-600 hover:text-foreground-900"
+              }`}
+            >
+              商品一覧
+            </Link>
+            <Link
+              to="/products?record_status=archived"
+              className={`flex h-8 items-center whitespace-nowrap rounded-md px-4 text-[13px] font-medium transition-colors ${
+                isArchived
+                  ? "bg-white text-foreground-950"
+                  : "text-foreground-600 hover:text-foreground-900"
+              }`}
+            >
+              アーカイブ済み
+            </Link>
+          </div>
+          {aiBatch.runs.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void aiBatch.openRunHistory()}
+              className="inline-flex h-8 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border border-background-300 bg-white px-3 text-[12px] font-medium text-foreground-700 transition-colors hover:bg-background-100"
+            >
+              <i className="ri-history-line flex h-3.5 w-3.5 items-center justify-center text-[14px] text-accent-600"></i>
+              AI生成履歴・予約（{aiBatch.runs.length}）
+            </button>
+          )}
         </div>
 
         {locationDeleteMessage && (
@@ -955,7 +997,10 @@ export default function ProductsPage() {
                   )}
                   <button
                     type="button"
-                    onClick={() => setIsAiConfirmOpen(true)}
+                    onClick={() => {
+                      aiBatch.clearError();
+                      setIsAiConfirmOpen(true);
+                    }}
                     disabled={isAiStartDisabled}
                     className="inline-flex h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border border-background-300 bg-white px-3 text-[13px] font-medium text-foreground-700 transition-colors hover:bg-background-100 disabled:cursor-not-allowed disabled:opacity-50"
                   >
@@ -1309,16 +1354,18 @@ export default function ProductsPage() {
         </div>
       )}
 
-      {/* 一括AI生成 確認ダイアログ（一括公開とは別操作） */}
+      {/* 一括AI生成 確認ダイアログ（今すぐ実行／日時を指定して予約） */}
       <AiBatchConfirmModal
         open={isAiConfirmOpen}
         count={selectedIds.size}
-        isBusy={aiBatch.isBusy}
+        targets={aiConfirmTargets}
+        isBusy={aiBatch.isSubmitting || aiBatch.isBusy}
         errorMessage={aiBatch.errorMessage}
         minMarkupPercent={minMarkupPercent}
         onMinMarkupPercentChange={setMinMarkupPercent}
         onCancel={() => setIsAiConfirmOpen(false)}
-        onConfirm={startAiBatch}
+        onConfirmImmediate={startAiBatch}
+        onConfirmSchedule={startScheduledAiBatch}
         testOnly={isTestMode}
       />
 

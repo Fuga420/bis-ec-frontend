@@ -596,12 +596,17 @@ export async function createProductAiDraftBatchViaApi(
  * Phase 2 Unit 5: AI一括生成バッチの進捗・商品別結果取得（Cloud Run -> Supabase キュー参照）。
  */
 export async function getProductAiDraftBatchViaApi(
-  batchId: string
+  batchId: string,
+  testOnly?: boolean
 ): Promise<Response> {
   const id = batchId.trim();
   const authHeaders = await getBackendWriteAuthHeaders();
+  const query =
+    typeof testOnly === "boolean"
+      ? `?test_only=${testOnly ? "true" : "false"}`
+      : "";
   return fetch(
-    `${PRODUCTS_READ_API_URL}/ai-batches/${encodeURIComponent(id)}`,
+    `${PRODUCTS_READ_API_URL}/ai-batches/${encodeURIComponent(id)}${query}`,
     {
       method: "GET",
       headers: {
@@ -632,4 +637,119 @@ export async function retryProductAiDraftBatchViaApi(
     }
   );
 }
+
+/**
+ * 日時指定によるAI一括生成の予約作成（Cloud Run -> Supabase `ai_batch_schedules` 保存）。
+ * 選択した商品IDを固定して保存し、指定時刻にサーバー側ディスパッチャーが確定原価を取得して起動する。
+ */
+export async function createAiBatchScheduleViaApi(
+  payload: Record<string, unknown>
+): Promise<Response> {
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(`${PRODUCTS_READ_API_URL}/ai-batch-schedules`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      ...authHeaders,
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * 即時実行・日時指定予約の両方を含む統合AI一括生成ジョブ一覧・進捗サマリー取得（マルチデバイス対応）。
+ */
+export async function listAiBatchRunsViaApi(params: {
+  testOnly?: boolean;
+  limit?: number;
+}): Promise<Response> {
+  const authHeaders = await getBackendWriteAuthHeaders();
+  const search = new URLSearchParams();
+  search.set("test_only", params.testOnly === true ? "true" : "false");
+  if (params.limit != null) {
+    search.set("limit", String(params.limit));
+  }
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/ai-batch-runs?${search.toString()}`,
+    {
+      method: "GET",
+      headers: {
+        ...authHeaders,
+      },
+    }
+  );
+}
+
+/**
+ * 現在の動作モード（通常 / テスト）のAI一括生成予約一覧・結果サマリー取得。
+ */
+export async function listAiBatchSchedulesViaApi(params: {
+  testOnly?: boolean;
+  limit?: number;
+}): Promise<Response> {
+  const authHeaders = await getBackendWriteAuthHeaders();
+  const search = new URLSearchParams();
+  search.set("test_only", params.testOnly === true ? "true" : "false");
+  if (params.limit != null) {
+    search.set("limit", String(params.limit));
+  }
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/ai-batch-schedules?${search.toString()}`,
+    {
+      method: "GET",
+      headers: {
+        ...authHeaders,
+      },
+    }
+  );
+}
+
+/**
+ * AI一括生成予約の詳細・進捗・除外理由・商品別結果取得。
+ */
+export async function getAiBatchScheduleViaApi(
+  scheduleId: string,
+  testOnly?: boolean
+): Promise<Response> {
+  const id = scheduleId.trim();
+  const authHeaders = await getBackendWriteAuthHeaders();
+  const query =
+    typeof testOnly === "boolean"
+      ? `?test_only=${testOnly ? "true" : "false"}`
+      : "";
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/ai-batch-schedules/${encodeURIComponent(id)}${query}`,
+    {
+      method: "GET",
+      headers: {
+        ...authHeaders,
+      },
+    }
+  );
+}
+
+/**
+ * 開始前のAI一括生成予約の取り消し。
+ */
+export async function cancelAiBatchScheduleViaApi(
+  scheduleId: string,
+  testOnly?: boolean
+): Promise<Response> {
+  const id = scheduleId.trim();
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/ai-batch-schedules/${encodeURIComponent(id)}/cancel`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...authHeaders,
+      },
+      body: JSON.stringify(
+        typeof testOnly === "boolean" ? { test_only: testOnly } : {}
+      ),
+    }
+  );
+}
+
 

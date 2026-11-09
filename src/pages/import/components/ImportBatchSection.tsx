@@ -54,17 +54,40 @@ export default function ImportBatchSection({
 
   const requestGroup = (group: AiBatchTarget[]) => {
     if (batch.isBusy) return;
+    batch.clearError();
     setPendingTargets(group);
     setIsConfirmOpen(true);
   };
 
-  const confirmStart = async () => {
-    if (batch.isBusy || pendingTargets.length === 0) return;
+  const confirmStart = async (forceRegenerate = false) => {
+    if (batch.isSubmitting || pendingTargets.length === 0) return;
     const percent = parseMinMarkupPercent(minMarkupPercent);
     if (percent === null) return;
-    setIsConfirmOpen(false);
     const rate = Math.round((percent / 100) * 10000) / 10000;
-    await batch.start(pendingTargets, rate, { testOnly });
+    const ok = await batch.start(pendingTargets, rate, {
+      testOnly,
+      forceRegenerate,
+    });
+    if (ok) {
+      setIsConfirmOpen(false);
+    }
+  };
+
+  const confirmSchedule = async (
+    scheduledAtIso: string,
+    forceRegenerate = false
+  ) => {
+    if (batch.isSubmitting || pendingTargets.length === 0) return;
+    const percent = parseMinMarkupPercent(minMarkupPercent);
+    if (percent === null) return;
+    const rate = Math.round((percent / 100) * 10000) / 10000;
+    const ok = await batch.schedule(pendingTargets, scheduledAtIso, rate, {
+      testOnly,
+      forceRegenerate,
+    });
+    if (ok) {
+      setIsConfirmOpen(false);
+    }
   };
 
   return (
@@ -201,12 +224,14 @@ export default function ImportBatchSection({
       <AiBatchConfirmModal
         open={isConfirmOpen}
         count={pendingTargets.length}
-        isBusy={batch.isBusy}
+        targets={pendingTargets}
+        isBusy={batch.isSubmitting || batch.isBusy}
         errorMessage={batch.errorMessage}
         minMarkupPercent={minMarkupPercent}
         onMinMarkupPercentChange={setMinMarkupPercent}
         onCancel={() => setIsConfirmOpen(false)}
-        onConfirm={confirmStart}
+        onConfirmImmediate={confirmStart}
+        onConfirmSchedule={confirmSchedule}
         testOnly={testOnly}
       />
 
