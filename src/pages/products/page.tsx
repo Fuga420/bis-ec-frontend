@@ -32,6 +32,7 @@ import { useProductList } from "./hooks/useProductList";
 import { useProductLedgerMatch } from "./hooks/useProductLedgerMatch";
 import { useProductInlineEdit } from "./hooks/useProductInlineEdit";
 import { isTerminalBatchStatus } from "./lib/aiBatch";
+import { getProductDisplayTitle } from "./lib/productTitle";
 import {
   PRODUCT_SORT_OPTIONS,
   type ProductSortKey,
@@ -159,7 +160,6 @@ function sneakerSizeBlockReason(product: AdminProduct): string | null {
 
 function isBaseEligible(product: AdminProduct): boolean {
   return (
-    !product.is_test &&
     product.record_status === "active" &&
     product.inventory_status === "in_stock" &&
     (product.planned_sale_price ?? 0) > 0
@@ -167,7 +167,6 @@ function isBaseEligible(product: AdminProduct): boolean {
 }
 
 function baseSkipReason(product: AdminProduct): string {
-  if (product.is_test) return "テスト商品のため公開対象外";
   if (product.record_status !== "active") return "アーカイブ済みの商品のため対象外";
   if (product.inventory_status !== "in_stock") {
     return "在庫状態が「在庫あり」ではないため対象外";
@@ -489,7 +488,6 @@ export default function ProductsPage() {
     filter.category !== "" ||
     filter.publishStatus !== "" ||
     filter.inventoryStatus !== "";
-  const isTestView = Boolean(filter.showTest);
 
   // 条件変更時は1ページ目に戻し、選択済みの商品を解除する。
   // ページ切替時は選択を維持し、50件超（複数ページ横断）の一括AI生成にも対応できるようにする。
@@ -516,7 +514,6 @@ export default function ProductsPage() {
       category: "",
       publishStatus: "",
       inventoryStatus: "",
-      showTest: Boolean(filter.showTest),
     });
     setPage(1);
     setSelectedMap(new Map());
@@ -719,7 +716,14 @@ export default function ProductsPage() {
     setIsAiConfirmOpen(false);
     // スタッフが入力した％を小数（0より大きく5.0以下）へ変換して送信する。
     const rate = Math.round((percent / 100) * 10000) / 10000;
-    await aiBatch.start(selectedProducts, rate, { testOnly: isTestView });
+    // 結果モーダルの表示名は「一覧に表示している商品名」に合わせる。
+    // スニーカーで product_name が空でも translated_title を表示している場合は、
+    // その同じ名前を使う（product_id のみが受付に使われ、表示名は補助情報）。
+    const targets = selectedProducts.map((product) => ({
+      product_id: product.product_id,
+      product_name: getProductDisplayTitle(product),
+    }));
+    await aiBatch.start(targets, rate);
   };
 
   const hasSelection = selectedIds.size > 0;
@@ -752,23 +756,23 @@ export default function ProductsPage() {
           <div className="flex flex-wrap items-center gap-2">
             <Link
               to="/import"
-              className="flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg border border-background-300 bg-white px-3.5 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100"
+              className="flex h-10 cursor-pointer items-center gap-2 whitespace-nowrap rounded-[10px] border border-background-300 bg-white px-4 text-[13px] font-medium text-foreground-700 transition-colors hover:bg-background-100"
             >
-              <i className="ri-image-add-line w-4 h-4 flex items-center justify-center"></i>
+              <i className="ri-image-add-line w-4 h-4 flex items-center justify-center text-[15px]"></i>
               画像だけ取込
             </Link>
             <Link
               to="/documents"
-              className="flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg border border-background-300 bg-white px-3.5 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100"
+              className="flex h-10 cursor-pointer items-center gap-2 whitespace-nowrap rounded-[10px] border border-background-300 bg-white px-4 text-[13px] font-medium text-foreground-700 transition-colors hover:bg-background-100"
             >
-              <i className="ri-file-list-3-line w-4 h-4 flex items-center justify-center"></i>
+              <i className="ri-file-list-3-line w-4 h-4 flex items-center justify-center text-[15px]"></i>
               書類管理
             </Link>
             <Link
               to="/register"
-              className="flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-3.5 text-sm font-semibold text-white transition-colors hover:bg-primary-600"
+              className="product-cta flex h-10 cursor-pointer items-center gap-2 whitespace-nowrap rounded-[10px] px-[18px] text-sm font-semibold transition-colors"
             >
-              <i className="ri-add-line w-4 h-4 flex items-center justify-center"></i>
+              <i className="ri-add-line w-4 h-4 flex items-center justify-center text-[16px]"></i>
               新しい商品を登録
             </Link>
           </div>
@@ -779,8 +783,7 @@ export default function ProductsPage() {
           詳細／登録／画像取込のフォーム系は従来の幅のまま変更しない。 */}
       <main className="page-fade w-full px-4 py-4 md:px-6 md:py-5 lg:px-8">
         {/* 一覧切り替えタブ（左揃え・高さ36px前後。上下余白は詰める） */}
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <div className="inline-flex items-center gap-1 rounded-lg bg-background-100 p-1">
+        <div className="mb-4 inline-flex items-center gap-1 rounded-lg bg-background-100 p-1">
           <Link
             to="/products"
             className={`flex h-8 items-center whitespace-nowrap rounded-md px-4 text-[13px] font-medium transition-colors ${
@@ -801,26 +804,6 @@ export default function ProductsPage() {
           >
             アーカイブ済み
           </Link>
-        </div>
-
-          <label
-            className={`inline-flex h-8 cursor-pointer select-none items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-xs transition-colors ${
-              isTestView
-                ? "border border-background-300 bg-white font-medium text-foreground-800"
-                : "text-foreground-500 hover:bg-background-100 hover:text-foreground-800"
-            } ${isAnyBulkBusy ? "cursor-not-allowed opacity-50" : ""}`}
-          >
-            <input
-              type="checkbox"
-              checked={isTestView}
-              disabled={isAnyBulkBusy}
-              onChange={(e) =>
-                handleFilterChange({ ...filter, showTest: e.target.checked })
-              }
-              className="h-3.5 w-3.5 cursor-pointer accent-primary-500 disabled:cursor-not-allowed"
-            />
-            <span>テスト商品を表示</span>
-          </label>
         </div>
 
         {locationDeleteMessage && (
@@ -932,7 +915,6 @@ export default function ProductsPage() {
                   )}
                 </div>
                 <div className="ml-auto flex flex-wrap items-center gap-2">
-                  {!isTestView && (
                   <button
                     type="button"
                     onClick={() => setIsBulkConfirmOpen(true)}
@@ -942,7 +924,6 @@ export default function ProductsPage() {
                     <i className="ri-upload-2-line text-base w-4 h-4 flex items-center justify-center"></i>
                     {selectedIds.size > 1 ? "一括公開" : "公開"}
                   </button>
-                  )}
                   <button
                     type="button"
                     onClick={() => setIsAiConfirmOpen(true)}
@@ -980,21 +961,7 @@ export default function ProductsPage() {
 
             {products.length === 0 ? (
               !hasFilter && count === 0 ? (
-                isTestView ? (
-                  <div className="ui-card flex flex-col items-center justify-center rounded-lg px-6 py-14 text-center">
-                    <i className="ri-flask-line mb-2 flex h-8 w-8 items-center justify-center text-xl text-foreground-400"></i>
-                    <p className="text-sm font-medium text-foreground-700">
-                      {isArchived
-                        ? "アーカイブ済みのテスト商品はありません"
-                        : "テスト商品はまだ登録されていません"}
-                    </p>
-                    <p className="mt-1 text-xs text-foreground-500">
-                      通常一覧へ戻る場合は右上の「テスト商品を表示」をオフにしてください。
-                    </p>
-                  </div>
-                ) : (
-                  <ProductEmptyState isArchived={isArchived} />
-                )
+                <ProductEmptyState isArchived={isArchived} />
               ) : (
                 <ProductFilterEmptyState onClear={handleClearFilter} />
               )
@@ -1309,7 +1276,6 @@ export default function ProductsPage() {
         onMinMarkupPercentChange={setMinMarkupPercent}
         onCancel={() => setIsAiConfirmOpen(false)}
         onConfirm={startAiBatch}
-        testOnly={isTestView}
       />
 
       {/* 一括アーカイブ 確認ダイアログ */}

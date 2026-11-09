@@ -148,7 +148,6 @@ export default function RegisterPage() {
   // 登録した瞬間に公開・Square本番公開が走らないよう、利用者が明示的にオンにした時だけ有効にする。
   const [publishOn, setPublishOn] = useState(false);
   const [squareOn, setSquareOn] = useState(false);
-  const [isTest, setIsTest] = useState(false);
 
   // 登録〜Square連携の進捗表示
   const [progressSteps, setProgressSteps] = useState<string[]>([]);
@@ -159,7 +158,7 @@ export default function RegisterPage() {
   const [checkoutCopyFeedback, setCheckoutCopyFeedback] = useState("");
 
   // AI商品情報生成（① 単品生成）
-  const ai = useAiProductGeneration(images, aiSelectedImageIndexes, isTest);
+  const ai = useAiProductGeneration(images, aiSelectedImageIndexes);
   const [isApplyConfirmOpen, setIsApplyConfirmOpen] = useState(false);
   // AI候補の確定保存（confirm_ai_product_draft）
   const [isConfirming, setIsConfirming] = useState(false);
@@ -558,7 +557,6 @@ export default function RegisterPage() {
   };
 
   const handlePublishChange = (checked: boolean) => {
-    if (isTest) return;
     setPublishOn(checked);
     // 公開OFF時はSquare連携を強制OFF（下書きを本番へ出さない）
     if (!checked) setSquareOn(false);
@@ -657,7 +655,6 @@ export default function RegisterPage() {
           const draftSignature = JSON.stringify({
             payload,
             aiSelectedImageIndexes,
-            isTest,
             imagesMeta: images.map((f) => `${f.name}:${f.size}:${f.lastModified}`),
           });
           const requestId =
@@ -671,7 +668,6 @@ export default function RegisterPage() {
           response = await createDraftProductViaApi({
             ...payload,
             client_request_id: requestId,
-            ...(isTest ? { is_test: true } : {}),
             images: imagesPayload,
             ...(aiSelectedImageIndexes.length > 0
               ? { selected_image_indexes: aiSelectedImageIndexes }
@@ -789,7 +785,6 @@ export default function RegisterPage() {
     setSubmitError("");
     setProductId("");
     setPublishOn(false);
-    setIsTest(false);
     setSquareOn(false);
     setProgressSteps([]);
     setProgressIndex(-1);
@@ -1161,38 +1156,7 @@ export default function RegisterPage() {
         </FormSection>
 
         {/* 登録ボタン。取込画面のサマリーと同じ「実行ボタンも白カードの中」の型に揃える。 */}
-        {/* 登録ボタン。取込画面のサマリーと同じ「実行ボタンも白カードの中」の型に揃える。 */}
         <div className="ui-card rounded-lg p-4 md:p-5">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-background-200 pb-3">
-            <label
-              className={`inline-flex cursor-pointer select-none items-center gap-2 text-xs text-foreground-600 ${
-                isSubmitting || Boolean(ai.draftProductId)
-                  ? "cursor-not-allowed opacity-50"
-                  : "hover:text-foreground-900"
-              }`}
-            >
-              <input
-                type="checkbox"
-                checked={isTest}
-                disabled={isSubmitting || Boolean(ai.draftProductId)}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  setIsTest(checked);
-                  if (checked) {
-                    setPublishOn(false);
-                    setSquareOn(false);
-                  }
-                }}
-                className="h-3.5 w-3.5 cursor-pointer accent-primary-500 disabled:cursor-not-allowed"
-              />
-              <span>テスト商品として登録（通常一覧から除外・下書き専用）</span>
-            </label>
-            {Boolean(ai.draftProductId) && (
-              <span className="text-[11px] text-foreground-400">
-                仮下書き作成済みのため変更できません
-              </span>
-            )}
-          </div>
           <button
             type="button"
             onClick={handleSubmit}

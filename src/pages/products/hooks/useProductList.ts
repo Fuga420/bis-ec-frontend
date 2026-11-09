@@ -22,7 +22,6 @@ export const EMPTY_PRODUCT_FILTER: ProductFilterValue = {
   category: "",
   publishStatus: "",
   inventoryStatus: "",
-  showTest: false,
 };
 
 interface UseProductListParams {
@@ -117,7 +116,6 @@ export function useProductList({
         params.set("publish_status", filter.publishStatus || "all");
         params.set("inventory_status", filter.inventoryStatus || "all");
         params.set("record_status", isArchived ? "archived" : "active");
-        params.set("is_test", filter.showTest ? "true" : "false");
         params.set("sort", sortKey);
 
         const response = await fetchProductsReadApi(params.toString());
@@ -152,13 +150,6 @@ export function useProductList({
         }
 
         // 旧 v2 が新パラメータを解釈できず空を返した場合は、旧形式で取り直して表示する。
-        if (filter.showTest) {
-          setProducts([]);
-          setCount(0);
-          setTotalPages(0);
-          setLoadState("success");
-          return;
-        }
         // （v3 が配信されたらこの分岐には入らない）
         const legacyUrl = isArchived
           ? `${GOOGLE_SHEETS_WEBHOOK_URL}?mode=admin&record_status=archived`
@@ -199,7 +190,6 @@ export function useProductList({
     filter.category,
     filter.publishStatus,
     filter.inventoryStatus,
-    Boolean(filter.showTest),
     sortKey,
     page,
     isArchived,

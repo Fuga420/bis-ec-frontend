@@ -13,7 +13,6 @@ interface AiBatchConfirmModalProps {
   minMarkupPercent: string;
   onMinMarkupPercentChange: (value: string) => void;
   onCancel: () => void;
-  testOnly?: boolean;
   onConfirm: () => void;
 }
 
@@ -40,7 +39,6 @@ export default function AiBatchConfirmModal({
   onMinMarkupPercentChange,
   onCancel,
   onConfirm,
-  testOnly = false,
 }: AiBatchConfirmModalProps) {
   if (!open) return null;
 
@@ -64,12 +62,6 @@ export default function AiBatchConfirmModal({
         <p className="mt-3 text-sm text-foreground-700">
           選択中の <span className="font-bold">{count}</span> 件を一括で受付します。サーバー側が順次生成し、画面を閉じても処理は継続します。
         </p>
-        {testOnly && (
-          <p className="mt-2.5 flex items-start gap-1.5 rounded-md border border-background-200 bg-background-100 px-3 py-2 text-xs leading-relaxed text-foreground-700">
-            <i className="ri-flask-line mt-0.5 w-4 h-4 flex items-center justify-center text-foreground-600"></i>
-            テスト商品専用モード：対象IDがすべてテスト商品（is_test=true）であることをサーバー側で確認し、実商品が1件でも混じる場合は受付前に拒否します。
-          </p>
-        )}
 
         {/* 概算原価への最低上乗せ率: 下限価格 = 概算原価 × (1 + 上乗せ率)。 */}
         <div className="mt-4 rounded-lg border border-background-200 bg-background-50 px-3 py-3">

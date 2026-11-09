@@ -45,8 +45,7 @@ export interface AiBatchContextValue {
    */
   start: (
     targets: AiBatchTarget[],
-    minCostMarkupRate?: number,
-    options?: { testOnly?: boolean }
+    minCostMarkupRate?: number
   ) => Promise<void>;
   /** 失敗分のみ再実行 */
   retryFailed: () => Promise<void>;
@@ -81,15 +80,11 @@ export function AiBatchProvider({ children }: { children: ReactNode }) {
   // 受付開始時だけ結果モーダルを自動表示する。
   // 画面移動や再読込で復帰したときは自動で開かない（上部の進捗表示から開ける）。
   const start = useCallback(
-    async (
-      targets: AiBatchTarget[],
-      minCostMarkupRate?: number,
-      options?: { testOnly?: boolean }
-    ) => {
+    async (targets: AiBatchTarget[], minCostMarkupRate?: number) => {
       // items は start 内で同期的に用意されるため、先に開いても空表示にはならない。
       // 受付に失敗した場合もモーダル内で理由を確認できる。
       setIsResultOpen(true);
-      await startBatch(targets, minCostMarkupRate, options);
+      await startBatch(targets, minCostMarkupRate);
     },
     [startBatch]
   );

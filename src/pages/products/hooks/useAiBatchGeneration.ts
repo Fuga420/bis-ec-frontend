@@ -43,7 +43,6 @@ interface StoredBatchState {
   // 受付時に送った概算原価への最低上乗せ率（0より大きく5.0以下の小数）。
   // 再送時も同じ条件で送り直す。
   minCostMarkupRate: number | null;
-  testOnly?: boolean;
 }
 
 function readStoredState(): StoredBatchState | null {
@@ -75,7 +74,6 @@ function readStoredState(): StoredBatchState | null {
         Number.isFinite(parsed.minCostMarkupRate)
           ? parsed.minCostMarkupRate
           : null,
-      testOnly: parsed.testOnly === true,
     };
   } catch {
     return null;
@@ -196,8 +194,7 @@ export function useAiBatchGeneration() {
       requestId: string,
       productIds: string[],
       nameMap: Record<string, string>,
-      minCostMarkupRate: number = DEFAULT_MIN_COST_MARKUP_RATE,
-      testOnly = false
+      minCostMarkupRate: number
     ) => {
       setErrorMessage("");
       setPollError("");
@@ -207,7 +204,6 @@ export function useAiBatchGeneration() {
           requestId,
           productIds,
           minCostMarkupRate,
-          testOnly,
         });
         const newBatchId = String(res.batch_id);
         // batch_id 取得後は、そのIDで進捗へ復帰できるよう保存を更新する。
@@ -219,7 +215,6 @@ export function useAiBatchGeneration() {
             product_name: nameMap[id] ?? "",
           })),
           minCostMarkupRate,
-          testOnly,
         });
         setBatchStatus(res.status ?? "queued");
         setBatchId(newBatchId);
@@ -227,12 +222,7 @@ export function useAiBatchGeneration() {
       } catch (err) {
         // 応答未受信：保存済み request_id をそのまま残し、
         // 再読込で同じ要求として再送できるようにする（成功扱いにしない）。
-        if (classifyRetryFailure(err) === "definitive_rejection") {
-          clearStoredState();
-          setBatchStatus("failed");
-        } else {
-          setBatchStatus(null);
-        }
+        setBatchStatus(null);
         setErrorMessage(
           err instanceof Error && err.message
             ? err.message
@@ -271,8 +261,7 @@ export function useAiBatchGeneration() {
         stored.requestId,
         productIds,
         map,
-        stored.minCostMarkupRate ?? DEFAULT_MIN_COST_MARKUP_RATE,
-        stored.testOnly === true
+        stored.minCostMarkupRate ?? DEFAULT_MIN_COST_MARKUP_RATE
       );
     }
   }, [submitRequest]);
@@ -342,8 +331,7 @@ export function useAiBatchGeneration() {
   const start = useCallback(
     async (
       targets: AiBatchTarget[],
-      minCostMarkupRate: number = DEFAULT_MIN_COST_MARKUP_RATE,
-      options?: { testOnly?: boolean }
+      minCostMarkupRate: number = DEFAULT_MIN_COST_MARKUP_RATE
     ) => {
       if (isSubmitting || targets.length === 0) return;
       if (targets.length > MAX_AI_BATCH_SIZE) {
@@ -368,7 +356,6 @@ export function useAiBatchGeneration() {
       const reuseRequestId =
         stored != null &&
         stored.batchId == null &&
-        Boolean(stored.testOnly) === Boolean(options?.testOnly) &&
         sameProductIds(
           stored.items.map((i) => i.product_id),
           productIds
@@ -387,7 +374,6 @@ export function useAiBatchGeneration() {
           product_name: map[id] ?? "",
         })),
         minCostMarkupRate,
-        testOnly: options?.testOnly === true,
       });
 
       // 受付直後の初期表示（まだ契約の応答がないため pending で埋める）
@@ -403,13 +389,7 @@ export function useAiBatchGeneration() {
       );
       setBatchStatus("queued");
 
-      await submitRequest(
-        requestId,
-        productIds,
-        map,
-        minCostMarkupRate,
-        options?.testOnly === true
-      );
+      await submitRequest(requestId, productIds, map, minCostMarkupRate);
     },
     [isSubmitting, submitRequest]
   );

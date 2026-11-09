@@ -156,20 +156,16 @@ export default function ProductRow({
     onNavigateToDetail?.();
   };
 
-  // 編集中は行全体をインライン編集UIに差し替える（チェック・詳細リンクは表示しない）。
-  if (isEditing) {
-    return (
-      <ProductInlineEditor
-        product={product}
-        draft={draft}
-        saving={saving}
-        error={editError}
-        onChange={onDraftChange}
-        onSave={() => onSave(product)}
-        onCancel={onCancelEdit}
-      />
-    );
-  }
+  // 編集中は行を残したまま、その直下にインライン編集フォームを展開する。
+  // 行タップで詳細へ移動すると未保存の入力が失われるため、編集中だけ行リンクを無効化する
+  // （それ以外の行クリック挙動・詳細遷移は従来どおり）。
+  const handleRowLinkClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (isEditing) {
+      event.preventDefault();
+      return;
+    }
+    handleNavigateToDetail(event);
+  };
 
   const statusBadge = (
     <span className={`${badgeBase} ${statusClass}`}>{statusLabel}</span>
@@ -182,9 +178,6 @@ export default function ProductRow({
   const recordStatusLabel =
     RECORD_STATUS_LABELS[product.record_status] ??
     (product.record_status || "—");
-  const testBadge = product.is_test ? (
-    <span className={`${badgeBase} st-muted`}>テスト商品</span>
-  ) : null;
   const recordStatusBadge =
     product.record_status === "archived" ? (
       <span className={`${badgeBase} st-muted`}>{recordStatusLabel}</span>
@@ -244,7 +237,7 @@ export default function ProductRow({
   // 商品名の下に置く補助情報バッジ（サイズ・Square連携・アーカイブ状態）。
   // すべて無い場合はバッジ行そのものを描画しない。
   const hasBadges = Boolean(
-    testBadge || sneakerSizeBadge || squareBadge || recordStatusBadge
+    sneakerSizeBadge || squareBadge || recordStatusBadge
   );
 
   // 一覧行の編集（インライン編集）を開くボタン。
@@ -255,6 +248,7 @@ export default function ProductRow({
       onClick={() => onStartEdit(product)}
       disabled={selectDisabled}
       aria-label={`${name} を編集`}
+      aria-expanded={isEditing}
       title="商品を編集"
       className={actionIconBase}
     >
@@ -278,13 +272,18 @@ export default function ProductRow({
   );
 
   return (
-    <div className="border-b border-background-200 last:border-b-0">
+    <div
+      className={`border-b border-background-200 last:border-b-0 ${
+        isEditing ? "bg-white" : ""
+      }`}
+    >
       {/* 行の4状態（通常・ホバー・選択・選択ホバー）は .product-row 側で管理する。
-          選択中でも背景はニュートラルなグレーにとどめ、選択の判別はチェックボックスの深緑で行う。 */}
+          選択中でも背景はニュートラルなグレーにとどめ、選択の判別はチェックボックスの深緑で行う。
+          編集中の行は薄いニュートラル（#F8FAFC 相当）で強調し、編集フォームとつなげる。 */}
       <div
         className={`product-row group/row flex items-stretch ${
           isSelected ? "is-selected" : ""
-        }`}
+        } ${isEditing ? "is-editing" : ""}`}
       >
         {/* チェックボックスは Link の外に配置し、操作時に詳細へ遷移しないようにする */}
         <div className="flex w-11 shrink-0 items-center justify-center">
@@ -304,7 +303,7 @@ export default function ProductRow({
 
         <Link
           to={`/products/${product.product_id}`}
-          onClick={handleNavigateToDetail}
+          onClick={handleRowLinkClick}
           className="block min-w-0 flex-1 cursor-pointer rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-400"
         >
           {/* デスクトップ（一覧表）
@@ -360,7 +359,6 @@ export default function ProductRow({
                   <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
                     {/* 並び順は全画面で統一: 公開 → 在庫 → 照合 → 連携 → 補助情報 */}
                     {squareBadge}
-                    {testBadge}
                     {recordStatusBadge}
                     {sneakerSizeBadge}
                   </span>
@@ -430,7 +428,6 @@ export default function ProductRow({
                   loading={ledgerMatchLoading}
                 />
                 {squareBadge}
-                {testBadge}
                 {recordStatusBadge}
                 {sneakerSizeBadge}
               </div>
@@ -452,31 +449,51 @@ export default function ProductRow({
 
         {/* 右端の操作列（Link の外に置き、行クリック＝詳細／編集ボタン＝編集で競合させない）。
             デスクトップは「詳細」「別タブ」「編集」の3スロット固定幅（128px）。編集不可の行も空スロットを確保し、
-            アイコンの左右位置が行ごとにずれないようにする。 */}
+            アイコンの左右位置が行ごとにずれないようにする。
+            編集中は詳細系の操作を出さず、フォームへ視線を集める（列幅は維持して桁を揃える）。 */}
         <div
           className={`hidden ${ACTION_COLUMN_WIDTH} shrink-0 items-center justify-end gap-1 pr-2 lg:flex`}
         >
-          <Link
-            to={`/products/${product.product_id}`}
-            onClick={handleNavigateToDetail}
-            aria-label={`${name} の商品詳細を表示`}
-            title="商品詳細を表示"
-            className={actionIconBase}
-          >
-            <i className="ri-arrow-right-line"></i>
-          </Link>
-          {openInNewTabButton}
-          {editButton ?? <span className="h-9 w-9 shrink-0" aria-hidden="true"></span>}
+          {!isEditing && (
+            <>
+              <Link
+                to={`/products/${product.product_id}`}
+                onClick={handleNavigateToDetail}
+                aria-label={`${name} の商品詳細を表示`}
+                title="商品詳細を表示"
+                className={actionIconBase}
+              >
+                <i className="ri-arrow-right-line"></i>
+              </Link>
+              {openInNewTabButton}
+              {editButton ?? (
+                <span className="h-9 w-9 shrink-0" aria-hidden="true"></span>
+              )}
+            </>
+          )}
         </div>
 
         {/* モバイルの操作列（行タップ＝詳細のため、編集のみ表示する）。 */}
         <div className="flex w-12 shrink-0 items-center justify-center lg:hidden">
-          {editButton}
+          {!isEditing && editButton}
         </div>
       </div>
 
+      {/* 編集フォームは編集対象の行の直下に展開し、行とフォームをヘアライン1本でつなぐ */}
+      {isEditing && (
+        <ProductInlineEditor
+          product={product}
+          draft={draft}
+          saving={saving}
+          error={editError}
+          onChange={onDraftChange}
+          onSave={() => onSave(product)}
+          onCancel={onCancelEdit}
+        />
+      )}
+
       {/* 保存失敗などの理由は、編集を閉じた後も該当行に表示し続ける */}
-      {editError && (
+      {!isEditing && editError && (
         <p className="flex items-start gap-1.5 bg-red-50 px-4 py-2 text-xs font-medium text-red-700">
           <i className="ri-error-warning-line mt-0.5 w-3.5 h-3.5 flex items-center justify-center shrink-0"></i>
           <span className="min-w-0 flex-1">{editError}</span>

@@ -153,6 +153,28 @@ body {
   --primary-950: 0.19 0.05 150;
 }
 
+/* 商品一覧ヘッダーの主要CTA（新しい商品を登録）専用の色。
+   鮮やかな緑ではなく、低彩度で深いグリーンにして「上質さ」で目立たせる。
+   products-theme 配下の .product-cta だけに効くため、他の画面・他のボタンには影響しない。 */
+.products-theme .product-cta {
+  background-color: #1f6b45;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.products-theme .product-cta:hover {
+  background-color: #1b5e3c;
+}
+
+.products-theme .product-cta:active {
+  background-color: #174f34;
+}
+
+.products-theme .product-cta:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(31, 107, 69, 0.18);
+}
+
 /* 商品登録フォーム：バリデーションエラー時の入力枠線。
    FormField（.register-field-error）内に限定して適用する。 */
 .register-field-error input,
@@ -317,6 +339,16 @@ button:disabled.bg-accent-500:hover {
 /* 選択中にホバーしても選択背景を消さず、一段だけ沈める */
 .product-row.is-selected:hover {
   background-color: oklch(var(--background-200) / 0.75);
+}
+
+/* インライン編集中の行。
+   選択チェックの状態（is-selected）とは別の意味なので、
+   選択より淡いニュートラル（#F8FAFC 相当）に留め、下に続く編集フォームと面をそろえる。 */
+.product-row.is-editing,
+.product-row.is-editing:hover,
+.product-row.is-editing.is-selected,
+.product-row.is-editing.is-selected:hover {
+  background-color: oklch(var(--background-50) / 0.7);
 }
 
 /* 商品一覧のチェックボックス。

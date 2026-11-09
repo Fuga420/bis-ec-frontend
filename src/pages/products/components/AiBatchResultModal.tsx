@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
 import type {
   AiBatchDisplayItem,
   AiBatchDisplayStatus,
@@ -7,10 +7,9 @@ import type {
 import {
   AI_BATCH_STATUS_LABELS,
   deriveAiBatchDisplayStatus,
-  explainAiBatchError,
-  isCostMarkupFloorBasis,
   isTerminalBatchStatus,
 } from "@/pages/products/lib/aiBatch";
+import AiBatchResultRow from "@/pages/products/components/AiBatchResultRow";
 
 interface AiBatchResultModalProps {
   open: boolean;
@@ -24,35 +23,62 @@ interface AiBatchResultModalProps {
   onClose: () => void;
 }
 
-const DISPLAY_STATUS_LABELS: Record<AiBatchDisplayStatus, string> = {
-  pending: "待機中",
-  retry_wait: "再試行待ち",
-  processing: "処理中",
-  // 契約上 completed は「生成および下書き自動反映完了」を意味する
-  success: "反映完了",
-  failed: "失敗",
-  // GAS 契約外応答（completed と error_code の同時返却）
-  contract_violation: "要確認（契約外）",
-};
+type ResultFilter = "all" | "success" | "failed" | "review";
 
-const DISPLAY_STATUS_STYLES: Record<AiBatchDisplayStatus, string> = {
-  pending: "tone-neutral",
-  retry_wait: "tone-warning",
-  processing: "tone-neutral",
-  success: "tone-success",
-  failed: "tone-warning",
-  contract_violation: "tone-warning",
-};
+function createEmptyCounts(): Record<AiBatchDisplayStatus, number> {
+  return {
+    pending: 0,
+    retry_wait: 0,
+    processing: 0,
+    success: 0,
+    failed: 0,
+    contract_violation: 0,
+  };
+}
 
-const DISPLAY_STATUS_ORDER: AiBatchDisplayStatus[] = [
-  "pending",
-  "retry_wait",
-  "processing",
-  "success",
-  "failed",
-  "contract_violation",
-];
+// 件数の集計表示。大きな色付きカードは使わず、見出しラベル＋数字の横並びだけにする。
+function StatBlock({
+  label,
+  value,
+  total,
+  valueClassName,
+}: {
+  label: string;
+  value: number;
+  total?: number;
+  valueClassName: string;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[11px] leading-none text-foreground-500">{label}</p>
+      <p className="mt-2 flex items-baseline gap-1">
+        <span
+          className={`admin-numeric text-[20px] font-semibold leading-none tracking-tight ${valueClassName}`}
+        >
+          {value}
+        </span>
+        {total != null && (
+          <span className="admin-numeric text-[11px] leading-none text-foreground-400">
+            / {total}
+          </span>
+        )}
+      </p>
+    </div>
+  );
+}
 
+/**
+ * AI一括生成の「進捗・結果」モーダル。
+ *
+ * 商品一覧・商品詳細と同じ業務管理UI（白 / ニュートラルグレー / 深緑）に揃える。
+ *  - ヘッダー：見出し＋全体状態＋閉じる
+ *  - 集計：反映完了・失敗・処理中を優先し、受付待ち・再試行待ち・要確認は補助行
+ *  - リスト：商品ごとの状態を文字と控えめな色で示す（ここだけスクロール）
+ *  - フッター：失敗のみ再実行／閉じる（既存の実行条件は変更しない）
+ *
+ * 件数・割合はすべて API 応答（items[] の状態）の集計のみで、架空の進捗は使わない。
+ * ジョブ状態・進捗取得・結果反映・再実行のロジックには触れない。
+ */
 export default function AiBatchResultModal({
   open,
   items,
@@ -64,189 +90,277 @@ export default function AiBatchResultModal({
   onRetryFailed,
   onClose,
 }: AiBatchResultModalProps) {
-  if (!open || !items) return null;
+  const [filter, setFilter] = useState<ResultFilter>("all");
 
-  const counts: Record<AiBatchDisplayStatus, number> = {
-    pending: 0,
-    retry_wait: 0,
-    processing: 0,
-    success: 0,
-    failed: 0,
-    contract_violation: 0,
-  };
-  items.forEach((item) => {
-    counts[deriveAiBatchDisplayStatus(item)] += 1;
-  });
+  // 開き直したときは絞り込みを解除する（前回の絞り込みで商品が見えない誤解を防ぐ）
+  useEffect(() => {
+    if (!open) setFilter("all");
+  }, [open]);
+
+  const counts = useMemo(() => {
+    const result = createEmptyCounts();
+    (items ?? []).forEach((item) => {
+      result[deriveAiBatchDisplayStatus(item)] += 1;
+    });
+    return result;
+  }, [items]);
+
+  const total = items?.length ?? 0;
+  // 確定済み＝この時点で結果が確定している件数（成功・失敗・要確認）
+  const confirmed =
+    counts.success + counts.failed + counts.contract_violation;
+  const confirmedRatio = total > 0 ? Math.min(1, confirmed / total) : 0;
 
   const terminal = isTerminalBatchStatus(batchStatus);
+  const hasFailure = counts.failed > 0;
+  const needsReview = counts.contract_violation > 0;
   const warning = pollError || errorMessage;
 
+  const visibleItems = useMemo(() => {
+    const source = items ?? [];
+    if (!terminal || filter === "all") return source;
+    return source.filter((item) => {
+      const status = deriveAiBatchDisplayStatus(item);
+      if (filter === "success") return status === "success";
+      if (filter === "failed") return status === "failed";
+      return status === "contract_violation";
+    });
+  }, [items, filter, terminal]);
+
+  if (!open || !items) return null;
+
+  const subtitle = terminal
+    ? "下書きへの反映結果を確認できます"
+    : "完了した商品から順に下書きへ反映されます";
+
+  const overallChipClass = terminal
+    ? hasFailure || needsReview
+      ? "tone-warning"
+      : "tone-success"
+    : "tone-ai";
+
+  const filterChips: { key: ResultFilter; label: string; count: number }[] = [
+    { key: "all", label: "すべて", count: total },
+    { key: "success", label: "反映完了", count: counts.success },
+    { key: "failed", label: "失敗", count: counts.failed },
+  ];
+  if (needsReview) {
+    filterChips.push({
+      key: "review",
+      label: "要確認",
+      count: counts.contract_violation,
+    });
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-background-200 bg-white p-5">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <i className="ri-sparkling-line w-5 h-5 flex items-center justify-center text-accent-600"></i>
-            <h3 className="text-base font-bold text-foreground-950">
-              一括AI生成の進捗・結果
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="AI一括生成の進捗・結果"
+    >
+      <div className="products-theme admin-font flex max-h-[calc(100vh-48px)] w-full max-w-[800px] flex-col overflow-hidden rounded-[10px] border border-[#E5E7EB] bg-white">
+        {/* ヘッダー（固定） */}
+        <div className="flex items-start justify-between gap-4 border-b border-[#E5E7EB] px-5 py-3">
+          <div className="min-w-0">
+            <h3 className="admin-title text-[17px] font-semibold leading-tight text-foreground-950">
+              AI一括生成の進捗・結果
             </h3>
+            <p className="mt-1 truncate text-[11px] leading-none text-foreground-500">
+              {subtitle}
+            </p>
           </div>
-          {batchStatus && (
-            <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-background-100 px-3 py-1 text-xs font-medium text-foreground-700">
-              {isPolling && (
-                <i className="ri-loader-4-line animate-spin w-3 h-3 flex items-center justify-center"></i>
-              )}
-              {AI_BATCH_STATUS_LABELS[batchStatus]}
-            </span>
-          )}
-        </div>
-
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-          {DISPLAY_STATUS_ORDER.map((status) => (
-            <div
-              key={status}
-              className="rounded-md bg-background-100 px-3 py-2 text-center"
-            >
-              <p className="text-[11px] text-foreground-500">
-                {DISPLAY_STATUS_LABELS[status]}
-              </p>
-              <p className="text-sm font-bold text-foreground-950">
-                {counts[status]} 件
-              </p>
-            </div>
-          ))}
-        </div>
-
-        <p className="mt-3 flex items-start gap-1.5 rounded-md bg-background-100 px-3 py-2 text-xs leading-relaxed text-foreground-600">
-          <i className="ri-information-line mt-0.5 w-4 h-4 flex items-center justify-center"></i>
-          完了した商品は、サーバー側で同じ商品の下書き（商品情報・英文翻訳など）へ自動反映されます（公開・Square登録は行いません）。商品ごとの確定操作は不要で、修正は商品詳細の「商品情報を編集」から行えます。
-        </p>
-
-        {warning && (
-          <p className="mt-3 flex items-start gap-1.5 rounded-md bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
-            <i className="ri-error-warning-line mt-0.5 w-4 h-4 flex items-center justify-center"></i>
-            {warning}
-          </p>
-        )}
-
-        {counts.contract_violation > 0 && (
-          <p className="mt-3 flex items-start gap-1.5 rounded-md bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
-            <i className="ri-error-warning-line mt-0.5 w-4 h-4 flex items-center justify-center"></i>
-            <span>
-              {counts.contract_violation}件が「status:completed と error_code
-              の同時返却（GAS の契約外応答）」です。成功表示はしていませんが、
-              GAS 側では completed 扱いのため「失敗のみ再実行」の対象に含まれない
-              可能性があります。各商品を開いて下書きの内容を確認してください。
-            </span>
-          </p>
-        )}
-
-        <div className="mt-4 min-h-0 flex-1 overflow-y-auto rounded-md border border-background-200">
-          {items.map((item) => {
-            const display = deriveAiBatchDisplayStatus(item);
-            return (
-              <div
-                key={item.product_id}
-                className="flex items-start gap-3 border-b border-background-200 px-3 py-2.5 last:border-b-0"
-              >
-                <span
-                  className={`mt-0.5 inline-flex h-[22px] shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 text-[11px] font-medium leading-none ${
-                    DISPLAY_STATUS_STYLES[display]
-                  }`}
-                >
-                  {display === "processing" && (
-                    <i className="ri-loader-4-line animate-spin w-3 h-3 flex items-center justify-center"></i>
-                  )}
-                  {DISPLAY_STATUS_LABELS[display]}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-foreground-950">
-                    {item.product_name}
-                  </p>
-                  <p className="truncate font-mono text-xs text-foreground-500">
-                    {item.product_id}
-                  </p>
-                  {(item.proposed_price != null || item.price_note) && (
-                    <div className="mt-1 rounded-md bg-background-100 px-2 py-1.5">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {item.proposed_price != null && (
-                          <p className="text-xs font-semibold tabular-nums text-foreground-900">
-                            提案価格 ¥{item.proposed_price.toLocaleString("ja-JP")}
-                          </p>
-                        )}
-                        {isCostMarkupFloorBasis(item.price_basis) && (
-                          <span className="inline-flex h-[18px] items-center whitespace-nowrap rounded-md bg-secondary-100 px-1.5 text-[10px] font-medium text-secondary-900">
-                            原価上乗せ下限
-                          </span>
-                        )}
-                      </div>
-                      {item.price_note && (
-                        <p className="mt-0.5 break-words text-[11px] leading-relaxed text-foreground-600">
-                          {item.price_note}
-                        </p>
-                      )}
-                      <p className="mt-0.5 break-words text-[10px] leading-relaxed text-foreground-500">
-                        原価は確定済みの仕入明細からの概算です（税額未確認の明細を含む場合があります）。
-                      </p>
-                    </div>
-                  )}
-                  {display === "failed" &&
-                    (item.error_code || item.error_message) && (
-                      <p className="mt-0.5 break-words text-xs text-red-700">
-                        {explainAiBatchError(item.error_code, item.error_message)}
-                        {item.error_code ? `（コード: ${item.error_code}）` : ""}
-                      </p>
-                    )}
-                  {display === "contract_violation" && (
-                    <>
-                      {(item.error_code || item.error_message) && (
-                        <p className="mt-0.5 break-words text-xs text-amber-900">
-                          {explainAiBatchError(
-                            item.error_code,
-                            item.error_message
-                          )}
-                          {item.error_code ? `（コード: ${item.error_code}）` : ""}
-                        </p>
-                      )}
-                      <p className="mt-1 break-words text-[11px] leading-relaxed text-amber-800">
-                        GAS側は completed のため「失敗のみ再実行」に含まれない場合があります。商品詳細で下書きを確認してください。
-                      </p>
-                    </>
-                  )}
-                  {display === "success" && (
-                    <Link
-                      to={`/products/${item.product_id}`}
-                      className="mt-1 inline-flex cursor-pointer items-center gap-1 text-xs font-medium text-primary-600 hover:underline"
-                    >
-                      <i className="ri-article-line w-3.5 h-3.5 flex items-center justify-center"></i>
-                      商品を開く
-                    </Link>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="mt-5 flex justify-end gap-2">
-          {terminal && counts.failed > 0 && (
+          <div className="flex shrink-0 items-center gap-1">
+            {batchStatus && (
+              <span className={`st-badge ${overallChipClass}`}>
+                {AI_BATCH_STATUS_LABELS[batchStatus]}
+              </span>
+            )}
             <button
               type="button"
-              onClick={onRetryFailed}
-              disabled={isSubmitting}
-              className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border border-accent-300 bg-accent-50 px-4 py-2 text-sm font-bold text-accent-900 transition-colors hover:bg-accent-100 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={onClose}
+              aria-label="閉じる"
+              title="閉じる"
+              className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-[16px] leading-none text-foreground-400 transition-colors hover:bg-background-100 hover:text-foreground-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-200"
             >
-              <i className="ri-refresh-line w-4 h-4 flex items-center justify-center"></i>
-              失敗のみ再実行
+              <i className="ri-close-line"></i>
             </button>
+          </div>
+        </div>
+
+        {/* 集計（固定） */}
+        <div className="border-b border-[#E5E7EB] px-5 py-3">
+          <div className="flex flex-wrap items-end gap-x-8 gap-y-2">
+            <StatBlock
+              label="反映完了"
+              value={counts.success}
+              total={total}
+              valueClassName="text-primary-700"
+            />
+            <StatBlock
+              label="失敗"
+              value={counts.failed}
+              valueClassName={
+                hasFailure ? "text-amber-700" : "text-foreground-700"
+              }
+            />
+            <StatBlock
+              label="処理中"
+              value={counts.processing}
+              valueClassName="text-foreground-700"
+            />
+            <p className="ml-auto pb-0.5 text-right text-[10px] leading-none text-foreground-400">
+              {isPolling ? "自動更新中" : terminal ? "取得完了" : ""}
+            </p>
+          </div>
+
+          {/* 進捗バー：確定済み件数と総件数が取れるときのみ表示（推定値は使わない） */}
+          {!terminal && (
+            <div className="mt-3 h-[3px] overflow-hidden rounded-full bg-background-200">
+              {total > 0 ? (
+                <div
+                  className="h-full rounded-full bg-primary-500 transition-[width] duration-300 ease-out"
+                  style={{ width: `${confirmedRatio * 100}%` }}
+                ></div>
+              ) : (
+                <div className="indeterminate-progress-bar h-full w-1/3 rounded-full bg-primary-400"></div>
+              )}
+            </div>
           )}
-          <button
-            type="button"
-            onClick={onClose}
-            className="cursor-pointer whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-bold text-background-50 transition-colors hover:bg-primary-600"
-          >
-            閉じる
-          </button>
+
+          {/* 補助的な内訳：受付待ち・再試行待ち・要確認も常に確認できるようにする */}
+          <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] leading-none text-foreground-500">
+            <span className="admin-numeric">
+              受付待ち {counts.pending}
+            </span>
+            <span className="admin-numeric">再試行待ち {counts.retry_wait}</span>
+            <span
+              className={`admin-numeric ${
+                needsReview ? "font-medium text-amber-700" : ""
+              }`}
+            >
+              要確認 {counts.contract_violation}
+            </span>
+            {!terminal && (
+              <span className="admin-numeric text-foreground-400">
+                確定済み {confirmed} / {total}
+              </span>
+            )}
+          </p>
+
+          {/* 補助テキスト（背景色・枠線は付けない） */}
+          {terminal ? (
+            hasFailure || needsReview ? (
+              <p className="mt-2 text-[11px] leading-relaxed text-foreground-500">
+                失敗した商品は内容を確認し、必要であれば「失敗のみ再実行」で再生成できます。
+              </p>
+            ) : (
+              <p className="mt-2 flex items-center gap-1 text-[11px] leading-relaxed text-foreground-500">
+                <i className="ri-check-line flex h-3 w-3 items-center justify-center text-[12px] text-primary-600"></i>
+                失敗した商品はありません。完了した商品から下書きの内容を確認できます。
+              </p>
+            )
+          ) : null}
+
+          {warning && (
+            <p className="mt-2 text-[11px] leading-relaxed text-amber-800">
+              {warning}
+              {pollError && !terminal
+                ? "（表示は最後に取得できた状態です。処理は継続しています）"
+                : ""}
+            </p>
+          )}
+
+          {needsReview && (
+            <p className="mt-2 text-[11px] leading-relaxed text-amber-800">
+              {counts.contract_violation}
+              件は「status:completed と error_code
+              の同時返却（GAS の契約外応答）」です。成功表示はしていませんが、GAS
+              側では completed 扱いのため「失敗のみ再実行」の対象に含まれない
+              可能性があります。各商品を開いて下書きの内容を確認してください。
+            </p>
+          )}
+
+          <p className="mt-2 text-[10px] leading-relaxed text-foreground-400">
+            完了した商品は、サーバー側で同じ商品の下書き（商品情報・英文翻訳など）へ自動反映されます（公開・Square登録は行いません）。修正は商品詳細の「商品情報を編集」から行えます。提案価格は確定済みの仕入明細からの概算原価をもとにしています（税額未確認の明細を含む場合があります）。
+          </p>
+
+          {/* 完了後は既存の結果を状態で絞り込める */}
+          {terminal && (
+            <div className="mt-2.5 flex flex-wrap items-center gap-1">
+              {filterChips.map((chip) => {
+                const active = filter === chip.key;
+                return (
+                  <button
+                    key={chip.key}
+                    type="button"
+                    onClick={() => setFilter(chip.key)}
+                    aria-pressed={active}
+                    className={`h-7 cursor-pointer whitespace-nowrap rounded-md border px-2.5 text-[11px] transition-colors ${
+                      active
+                        ? "border-primary-300 bg-primary-50 font-medium text-primary-700"
+                        : "border-background-200 bg-white text-foreground-600 hover:bg-background-50"
+                    }`}
+                  >
+                    {chip.label}
+                    <span className="admin-numeric ml-1 text-foreground-400">
+                      {chip.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* 結果リスト（この領域だけスクロールする） */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {visibleItems.length === 0 ? (
+            <p className="px-5 py-10 text-center text-[12px] text-foreground-500">
+              該当する商品はありません。
+            </p>
+          ) : (
+            visibleItems.map((item) => (
+              <AiBatchResultRow key={item.product_id} item={item} />
+            ))
+          )}
+        </div>
+
+        {/* フッター（固定） */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#E5E7EB] px-5 py-3">
+          <p className="min-w-0 flex-1 text-[10px] leading-relaxed text-foreground-400">
+            {terminal
+              ? "閉じると、この結果表示は破棄されます。"
+              : "この画面を閉じても、受付済みの処理はサーバー側で継続します。閉じている間の進捗は、画面上部の進捗表示から確認できます。"}
+          </p>
+          <div className="flex shrink-0 items-center gap-2">
+            {terminal && counts.failed > 0 && (
+              <button
+                type="button"
+                onClick={onRetryFailed}
+                disabled={isSubmitting}
+                className="inline-flex h-8 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border border-background-300 bg-white px-3 text-[12px] font-semibold text-foreground-700 transition-colors hover:bg-background-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isSubmitting ? (
+                  <i className="ri-loader-4-line flex h-3.5 w-3.5 animate-spin items-center justify-center text-[13px]"></i>
+                ) : (
+                  <i className="ri-refresh-line flex h-3.5 w-3.5 items-center justify-center text-[13px]"></i>
+                )}
+                失敗のみ再実行
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className={`h-8 cursor-pointer whitespace-nowrap rounded-md px-3.5 text-[12px] font-semibold transition-colors ${
+                terminal && counts.failed === 0
+                  ? "bg-primary-500 text-white hover:bg-primary-600"
+                  : "border border-background-300 bg-white text-foreground-700 hover:bg-background-100"
+              }`}
+            >
+              閉じる
+            </button>
+          </div>
         </div>
       </div>
     </div>

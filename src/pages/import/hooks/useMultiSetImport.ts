@@ -46,7 +46,6 @@ export interface ImportSet {
   attemptFiles: File[] | null;
   // attemptId で送信したときの仕入台帳の商品番号。再送時に同じ値を送るために保持する。
   attemptAuctionNumber: string | null;
-  attemptIsTest: boolean | null;
   // 「受付済みか不明」のセットで保持する、送信済みの完全なペイロード。
   // 同一ID・同一内容での再送に使う（再送前に編集させない）。
   retainedPayload: ImportImagePayload[] | null;
@@ -81,7 +80,6 @@ function emptySet(): ImportSet {
     attemptId: null,
     attemptFiles: null,
     attemptAuctionNumber: null,
-    attemptIsTest: null,
     retainedPayload: null,
     newIdAckFiles: null,
     productId: null,
@@ -105,15 +103,6 @@ export function useMultiSetImport() {
   const setsRef = useRef<ImportSet[]>(sets);
   const [isImporting, setIsImporting] = useState(false);
   const importingRef = useRef(false);
-  const [isTest, setIsTestState] = useState(false);
-  const isTestRef = useRef(false);
-
-  const setIsTest = useCallback((next: boolean) => {
-    if (importingRef.current) return;
-    if (setsRef.current.some((s) => s.status !== "idle")) return;
-    isTestRef.current = next;
-    setIsTestState(next);
-  }, []);
 
   // ref を正本にしつつ state へ反映する（逐次処理中も常に最新を参照できるようにする）。
   const commit = useCallback((next: ImportSet[]) => {
@@ -232,7 +221,6 @@ export function useMultiSetImport() {
   const isAttemptContentSame = useCallback(
     (s: ImportSet) =>
       sameFiles(s.attemptFiles, s.images) &&
-      (s.attemptIsTest ?? false) === isTestRef.current &&
       sameAuctionNumber(s.attemptAuctionNumber, s.auctionItemNumber),
     []
   );
@@ -284,8 +272,7 @@ export function useMultiSetImport() {
       payload: ImportImagePayload[],
       files: File[],
       aiSelected: File[],
-      auctionItemNumber: string,
-      sendIsTest: boolean
+      auctionItemNumber: string
     ) => {
       updateSet(id, (s) => ({
         ...s,
@@ -298,7 +285,6 @@ export function useMultiSetImport() {
 
       const result = await importProductByImages({
         importAttemptId: attemptId,
-        isTest: sendIsTest,
         images: payload,
         auctionItemNumber,
       });
@@ -316,7 +302,7 @@ export function useMultiSetImport() {
 
         // 商品IDが確定し、仕入台帳の商品番号が入力されているときだけ自動照合を試みる。
         // 照合の結果は商品登録の成否とは別に保持する（失敗しても登録は成功のまま）。
-        if (!sendIsTest && result.productId && auctionItemNumber !== "") {
+        if (result.productId && auctionItemNumber !== "") {
           const autoLink = await autoLinkProductByItemNumber({
             productId: result.productId,
             auctionItemNumber,
@@ -383,8 +369,7 @@ export function useMultiSetImport() {
           set.retainedPayload as ImportImagePayload[],
           set.images,
           set.aiSelectedFiles,
-          set.attemptAuctionNumber ?? "",
-          set.attemptIsTest === true
+          set.attemptAuctionNumber ?? ""
         );
         return;
       }
@@ -438,14 +423,12 @@ export function useMultiSetImport() {
       // 内容が前回と完全に同一のときだけ attempt_id を再利用する。
       // 1文字でも変わっていれば新しい attempt_id を発行する（契約の指紋照合に合わせる）。
       const auctionItemNumber = set.auctionItemNumber.trim();
-      const currentIsTest = isTestRef.current;
       const reuse = set.attemptId !== null && isAttemptContentSame(set);
       const attemptId =
         reuse && set.attemptId ? set.attemptId : createImportAttemptId();
       updateSet(id, (s) => ({
         ...s,
         attemptFiles: s.images,
-        attemptIsTest: currentIsTest,
         attemptAuctionNumber: auctionItemNumber,
         newIdAckFiles: null,
       }));
@@ -456,8 +439,7 @@ export function useMultiSetImport() {
         payload,
         set.images,
         set.aiSelectedFiles,
-        auctionItemNumber,
-        currentIsTest
+        auctionItemNumber
       );
     },
     [isAttemptContentSame, sendSet, updateSet]
@@ -502,8 +484,6 @@ export function useMultiSetImport() {
 
   const resetAll = useCallback(() => {
     if (importingRef.current) return;
-    isTestRef.current = false;
-    setIsTestState(false);
     commit([emptySet()]);
   }, [commit]);
 
@@ -525,8 +505,6 @@ export function useMultiSetImport() {
     sets,
     isImporting,
     hasImportableSet,
-    isTest,
-    setIsTest,
     summary,
     addSet,
     removeSet,

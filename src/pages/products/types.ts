@@ -98,7 +98,6 @@ export interface AdminProductDetail {
   pokemon_card?: PokemonCardData;
   // 添付済みの書類（未添付は null/未設定）。
   document?: ProductDocument | null;
-  is_test?: boolean;
 }
 
 export interface AdminProductDetailResponse {
@@ -169,7 +168,6 @@ export interface SquareProductCreateResponse {
   square_variation_id?: string;
   sku?: string;
   product_name?: string;
-  is_test?: boolean;
   price_amount?: number;
   currency?: string;
   error?: string;
@@ -182,7 +180,6 @@ export interface SquareProductUpdateResponse {
   square_item_id?: string;
   square_variation_id?: string;
   product_name?: string;
-  is_test?: boolean;
   variation_name?: string;
   sku?: string;
   price_amount?: number;
@@ -242,7 +239,6 @@ export interface SquareProductionProductResponse {
   square_item_id?: string;
   square_variation_id?: string;
   product_name?: string;
-  is_test?: boolean;
   price_amount?: number;
   currency?: string;
   error?: string;
@@ -257,7 +253,6 @@ export interface SquarePaymentLinkResponse {
   square_variation_id?: string;
   square_payment_link_id?: string;
   square_checkout_url?: string;
-  is_test?: boolean;
   error?: string;
 }
 
@@ -296,7 +291,6 @@ export interface AdminProduct {
   square_variation_id?: string;
   square_payment_link_id?: string;
   square_checkout_url?: string;
-  is_test?: boolean;
 }
 
 export interface AdminProductListResponse {
@@ -315,7 +309,6 @@ export interface AdminProductListResponse {
   inventory_status?: string;
   search?: string;
   sort?: string;
-  is_test?: boolean | "all";
 }
 
 // 一括公開の結果ステータス（5種類を独立して扱う）
@@ -341,7 +334,6 @@ export interface BulkPublishResultItem {
 export interface AiBatchTarget {
   product_id: string;
   product_name?: string;
-  is_test?: boolean;
 }
 
 // バッチ全体ステータス（契約 3.1）
@@ -378,8 +370,6 @@ export interface AiBatchCreateResponse {
   status?: AiBatchOverallStatus;
   total_count?: number;
   is_reused?: boolean;
-  test_only?: boolean;
-  non_test_product_ids?: string[];
   created_at?: string;
   error?: string;
   error_code?: string;
@@ -434,8 +424,6 @@ export interface AiBatchRetryResponse {
   completed_count?: number;
   failed_count?: number;
   is_reused?: boolean;
-  test_only?: boolean;
-  non_test_product_ids?: string[];
   updated_at?: string;
   error?: string;
   error_code?: string;
