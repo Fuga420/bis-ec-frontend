@@ -84,6 +84,7 @@ export async function importProductByImages(params: {
   // 仕入台帳の商品番号（任意）。文字列のまま送り、先頭ゼロ・ハイフンを保持する。
   // 未入力のときは空文字を送る（数値変換はしない）。
   auctionItemNumber?: string;
+  isTest?: boolean;
 }): Promise<ImportSendResult> {
   let response: Response;
   try {
@@ -95,6 +96,7 @@ export async function importProductByImages(params: {
       // 型は文字列のまま送る（"00842-01" のような値を保持するため数値にしない）。
       auction_item_number: (params.auctionItemNumber ?? "").trim(),
       publish_status: "draft",
+      ...(params.isTest ? { is_test: true } : {}),
     });
   } catch {
     // 通信断・タイムアウト等：サーバーが受付済みか判断できない。

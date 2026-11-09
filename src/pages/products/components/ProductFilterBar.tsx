@@ -9,6 +9,7 @@ export interface ProductFilterValue {
   category: string;
   publishStatus: string;
   inventoryStatus: string;
+  showTest?: boolean;
 }
 
 interface ProductFilterBarProps {
@@ -149,6 +150,7 @@ export default function ProductFilterBar({
               category: "",
               publishStatus: "",
               inventoryStatus: "",
+              showTest: Boolean(value.showTest),
             })
           }
           disabled={disabled}

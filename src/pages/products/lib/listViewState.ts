@@ -56,7 +56,7 @@ function normalizeState(raw: unknown): ProductListViewState | null {
   };
   if (typeof source.archived !== "boolean") return null;
 
-  const filter = source.filter ?? {};
+  const filter: Partial<ProductFilterValue> = source.filter ?? {};
   const sortKey =
     typeof source.sortKey === "string" &&
     (SORT_KEYS as string[]).includes(source.sortKey)
@@ -77,6 +77,7 @@ function normalizeState(raw: unknown): ProductListViewState | null {
       category: toText(filter.category),
       publishStatus: toText(filter.publishStatus),
       inventoryStatus: toText(filter.inventoryStatus),
+      showTest: filter.showTest === true,
     },
     sortKey,
     page,

@@ -519,7 +519,10 @@ export async function invokeAiRelay<T>(
  * 商品名・カテゴリ・状態・価格などの必須項目は送らない（架空の値で埋めない）。
  * 認証ヘッダーは送らない。
  */
-export async function createTempProductDraft(images: File[]): Promise<string> {
+export async function createTempProductDraft(
+  images: File[],
+  options?: { isTest?: boolean }
+): Promise<string> {
   const imagesPayload = await Promise.all(
     images.map(async (file) => ({
       file_name: file.name,
@@ -535,6 +538,7 @@ export async function createTempProductDraft(images: File[]): Promise<string> {
 
   const response = await createDraftProductViaApi({
     publish_status: "draft",
+    ...(options?.isTest ? { is_test: true } : {}),
     client_request_id: clientRequestId,
     images: imagesPayload,
   });
