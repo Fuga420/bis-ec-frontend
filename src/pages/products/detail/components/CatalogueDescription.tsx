@@ -1,12 +1,15 @@
 import { useMemo, useState } from "react";
 import type { AdminProductDetail } from "@/pages/products/types";
 import { parseTaggedDescription } from "../lib/descriptionExtract";
-import { hasText } from "../lib/format";
+import { hasText, normalizeDisplayNewlines } from "../lib/format";
 import CatalogueSectionHeading from "./CatalogueSectionHeading";
 import { isConditionReportLabel } from "./CatalogueConditionReport";
 
 interface CatalogueDescriptionProps {
   product: AdminProductDetail;
+  // 親セクション側で見出し（言語切り替え付き）を表示する場合は false にする。
+  // 見出しの有無だけで、本文の内容・折りたたみの挙動は変わらない。
+  showHeading?: boolean;
 }
 
 /**
@@ -37,11 +40,15 @@ function splitAttentionLines(text: string): { body: string; notes: string[] } {
  */
 export default function CatalogueDescription({
   product,
+  showHeading = true,
 }: CatalogueDescriptionProps) {
   const [expanded, setExpanded] = useState(false);
 
   const parsed = useMemo(
-    () => parseTaggedDescription(product.description ?? ""),
+    () =>
+      parseTaggedDescription(
+        normalizeDisplayNewlines(product.description ?? "")
+      ),
     [product.description]
   );
 
@@ -71,17 +78,19 @@ export default function CatalogueDescription({
 
   return (
     <section>
-      <CatalogueSectionHeading
-        title="商品説明"
-        right={
-          !hasAny ? (
-            <span className="text-[11px] text-foreground-400">未入力</span>
-          ) : undefined
-        }
-      />
+      {showHeading && (
+        <CatalogueSectionHeading
+          title="商品説明"
+          right={
+            !hasAny ? (
+              <span className="text-[11px] text-foreground-400">未入力</span>
+            ) : undefined
+          }
+        />
+      )}
 
       {hasAny ? (
-        <div className="mt-2">
+        <div className={showHeading ? "mt-2" : ""}>
           {otherFields.length > 0 && (
             <dl className="mb-3 flex flex-wrap gap-x-8 gap-y-1.5 border-b border-background-100 pb-3">
               {otherFields.map((field) => (

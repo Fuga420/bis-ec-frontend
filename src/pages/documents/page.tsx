@@ -47,10 +47,10 @@ export default function DocumentsPage() {
         <div className="mx-auto flex w-full max-w-[1560px] flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 md:px-6 lg:px-8">
           <div className="min-w-0">
             {/* 一覧画面の見出しは商品一覧と同じ型（小さなラベル＋ディスプレイ書体）に揃える。 */}
-            <p className="admin-eyebrow text-[10px] font-semibold text-foreground-400">
+            <p className="admin-eyebrow text-[10px] text-foreground-400">
               Documents
             </p>
-            <h1 className="admin-display mt-1 text-[26px] font-semibold leading-none text-foreground-950 md:text-[28px]">
+            <h1 className="admin-display mt-1 text-[22px] font-semibold leading-[1.2] text-foreground-950 md:text-[24px]">
               書類管理
             </h1>
           </div>
@@ -72,7 +72,7 @@ export default function DocumentsPage() {
         {/* 従来の書類一覧（ファイル単位）。検索の役割を分けてここに置く。 */}
         <section className="mt-5">
           <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-            <h2 className="flex items-center gap-1.5 text-[15px] font-semibold text-foreground-950">
+            <h2 className="flex items-center gap-1.5 text-[16px] font-semibold leading-[1.4] text-foreground-950">
               <i className="ri-folder-3-line w-4 h-4 flex items-center justify-center text-foreground-500"></i>
               書類一覧
             </h2>
@@ -211,25 +211,25 @@ export default function DocumentsPage() {
                       {/* ヘッダー行（デスクトップ） */}
                       <div className="hidden items-center gap-4 border-b border-background-200 bg-white px-4 py-2 lg:flex">
                         <span className="w-9 shrink-0"></span>
-                        <span className="min-w-0 flex-1 text-[11px] font-medium text-foreground-500">
+                        <span className="min-w-0 flex-1 text-[12px] font-medium text-foreground-500">
                           ファイル名
                         </span>
-                        <span className="w-[56px] shrink-0 text-[11px] font-medium text-foreground-500">
+                        <span className="w-[56px] shrink-0 text-[12px] font-medium text-foreground-500">
                           種別
                         </span>
-                        <span className="w-[104px] shrink-0 text-right text-[11px] font-medium text-foreground-500">
+                        <span className="w-[104px] shrink-0 text-right text-[12px] font-medium text-foreground-500">
                           原本合計
                         </span>
-                        <span className="w-[104px] shrink-0 text-right text-[11px] font-medium text-foreground-500">
+                        <span className="w-[104px] shrink-0 text-right text-[12px] font-medium text-foreground-500">
                           明細合計
                         </span>
-                        <span className="w-[60px] shrink-0 text-right text-[11px] font-medium text-foreground-500">
+                        <span className="w-[60px] shrink-0 text-right text-[12px] font-medium text-foreground-500">
                           明細数
                         </span>
-                        <span className="w-[104px] shrink-0 text-[11px] font-medium text-foreground-500">
+                        <span className="w-[104px] shrink-0 text-[12px] font-medium text-foreground-500">
                           照合状態
                         </span>
-                        <span className="w-[124px] shrink-0 text-[11px] font-medium text-foreground-500">
+                        <span className="w-[124px] shrink-0 text-[12px] font-medium text-foreground-500">
                           アップロード日時
                         </span>
                         <span className="w-4 shrink-0"></span>
@@ -262,7 +262,7 @@ export default function DocumentsPage() {
                 <span className="block text-[14px] font-semibold text-foreground-950">
                   書類の追加・管理
                 </span>
-                <span className="mt-0.5 block text-[11px] text-foreground-400">
+                <span className="mt-0.5 block text-[12px] leading-[1.5] text-foreground-400">
                   Inbox一括取込・書類アップロードはここを開いたときだけ表示します
                 </span>
               </span>

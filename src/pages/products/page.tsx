@@ -26,6 +26,8 @@ import AiBatchConfirmModal, {
 } from "./components/AiBatchConfirmModal";
 import BulkArchiveConfirmModal from "./components/BulkArchiveConfirmModal";
 import BulkArchiveResultModal from "./components/BulkArchiveResultModal";
+import OperatingModeMenu from "@/components/feature/OperatingModeMenu";
+import { adminThemeClass } from "@/lib/adminTheme";
 import { useAiBatch } from "./context/AiBatchProvider";
 import {
   useOperatingMode,
@@ -486,9 +488,12 @@ export default function ProductsPage() {
     onSaved: () => setReloadKey((k) => k + 1),
   });
 
-  // 一括系の処理中は選択・チェックの操作をまとめてロックする
-  const isAnyBulkBusy =
-    isBulkProcessing || aiBatch.isBusy || archive.isRunning;
+  // 一括公開・アーカイブなど「この画面が持つ処理」の実行中だけ、一覧の操作をロックする。
+  // AI一括生成の追跡はサーバー側で継続するため、実行中でも一覧の閲覧・検索・ページ移動・選択は常に可能にする。
+  const isAnyBulkBusy = isBulkProcessing || archive.isRunning;
+  // AI一括生成の「新規受付（開始）」だけは、追跡中のバッチがある間は受け付けない。
+  const isAiStartDisabled =
+    aiBatch.isBusy || isBulkProcessing || archive.isRunning;
   // ブラウザから一括送信中（公開・アーカイブ・バッチ受付POST中）はモード切替をロックする
   useOperatingModeLock(
     isBulkProcessing || aiBatch.isSubmitting || archive.isRunning
@@ -744,7 +749,11 @@ export default function ProductsPage() {
   const hasSelection = selectedIds.size > 0;
 
   return (
-    <div className="admin-font products-theme min-h-screen bg-background-50">
+    <div
+      className={`admin-font products-theme ${adminThemeClass(
+        isTestMode
+      )} min-h-screen bg-background-50`}
+    >
       <header className="border-b border-background-200 bg-white">
         {/* 一覧画面のヘッダーは本文と同じ横幅基準（全幅・左右24〜32px）に揃える。
             高さを抑えるため、ロゴ＋見出しの間隔と見出しサイズを控えめにする。 */}
@@ -757,39 +766,42 @@ export default function ProductsPage() {
               aria-label="BIS 商品一覧の先頭へ"
               className="inline-flex items-baseline gap-1.5 whitespace-nowrap"
             >
-              <span className="admin-display block text-[12px] font-semibold leading-none tracking-[0.3em] text-foreground-950">
+              <span className="admin-display block text-[12px] font-semibold leading-none tracking-[0.06em] text-foreground-950">
                 BIS
               </span>
-              <span className="admin-eyebrow block text-[9px] font-semibold leading-none tracking-[0.16em] text-foreground-400">
+              <span className="admin-eyebrow block text-[10px] leading-none text-foreground-400">
                 Collectibles Catalogue
               </span>
             </Link>
-            <h1 className="admin-display mt-1 text-[22px] font-semibold leading-none text-foreground-950 md:text-[24px]">
-              商品管理
-            </h1>
+            <div className="mt-1 flex items-center gap-2">
+              <h1 className="admin-display text-[22px] font-semibold leading-none text-foreground-950 md:text-[24px]">
+                商品管理
+              </h1>
+              {/* テスト環境のときだけ、見出しの横に控えめな識別ラベルを出す（操作不可） */}
+              {isTestMode && (
+                <span
+                  aria-label="テスト環境"
+                  className="inline-flex h-[18px] select-none items-center rounded border border-amber-300/70 bg-amber-50 px-1.5 text-[11px] font-semibold leading-none tracking-[0.08em] text-amber-800"
+                >
+                  TEST
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Link
-              to="/import"
-              className="flex h-10 cursor-pointer items-center gap-2 whitespace-nowrap rounded-[10px] border border-background-300 bg-white px-4 text-[13px] font-medium text-foreground-700 transition-colors hover:bg-background-100"
-            >
-              <i className="ri-image-add-line w-4 h-4 flex items-center justify-center text-[15px]"></i>
+            <Link to="/import" className="product-header-action">
+              <i className="ri-image-add-line" aria-hidden="true"></i>
               画像だけ取込
             </Link>
-            <Link
-              to="/documents"
-              className="flex h-10 cursor-pointer items-center gap-2 whitespace-nowrap rounded-[10px] border border-background-300 bg-white px-4 text-[13px] font-medium text-foreground-700 transition-colors hover:bg-background-100"
-            >
-              <i className="ri-file-list-3-line w-4 h-4 flex items-center justify-center text-[15px]"></i>
+            <Link to="/documents" className="product-header-action">
+              <i className="ri-file-list-3-line" aria-hidden="true"></i>
               書類管理
             </Link>
-            <Link
-              to="/register"
-              className="product-cta flex h-10 cursor-pointer items-center gap-2 whitespace-nowrap rounded-[10px] px-[18px] text-sm font-semibold transition-colors"
-            >
-              <i className="ri-add-line w-4 h-4 flex items-center justify-center text-[16px]"></i>
+            <Link to="/register" className="product-cta product-header-cta">
+              <i className="ri-add-line" aria-hidden="true"></i>
               新しい商品を登録
             </Link>
+            <OperatingModeMenu />
           </div>
         </div>
       </header>
@@ -847,11 +859,11 @@ export default function ProductsPage() {
                     （検索・フィルターとの間に余計な空白を作らない） */}
                 <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-[13px] text-foreground-500">
+                    <p className="admin-meta text-foreground-500">
                       {hasFilter ? (
                         <>
                           該当{" "}
-                          <span className="font-bold text-foreground-950">
+                          <span className="admin-numeric font-semibold text-foreground-950">
                             {count}
                           </span>{" "}
                           件
@@ -859,7 +871,7 @@ export default function ProductsPage() {
                       ) : (
                         <>
                           全{" "}
-                          <span className="font-bold text-foreground-950">
+                          <span className="admin-numeric font-semibold text-foreground-950">
                             {count}
                           </span>{" "}
                           件
@@ -944,7 +956,7 @@ export default function ProductsPage() {
                   <button
                     type="button"
                     onClick={() => setIsAiConfirmOpen(true)}
-                    disabled={isAnyBulkBusy}
+                    disabled={isAiStartDisabled}
                     className="inline-flex h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border border-background-300 bg-white px-3 text-[13px] font-medium text-foreground-700 transition-colors hover:bg-background-100 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <i className="ri-sparkling-line text-base w-4 h-4 flex items-center justify-center"></i>
@@ -987,7 +999,7 @@ export default function ProductsPage() {
                         : "テスト商品はまだ登録されていません"}
                     </p>
                     <p className="mt-1 text-xs text-foreground-500">
-                      テストモードで「新しい商品を登録」または「画像だけ取込」を実行すると、ここに表示されます（実商品一覧は上部の「通常モード」へ切り替えてください）。
+                      テストモードで「新しい商品を登録」または「画像だけ取込」を実行すると、ここに表示されます（実商品一覧は右端の設定アイコン「環境切り替え」から「通常モード」へ切り替えてください）。
                     </p>
                   </div>
                 ) : (
@@ -1121,7 +1133,7 @@ export default function ProductsPage() {
           <div className="w-full max-w-lg rounded-lg border border-background-200 bg-white p-5">
             <div className="flex items-center gap-2">
               <i className="ri-upload-2-line w-5 h-5 flex items-center justify-center text-primary-600"></i>
-              <h3 className="text-base font-bold text-foreground-950">
+              <h3 className="text-[16px] font-semibold leading-[1.4] text-foreground-950">
                 一括公開の確認
               </h3>
             </div>
@@ -1135,13 +1147,13 @@ export default function ProductsPage() {
                 <p className="text-[11px] text-foreground-500">
                   Square商品を作成
                 </p>
-                <p className="text-sm font-bold text-foreground-950">
+                <p className="admin-numeric text-[15px] font-semibold text-foreground-950">
                   {plan.squareCreate} 件
                 </p>
               </div>
               <div className="rounded-md bg-background-100 px-3 py-2">
                 <p className="text-[11px] text-foreground-500">公開対象</p>
-                <p className="text-sm font-bold text-foreground-950">
+                <p className="admin-numeric text-[15px] font-semibold text-foreground-950">
                   {plan.publish} 件
                 </p>
               </div>
@@ -1149,7 +1161,7 @@ export default function ProductsPage() {
                 <p className="text-[11px] text-foreground-500">
                   決済リンクのみ生成対象
                 </p>
-                <p className="text-sm font-bold text-foreground-950">
+                <p className="admin-numeric text-[15px] font-semibold text-foreground-950">
                   {plan.linkOnly} 件
                 </p>
               </div>
@@ -1157,13 +1169,13 @@ export default function ProductsPage() {
                 <p className="text-[11px] text-foreground-500">
                   処理不要（完了済み）
                 </p>
-                <p className="text-sm font-bold text-foreground-950">
+                <p className="admin-numeric text-[15px] font-semibold text-foreground-950">
                   {plan.completed} 件
                 </p>
               </div>
               <div className="rounded-md bg-background-100 px-3 py-2">
                 <p className="text-[11px] text-foreground-500">スキップ対象</p>
-                <p className="text-sm font-bold text-foreground-950">
+                <p className="admin-numeric text-[15px] font-semibold text-foreground-950">
                   {plan.skipped} 件
                 </p>
               </div>
@@ -1233,7 +1245,7 @@ export default function ProductsPage() {
           <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-background-200 bg-white p-5">
             <div className="flex items-center gap-2">
               <i className="ri-file-list-3-line w-5 h-5 flex items-center justify-center text-primary-600"></i>
-              <h3 className="text-base font-bold text-foreground-950">
+              <h3 className="text-[16px] font-semibold leading-[1.4] text-foreground-950">
                 一括公開の結果
               </h3>
             </div>
@@ -1247,7 +1259,7 @@ export default function ProductsPage() {
                   <p className="text-[11px] text-foreground-500">
                     {STATUS_LABELS[status]}
                   </p>
-                  <p className="text-sm font-bold text-foreground-950">
+                  <p className="admin-numeric text-[15px] font-semibold text-foreground-950">
                     {resultCounts[status]} 件
                   </p>
                 </div>
@@ -1271,7 +1283,7 @@ export default function ProductsPage() {
                     <p className="truncate text-sm font-medium text-foreground-950">
                       {item.product_name}
                     </p>
-                    <p className="truncate font-mono text-xs text-foreground-500">
+                    <p className="admin-numeric truncate text-[12px] text-foreground-500">
                       {item.product_id}
                     </p>
                     {item.reason && (

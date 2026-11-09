@@ -3,6 +3,7 @@ import IndeterminateProgressBar from "@/components/base/IndeterminateProgressBar
 import ImportSetCard from "@/pages/import/components/ImportSetCard";
 import ImportBatchSection from "@/pages/import/components/ImportBatchSection";
 import { sameFiles } from "@/pages/import/lib/multiImport";
+import { adminThemeClass } from "@/lib/adminTheme";
 import { useMultiSetImport } from "@/pages/import/hooks/useMultiSetImport";
 import {
   useOperatingMode,
@@ -54,7 +55,11 @@ export default function ImportPage() {
   );
 
   return (
-    <div className="admin-font products-theme min-h-screen bg-background-50">
+    <div
+      className={`admin-font products-theme ${adminThemeClass(
+        isTestMode
+      )} min-h-screen bg-background-50`}
+    >
       <header className="border-b border-background-200 bg-white">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-3 md:px-6">
           <Link

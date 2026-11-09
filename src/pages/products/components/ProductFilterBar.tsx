@@ -153,7 +153,7 @@ export default function ProductFilterBar({
           }
           disabled={disabled}
           aria-label="検索・フィルターの条件をすべてクリア"
-          className="inline-flex h-10 cursor-pointer items-center gap-1 whitespace-nowrap rounded-lg px-2.5 text-xs font-medium text-foreground-500 transition-colors hover:bg-background-100 hover:text-foreground-900 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-10 cursor-pointer items-center gap-1 whitespace-nowrap rounded-lg px-2.5 text-[13px] font-medium text-foreground-500 transition-colors hover:bg-background-100 hover:text-foreground-900 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <i className="ri-refresh-line w-3.5 h-3.5 flex items-center justify-center text-sm"></i>
           条件をクリア

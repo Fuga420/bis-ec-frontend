@@ -72,7 +72,7 @@ export default function DocumentListRow({ doc }: DocumentListRowProps) {
         <div className="min-w-0 flex-1">
           {/* ファイル名は最大2行まで表示し、超過分は省略する。未取得のときは薄いイタリックで置く */}
           <p
-            className={`line-clamp-2 break-words text-sm font-semibold leading-snug group-hover/row:text-primary-600 ${
+            className={`line-clamp-2 break-words text-[14px] font-semibold leading-[1.45] group-hover/row:text-primary-600 ${
               hasFileName ? "text-foreground-950" : "italic text-foreground-400"
             }`}
           >
@@ -80,7 +80,7 @@ export default function DocumentListRow({ doc }: DocumentListRowProps) {
           </p>
           {/* 書類ID（長いUUID）は既定では見せず、行にホバーしたときだけ薄く出す。
               行の高さを変えないよう、高さ10pxの1行として場所だけ確保しておく。 */}
-          <span className="mt-1 hidden h-[10px] max-w-full truncate font-mono text-[10px] leading-none tracking-[0.04em] text-foreground-400 opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 lg:block">
+          <span className="admin-numeric mt-1 hidden h-[10px] max-w-full truncate text-[12px] leading-none text-foreground-400 opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 lg:block">
             {doc.document_id}
           </span>
           <span className="sr-only">書類ID {doc.document_id}</span>
@@ -88,7 +88,7 @@ export default function DocumentListRow({ doc }: DocumentListRowProps) {
         <span className="w-[56px] shrink-0 truncate text-xs text-foreground-500">
           {DOCUMENT_FILE_KIND_LABELS[doc.file_kind] ?? "—"}
         </span>
-        <span className="w-[104px] shrink-0 whitespace-nowrap text-right text-sm font-semibold tabular-nums text-foreground-950">
+        <span className="admin-numeric w-[104px] shrink-0 whitespace-nowrap text-right text-[14px] font-semibold text-foreground-950">
           {formatYen(doc.original_total)}
         </span>
         <span className="w-[104px] shrink-0 whitespace-nowrap text-right text-xs tabular-nums text-foreground-500">
@@ -115,7 +115,7 @@ export default function DocumentListRow({ doc }: DocumentListRowProps) {
         </span>
         <div className="min-w-0 flex-1">
           <p
-            className={`line-clamp-2 break-words text-sm font-semibold leading-snug ${
+            className={`line-clamp-2 break-words text-[14px] font-semibold leading-[1.45] ${
               hasFileName ? "text-foreground-950" : "italic text-foreground-400"
             }`}
           >

@@ -10,6 +10,8 @@ import CatalogueSectionHeading from "./CatalogueSectionHeading";
 interface CatalogueSpecPanelProps {
   product: AdminProductDetail;
   cost?: ProductCostSpecInput;
+  // 見出し（上部の商品情報パネルでは「商品スペック」として使う）
+  title?: string;
 }
 
 /**
@@ -43,6 +45,7 @@ const MONO_VALUE_LABELS = new Set([
 export default function CatalogueSpecPanel({
   product,
   cost,
+  title = "商品情報",
 }: CatalogueSpecPanelProps) {
   const items = buildProductSpecItems(product, cost);
   const filledItems = items.filter((item) => !isBlankSpecItem(item));
@@ -56,7 +59,7 @@ export default function CatalogueSpecPanel({
 
   return (
     <section>
-      <CatalogueSectionHeading title="商品情報" />
+      <CatalogueSectionHeading title={title} />
 
       {filledItems.length > 0 ? (
         <dl className="mt-2.5 grid grid-cols-2 gap-x-4 gap-y-3 md:grid-cols-3">

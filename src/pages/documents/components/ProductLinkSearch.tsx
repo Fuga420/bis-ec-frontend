@@ -136,7 +136,7 @@ export default function ProductLinkSearch({
                   <span className="block truncate text-sm font-medium text-foreground-950">
                     {product.product_name || "（商品名なし）"}
                   </span>
-                  <span className="block truncate font-mono text-xs text-foreground-500">
+                  <span className="admin-numeric block truncate text-[12px] text-foreground-500">
                     {product.product_id}
                   </span>
                 </span>

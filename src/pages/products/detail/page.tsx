@@ -29,6 +29,7 @@ import type {
 import { CATEGORY_LABELS, PUBLISH_STATUS_LABELS } from "../types";
 import { peekProductListReturnPending } from "../lib/listViewState";
 import { useOperatingMode } from "@/context/OperatingModeProvider";
+import { adminThemeClass } from "@/lib/adminTheme";
 import {
   extractAiDraftPrice,
   getAiProductDraft,
@@ -41,8 +42,7 @@ import EditForm from "./components/EditForm";
 import ProductDetailSkeleton from "./components/ProductDetailSkeleton";
 import ImageEditor, { type ImageSavePayload } from "./components/ImageEditor";
 import ImageLightbox from "./components/ImageLightbox";
-import ProductTranslationSection from "./components/ProductTranslationSection";
-import SquareIntegrationSection from "./components/SquareIntegrationSection";
+import ExternalIntegrationPanel from "./components/ExternalIntegrationPanel";
 import ProductDocumentSection, {
   hasAttachedDocument,
 } from "./components/ProductDocumentSection";
@@ -53,16 +53,13 @@ import { autoLinkProductByItemNumber } from "@/pages/documents/lib/productAutoLi
 import { useProductCostDetail } from "./hooks/useProductCostDetail";
 import { deriveProductCost } from "./lib/productCost";
 import ProductDetailHeader from "./components/ProductDetailHeader";
-import ProductSummaryHeader from "./components/ProductSummaryHeader";
 import ProductDetailNav from "./components/ProductDetailNav";
-import CatalogueSpecPanel from "./components/CatalogueSpecPanel";
-import CatalogueDescription from "./components/CatalogueDescription";
-import CatalogueConditionReport from "./components/CatalogueConditionReport";
+import ProductProfilePanel from "./components/ProductProfilePanel";
+import ProductDescriptionSection from "./components/ProductDescriptionSection";
 import ProductDetailTabs, {
   type ProductDetailTabKey,
 } from "./components/ProductDetailTabs";
 import SalesManagementPanel from "./components/SalesManagementPanel";
-import CataloguePanelHeading from "./components/CataloguePanelHeading";
 import ProductDangerDialogs from "./components/ProductDangerDialogs";
 import SaveStatusMessage from "@/components/base/SaveStatusMessage";
 import BisImagePlaceholder from "@/components/base/BisImagePlaceholder";
@@ -258,7 +255,7 @@ export default function ProductDetailPage() {
   // メイン画像の拡大表示（ライトボックス）の開閉（表示専用・保存はしない）
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
 
-  // 管理タブ（販売管理 / 来歴・仕入 / 翻訳・外部連携）の選択状態。
+  // 管理タブ（販売管理 / 仕入・書類 / 外部連携）の選択状態。
   // 基本情報（商品スペック・説明・備考）はタブから独立して常時表示する。
   // 画面内の表示切り替えのみで、URLやデータ取得には影響しない。
   const [activeTab, setActiveTab] = useState<ProductDetailTabKey>("sales");
@@ -1076,10 +1073,14 @@ export default function ProductDetailPage() {
   );
 
   return (
-    <div className="catalogue products-theme admin-font min-h-screen">
+    <div
+      className={`catalogue products-theme admin-font ${adminThemeClass(
+        isTestMode
+      )} min-h-screen`}
+    >
       <ProductDetailHeader listPath={listPath} />
 
-      <main className="page-fade mx-auto w-full max-w-5xl px-4 pb-10 pt-4 md:px-6">
+      <main className="page-fade mx-auto w-full max-w-5xl px-4 pb-10 pt-4 md:px-6 md:pt-5">
         {loadState === "loading" && <ProductDetailSkeleton />}
 
         {loadState === "error" && (
@@ -1108,26 +1109,15 @@ export default function ProductDetailPage() {
 
         {loadState === "success" && product && (
           <>
-            {/* 商品の見出し: 状態・商品名・商品ID・価格・編集導線（商品一覧と統一） */}
-            <ProductSummaryHeader
-              product={product}
-              categoryLabel={categoryLabel}
-              statusLabel={statusLabel}
-              inventoryLabel={inventoryLabel}
-              aiPriceHint={{ show: showAiPriceHint, price: aiDraftPrice }}
-              editMessage={editMessage}
-              onStartEdit={handleStartEdit}
-            />
-
-            {/* 商品画像 + 商品情報（画像編集中は横幅を広く使う） */}
+            {/* 上部: 商品画像（左）と商品情報（右）を2カラムで集約する */}
             <div
-              className={`mt-4 grid grid-cols-1 gap-4 ${
+              className={`grid grid-cols-1 gap-4 md:gap-5 ${
                 isImageEditing
                   ? ""
-                  : "lg:grid-cols-[minmax(0,296px)_minmax(0,1fr)] lg:items-start"
+                  : "lg:grid-cols-[minmax(0,38fr)_minmax(0,62fr)] lg:items-start"
               }`}
             >
-              <div className="rounded-lg border border-background-200 bg-white p-3">
+              <div className="min-w-0 rounded-lg border border-background-200 bg-white p-2.5 md:p-3">
                 {isImageEditing ? (
                   <ImageEditor
                     existingImages={product.images ?? []}
@@ -1195,8 +1185,13 @@ export default function ProductDetailPage() {
                     onSave={handleSaveEdit}
                   />
                 ) : (
-                  <CatalogueSpecPanel
+                  <ProductProfilePanel
                     product={product}
+                    categoryLabel={categoryLabel}
+                    statusLabel={statusLabel}
+                    inventoryLabel={inventoryLabel}
+                    aiPriceHint={{ show: showAiPriceHint, price: aiDraftPrice }}
+                    editMessage={editMessage}
                     cost={{
                       loadState: productCost.loadState,
                       errorText: productCost.errorText,
@@ -1205,25 +1200,31 @@ export default function ProductDetailPage() {
                       costTotal: costView.costTotal,
                       hasUnconfirmedTax: costView.hasUnconfirmedTax,
                     }}
+                    onStartEdit={handleStartEdit}
                   />
                 )}
               </div>
             </div>
 
-            {/* 商品説明・状態報告はタブから独立して常時表示する */}
+            {/* 商品説明（日本語 / English を切り替えて表示）。タブから独立して常時表示する */}
             {!isEditing && (
-              <div className="mt-5 flex flex-col gap-4 rounded-lg border border-background-200 bg-white p-4 md:p-5">
-                <CatalogueDescription product={product} />
-                <CatalogueConditionReport product={product} />
-              </div>
+              <ProductDescriptionSection
+                key={product.product_id}
+                product={product}
+                onTranslationChange={(translation) => {
+                  setProduct((prev) =>
+                    prev ? { ...prev, translation } : prev
+                  );
+                }}
+              />
             )}
 
-            {/* 管理タブ（販売管理 / 来歴・仕入 / 翻訳・外部連携） */}
+            {/* 管理タブ（販売管理 / 仕入・書類 / 外部連携） */}
             {isEditing ? (
               <p className="mt-4 flex items-start gap-1.5 rounded-lg border border-background-200 bg-background-100 px-3 py-2 text-[12px] leading-relaxed text-foreground-500">
                 <i className="ri-information-line mt-0.5 w-4 h-4 flex items-center justify-center shrink-0"></i>
                 <span className="min-w-0 flex-1">
-                  商品情報を編集中です。保存またはキャンセルすると、商品説明・備考と、販売管理・来歴／仕入・翻訳／外部連携の管理タブが表示されます。
+                  商品情報を編集中です。保存またはキャンセルすると、商品説明・備考と、販売管理・仕入／書類・外部連携の管理タブが表示されます。
                 </span>
               </p>
             ) : (
@@ -1303,7 +1304,7 @@ export default function ProductDetailPage() {
                   </div>
                 )}
 
-                {/* 来歴・仕入 */}
+                {/* 仕入・書類 */}
                 {activeTab === "purchase" && (
                   <div className="tab-fade flex flex-col gap-4">
                     <ProductLedgerSection
@@ -1325,56 +1326,13 @@ export default function ProductDetailPage() {
                   </div>
                 )}
 
-                {/* 翻訳・外部連携（翻訳データの取得・表示条件は従来どおり） */}
+                {/* 外部連携（販売チャネル単位。現時点ではSquareのみ） */}
                 {activeTab === "integration" && (
                   <div className="tab-fade">
-                    <section>
-                      <CataloguePanelHeading
-                        title="翻訳・外部連携"
-                        right={
-                          <span
-                            className={`st-badge ${
-                              isSquareLinked ? "st-publish" : "st-muted"
-                            }`}
-                          >
-                            Square {isSquareLinked ? "連携済み" : "未連携"}
-                          </span>
-                        }
-                      />
-
-                      <p className="mt-1.5 max-w-[70ch] text-[12px] leading-relaxed text-foreground-500">
-                        越境販売のための英語翻訳と、外部販売チャネル（Square）の連携状態をまとめて扱います。
-                      </p>
-
-                      <div className="mt-4 flex flex-col gap-5">
-                        {/* 英語翻訳 */}
-                        <div className="border-t border-background-200 pt-4">
-                          {product.category !== "pokemon_card" ? (
-                            <ProductTranslationSection
-                              productId={product.product_id}
-                              translation={product.translation}
-                              onTranslationChange={(translation) => {
-                                setProduct((prev) =>
-                                  prev ? { ...prev, translation } : prev
-                                );
-                              }}
-                            />
-                          ) : (
-                            <p className="py-1 text-[12px] leading-relaxed text-foreground-500">
-                              このカテゴリの商品は英語翻訳の対象外です
-                            </p>
-                          )}
-                        </div>
-
-                        {/* 外部連携（現時点ではSquareのみ） */}
-                        <div className="border-t border-background-200 pt-4">
-                          <SquareIntegrationSection
-                            product={product}
-                            onRefreshed={refreshProduct}
-                          />
-                        </div>
-                      </div>
-                    </section>
+                    <ExternalIntegrationPanel
+                      product={product}
+                      onRefreshed={refreshProduct}
+                    />
                   </div>
                 )}
                 </div>
@@ -1470,14 +1428,14 @@ function MainImage({
       type="button"
       onClick={onOpen}
       aria-label={`${alt} の画像を拡大表示`}
-      className="group relative block w-full cursor-zoom-in overflow-hidden rounded-md border border-background-200 focus:outline-none"
+      className="group relative block w-full cursor-zoom-in overflow-hidden rounded-md border border-background-200 bg-background-50 focus:outline-none"
     >
       <img
         key={src}
         src={src}
         alt={alt}
         onError={() => setFailed(true)}
-        className="main-image-fade aspect-square w-full object-cover object-top"
+        className="main-image-fade aspect-square w-full object-contain"
       />
       <span className="pointer-events-none absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-md bg-white/90 text-foreground-600 opacity-0 transition-opacity group-hover:opacity-100">
         <i className="ri-zoom-in-line text-[14px] leading-none"></i>

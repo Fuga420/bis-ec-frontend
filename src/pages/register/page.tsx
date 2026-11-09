@@ -28,6 +28,7 @@ import {
 import PublishSquareOptions from "./components/PublishSquareOptions";
 import RegisterProgress from "./components/RegisterProgress";
 import SaveStatusMessage from "@/components/base/SaveStatusMessage";
+import { adminThemeClass } from "@/lib/adminTheme";
 import {
   runSquareProductionSync,
   type SquareProductionStep,
@@ -830,7 +831,11 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="admin-font products-theme min-h-screen bg-background-50">
+    <div
+      className={`admin-font products-theme ${adminThemeClass(
+        isTestMode
+      )} min-h-screen bg-background-50`}
+    >
       <header className="border-b border-background-200 bg-white">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-3 md:px-6">
           <Link

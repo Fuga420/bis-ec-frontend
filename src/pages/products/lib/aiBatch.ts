@@ -57,6 +57,39 @@ export const MAX_AI_BATCH_SIZE = 500;
 // 進捗取得の間隔（約5秒）
 export const AI_BATCH_POLL_INTERVAL_MS = 5000;
 
+// 復元したバッチ状態を追跡する上限（受付から24時間）。
+// これを超えた保存状態は、サーバー側に残っていても復元しない。
+export const AI_BATCH_STATE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+// 進捗取得の連続失敗がこの回数を超えたら「状態不明」として扱う（約5秒×30＝約2分半）。
+// 状態不明でもポーリングは継続し、成功すれば通常表示に戻す。
+export const AI_BATCH_MAX_CONSECUTIVE_POLL_FAILURES = 30;
+
+/**
+ * 進捗取得（get）で「再送しても結果が変わらない確定エラー」の error_code。
+ *
+ * 保存済み batch_id がサーバーに存在しない場合（BATCH_NOT_FOUND）や、
+ * 権限・入力の不足で取得自体が成立しない場合は、ポーリングを続けても
+ * 状態は変わらないため、追跡を終了してローカルの保存状態を破棄する。
+ * ここに無いコード（HTTP 5xx・タイムアウト・未知コード）は一時的エラーとして扱う。
+ */
+const DEFINITIVE_BATCH_POLL_ERROR_CODES: ReadonlySet<string> = new Set([
+  "BATCH_NOT_FOUND",
+  "BATCH_ID_REQUIRED",
+  "UNAUTHORIZED",
+  "FORBIDDEN",
+  "UNAUTHORIZED_ADMIN_ACCESS",
+]);
+
+/**
+ * 進捗取得のエラーが「追跡を終了してよい確定エラー」かどうか。
+ * 通信断・タイムアウト・HTTP 5xx は素の Error（error_code なし）で届くため false になる。
+ */
+export function isDefinitiveBatchPollError(err: unknown): boolean {
+  if (!(err instanceof AiRelayError)) return false;
+  return DEFINITIVE_BATCH_POLL_ERROR_CODES.has((err.code ?? "").trim());
+}
+
 // バッチ全体ステータスの表示ラベル
 export const AI_BATCH_STATUS_LABELS: Record<AiBatchOverallStatus, string> = {
   queued: "受付済み",

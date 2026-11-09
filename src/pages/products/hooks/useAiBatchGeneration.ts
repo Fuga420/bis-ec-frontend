@@ -11,13 +11,16 @@ import {
 } from "@/config/productsApi";
 import { AiRelayError } from "@/pages/register/lib/aiProduct";
 import {
+  AI_BATCH_MAX_CONSECUTIVE_POLL_FAILURES,
   AI_BATCH_POLL_INTERVAL_MS,
+  AI_BATCH_STATE_MAX_AGE_MS,
   DEFAULT_MIN_COST_MARKUP_RATE,
   MAX_AI_BATCH_SIZE,
   classifyRetryFailure,
   createAiProductDraftBatch,
   createRequestId,
   getAiProductDraftBatch,
+  isDefinitiveBatchPollError,
   isTerminalBatchStatus,
   recordGasContractViolations,
   retryAiProductDraftBatch,
@@ -44,15 +47,33 @@ interface StoredBatchState {
   // 再送時も同じ条件で送り直す。
   minCostMarkupRate: number | null;
   testOnly?: boolean;
+  // 保存時刻（エポックミリ秒）。受付から24時間を超えた状態は復元しない。
+  savedAt?: number;
 }
 
-function readStoredState(): StoredBatchState | null {
+// 保存状態の読み取り結果。期限切れ（24時間超）で破棄した場合も区別して返す。
+interface StoredStateReadResult {
+  state: StoredBatchState | null;
+  expired: boolean;
+}
+
+function readStoredState(): StoredStateReadResult {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
+    if (!raw) return { state: null, expired: false };
     const parsed = JSON.parse(raw) as Partial<StoredBatchState>;
     if (!parsed || typeof parsed.requestId !== "string" || !parsed.requestId) {
-      return null;
+      return { state: null, expired: false };
+    }
+    // 保存時刻が記録されている場合だけ期限を判定する（古い形式は従来どおり復元する）。
+    const savedAt =
+      typeof parsed.savedAt === "number" && Number.isFinite(parsed.savedAt)
+        ? parsed.savedAt
+        : null;
+    if (savedAt != null && Date.now() - savedAt > AI_BATCH_STATE_MAX_AGE_MS) {
+      clearStoredState();
+      clearRetryRequestId();
+      return { state: null, expired: true };
     }
     const items = Array.isArray(parsed.items) ? parsed.items : [];
     const normalized = items
@@ -64,27 +85,35 @@ function readStoredState(): StoredBatchState | null {
         product_name: i.product_name ?? "",
       }));
     return {
-      requestId: parsed.requestId,
-      batchId:
-        typeof parsed.batchId === "string" && parsed.batchId
-          ? parsed.batchId
-          : null,
-      items: normalized,
-      minCostMarkupRate:
-        typeof parsed.minCostMarkupRate === "number" &&
-        Number.isFinite(parsed.minCostMarkupRate)
-          ? parsed.minCostMarkupRate
-          : null,
-      testOnly: parsed.testOnly === true,
+      state: {
+        requestId: parsed.requestId,
+        batchId:
+          typeof parsed.batchId === "string" && parsed.batchId
+            ? parsed.batchId
+            : null,
+        items: normalized,
+        minCostMarkupRate:
+          typeof parsed.minCostMarkupRate === "number" &&
+          Number.isFinite(parsed.minCostMarkupRate)
+            ? parsed.minCostMarkupRate
+            : null,
+        testOnly: parsed.testOnly === true,
+        savedAt: savedAt ?? undefined,
+      },
+      expired: false,
     };
   } catch {
-    return null;
+    return { state: null, expired: false };
   }
 }
 
 function writeStoredState(state: StoredBatchState): void {
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    // 保存のたびに保存時刻を更新する（受付時刻の近似値）。
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ ...state, savedAt: Date.now() })
+    );
   } catch {
     // 保存できなくても処理は継続する
   }
@@ -177,6 +206,12 @@ export function useAiBatchGeneration() {
   const [errorMessage, setErrorMessage] = useState("");
   const [pollError, setPollError] = useState("");
   const [pollToken, setPollToken] = useState(0);
+  // 進捗を一定回数取得できず、状態を断定できない状態（ポーリングは継続する）。
+  const [isTrackingUnknown, setIsTrackingUnknown] = useState(false);
+  // items の件数がサーバーの実データに基づくか。復元直後の初回取得までは false。
+  const [countsConfirmed, setCountsConfirmed] = useState(true);
+  // 追跡を終了した理由を一度だけ控えめに知らせるためのメッセージ。
+  const [noticeMessage, setNoticeMessage] = useState("");
 
   const nameMapRef = useRef<Record<string, string>>({});
   // 直近の表示アイテム（ポーリングの前回値として使う）。
@@ -185,10 +220,35 @@ export function useAiBatchGeneration() {
   const contractViolationSeenRef = useRef<Set<string>>(new Set());
   // 完了済み商品のSupabase読取DB同期を一度だけ走らせる既出管理。
   const syncedBatchCompletedRef = useRef<Set<string>>(new Set());
+  // 進捗取得の連続失敗回数（成功でリセットする）。
+  const pollFailureRef = useRef(0);
 
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  // ローカルの追跡状態を破棄する（サーバー側の処理には影響しない）。
+  // ポーリングの停止は batchId / pollToken の変更と cancelled フラグで行う。
+  const dismiss = useCallback(() => {
+    clearStoredState();
+    clearRetryRequestId();
+    nameMapRef.current = {};
+    itemsRef.current = null;
+    contractViolationSeenRef.current = new Set();
+    syncedBatchCompletedRef.current = new Set();
+    pollFailureRef.current = 0;
+    setIsTrackingUnknown(false);
+    setCountsConfirmed(true);
+    setItems(null);
+    setBatchStatus(null);
+    setBatchId(null);
+    setErrorMessage("");
+    setPollError("");
+  }, []);
+
+  const clearNoticeMessage = useCallback(() => {
+    setNoticeMessage("");
+  }, []);
 
   // 受付（create）を送信する共通処理。start と、再読込時の再送の両方から呼ぶ。
   const submitRequest = useCallback(
@@ -247,8 +307,18 @@ export function useAiBatchGeneration() {
 
   // 再読込後、保存済みの request_id / batch_id から受付・進捗へ復帰する。
   useEffect(() => {
-    const stored = readStoredState();
+    const { state: stored, expired } = readStoredState();
+    if (expired) {
+      // 受付から24時間を超えた保存状態は復元しない（サーバー側の記録も既に終了している扱い）。
+      setNoticeMessage(
+        "前回のAI生成バッチの情報が古いため、進捗表示を終了しました。"
+      );
+      return;
+    }
     if (!stored) return;
+
+    // 復元直後は保存済みの件数を確定値として出さない（初回取得の成功で確定する）。
+    setCountsConfirmed(false);
 
     const map: Record<string, string> = {};
     stored.items.forEach((i) => {
@@ -287,6 +357,10 @@ export function useAiBatchGeneration() {
       try {
         const data = await getAiProductDraftBatch(batchId);
         if (cancelled) return;
+        // 初回取得に成功した時点で、件数を確定値として表示する。
+        pollFailureRef.current = 0;
+        setIsTrackingUnknown(false);
+        setCountsConfirmed(true);
         setPollError("");
         setBatchStatus(data.status ?? null);
         const displayItems = toAiBatchDisplayItems(
@@ -321,6 +395,23 @@ export function useAiBatchGeneration() {
         }
       } catch (err) {
         if (cancelled) return;
+        // 確定エラー（バッチが存在しない・取得権限がない等）は、再送しても結果が変わらない。
+        // その時点で保存済みの状態を破棄し、ポーリングを停止して進捗表示を消す。
+        if (isDefinitiveBatchPollError(err)) {
+          dismiss();
+          setNoticeMessage(
+            "前回のAI生成バッチの記録が見つからなかったため、進捗表示を終了しました。"
+          );
+          return;
+        }
+        // 一時的なエラー（通信断・タイムアウト・HTTP 5xx 等）はポーリングを継続する。
+        pollFailureRef.current += 1;
+        if (
+          pollFailureRef.current >= AI_BATCH_MAX_CONSECUTIVE_POLL_FAILURES
+        ) {
+          // 状態を断定できないため「状態不明」として扱う（バーは残し、×で破棄できる）。
+          setIsTrackingUnknown(true);
+        }
         // API取得失敗は処理成功や履歴なしとして扱わない（最後の状態を保持して警告表示）
         setPollError(
           err instanceof Error && err.message
@@ -337,7 +428,7 @@ export function useAiBatchGeneration() {
       cancelled = true;
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [batchId, pollToken]);
+  }, [batchId, pollToken, dismiss]);
 
   const start = useCallback(
     async (
@@ -364,7 +455,7 @@ export function useAiBatchGeneration() {
 
       // 受付送信の「前」に request_id と選択商品ID一覧を永続保存する。
       // 同じ選択・未受付の再送では保存済み request_id を再利用する（受付の冪等性）。
-      const stored = readStoredState();
+      const { state: stored } = readStoredState();
       const reuseRequestId =
         stored != null &&
         stored.batchId == null &&
@@ -402,6 +493,11 @@ export function useAiBatchGeneration() {
         }))
       );
       setBatchStatus("queued");
+      // スタッフが明示的に開始した受付なので、受付応答が得られた時点で件数を表示してよい。
+      setCountsConfirmed(true);
+      pollFailureRef.current = 0;
+      setIsTrackingUnknown(false);
+      setNoticeMessage("");
 
       await submitRequest(
         requestId,
@@ -455,23 +551,11 @@ export function useAiBatchGeneration() {
     }
   }, [batchId, isSubmitting]);
 
-  const dismiss = useCallback(() => {
-    clearStoredState();
-    clearRetryRequestId();
-    nameMapRef.current = {};
-    itemsRef.current = null;
-    contractViolationSeenRef.current = new Set();
-    syncedBatchCompletedRef.current = new Set();
-    setItems(null);
-    setBatchStatus(null);
-    setBatchId(null);
-    setErrorMessage("");
-    setPollError("");
-  }, []);
-
   const hasActiveBatch = items !== null;
   const isPolling = Boolean(batchId) && !isTerminalBatchStatus(batchStatus);
-  const isBusy = isSubmitting || isPolling;
+  // isBusy は「AI一括生成の新規受付を止める」ためだけに使う。
+  // 状態不明（連続失敗が上限を超えた）の場合は新規受付を妨げない。
+  const isBusy = isSubmitting || (isPolling && !isTrackingUnknown);
 
   return {
     items,
@@ -480,11 +564,15 @@ export function useAiBatchGeneration() {
     isSubmitting,
     isPolling,
     isBusy,
+    isTrackingUnknown,
+    countsConfirmed,
+    noticeMessage,
     hasActiveBatch,
     errorMessage,
     pollError,
     start,
     retryFailed,
     dismiss,
+    clearNoticeMessage,
   };
 }

@@ -1,12 +1,21 @@
-@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&family=Shippori+Mincho:wght@500;600;700&display=swap');
+/* 管理画面で使うフォントは Inter（英数字）と Noto Sans JP（日本語）の2書体だけ。
+   使用するウェイト（400 / 500 / 600 / 700）に限定して読み込み量を抑える。
+   display=swap により、フォント取得待ちでも本文は即座に表示される（レイアウトシフトを抑制）。 */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --font-body: 'Noto Sans JP', system-ui, sans-serif;
-  --font-heading: 'Shippori Mincho', 'Noto Sans JP', serif;
+  /* 英数字は Inter → 日本語は Noto Sans JP の順に解決する。
+     どちらも取得できない場合は OS 標準の日本語フォントへ自然にフォールバックする。 */
+  --font-body: 'Inter', 'Noto Sans JP', system-ui, -apple-system, 'Segoe UI',
+    'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', Meiryo,
+    sans-serif;
+  --font-heading: 'Inter', 'Noto Sans JP', system-ui, -apple-system, 'Segoe UI',
+    'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', Meiryo,
+    sans-serif;
 
   --background-50: 0.99 0.005 95;
   --background-100: 0.97 0.01 95;
@@ -73,44 +82,78 @@ body {
   background-color: oklch(var(--background-50));
   color: oklch(var(--foreground-950));
   font-family: var(--font-body);
-  -webkit-font-smoothing: antialiased;
-}
-
-/* 商品管理画面だけで使う管理画面向けタイポグラフィ。
-   英数字は Inter、日本語は Noto Sans JP を優先し、他の画面には影響させない。 */
-.admin-font {
-  font-family: 'Inter', 'Noto Sans JP', system-ui, -apple-system,
-    'Segoe UI', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', Meiryo, sans-serif;
+  letter-spacing: normal;
+  font-feature-settings: 'liga' 1, 'calt' 1;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  letter-spacing: -0.011em;
 }
+
+/* ========================================================================
+   管理画面のタイポグラフィ（商品管理・商品詳細・登録・画像取込・書類管理）
+   ------------------------------------------------------------------------
+   英数字は Inter、日本語は Noto Sans JP。字間は原則 normal とし、
+   日本語の本文に詰め（負の字間）は入れない。
+   .admin-font 配下の画面でだけ使うので、他のページの書体には影響しない。
+   ======================================================================== */
+.admin-font {
+  font-family: 'Inter', 'Noto Sans JP', system-ui, -apple-system, 'Segoe UI',
+    'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', Meiryo,
+    sans-serif;
+  letter-spacing: normal;
+  line-height: 1.6;
+  font-feature-settings: 'liga' 1, 'calt' 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* 画面上の文字の役割は、次の4つだけに揃える。
+   ・見出し（ページ / セクション）：600
+   ・主情報（商品名・金額）：600
+   ・本文・補助情報：400 / 500
+   「太くする」ことは強調の手段にしない（色と大きさで階層を作る）。 */
 
 /* 管理画面のタイポグラフィ階層。
    ・admin-display : ページ見出し。Archivo を先頭に当てて字間を詰め、見出しとしての密度を出す
    ・admin-title   : 商品名など中見出し。字間だけ少し詰め、本文との差を作る
    ・admin-eyebrow : ブランド名・補助ラベル。小さい大文字＋広い字間のグレー
    ・admin-numeric : 価格・件数などの数字を等幅（tabular）に揃える */
+/* ページ見出し・セクション見出し。大きな見出しだけ、英字が間延びしないよう
+   ごく浅く詰める（日本語ではほぼ影響しない深さに留める）。 */
 .admin-display {
-  font-family: 'Archivo', 'Inter', 'Noto Sans JP', system-ui, sans-serif;
-  letter-spacing: -0.022em;
+  font-family: inherit;
+  letter-spacing: -0.015em;
+  font-feature-settings: 'liga' 1, 'calt' 1;
 }
 
+/* 商品名・カードタイトルなど中見出し。 */
 .admin-title {
-  font-family: 'Archivo', 'Inter', 'Noto Sans JP', system-ui, sans-serif;
-  letter-spacing: -0.014em;
+  font-family: inherit;
+  letter-spacing: -0.005em;
 }
 
+/* 英字の小ラベル（Summary / Documents など）。
+   以前のような大きな字間（0.14em）は装飾過多になるため、控えめな字間と 500 に抑える。 */
 .admin-eyebrow {
-  font-family: 'Inter', 'Noto Sans JP', system-ui, sans-serif;
+  font-family: inherit;
   text-transform: uppercase;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.06em;
+  font-weight: 500;
   font-feature-settings: 'case' 1;
 }
 
+/* 金額・ID・件数・日時など、桁を揃えたい数字。 */
 .admin-numeric {
   font-variant-numeric: tabular-nums lining-nums;
   font-feature-settings: 'tnum' 1, 'lnum' 1;
+}
+
+/* 補助情報（商品ID・ブランド・登録日時）の基準。
+   小さくしすぎず 12px / 行間 1.5 を確保し、読みやすさを保つ。 */
+.admin-meta {
+  font-size: 12px;
+  line-height: 1.5;
+  letter-spacing: normal;
 }
 
 /* 商品管理画面だけで使うニュートラル＋落ち着いたグリーンのテーマ。
@@ -173,6 +216,482 @@ body {
 .products-theme .product-cta:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px rgba(31, 107, 69, 0.18);
+}
+
+/* ========================================================================
+   商品一覧ヘッダー右上の操作ボタン群（共通寸法）
+   ------------------------------------------------------------------------
+   「画像だけ取込」「書類管理」（サブアクション）、「新しい商品を登録」（主CTA）、
+   環境切り替え（設定アイコン）の高さ・角丸・文字・アイコン・余白を揃える。
+   色だけを役割ごとに分け、寸法はここ1か所で管理する。
+     高さ40px / 角丸8px / 文字13px・500 / アイコン16px / 間隔8px
+     横パディング15px / ボタン間隔は親のgap-2（8px）
+   強い影・グラデーションは使わない。
+   ======================================================================== */
+.product-header-action,
+.product-header-cta,
+.product-header-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  border-radius: 8px;
+  padding: 0 15px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: normal;
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+/* 設定ボタンは他のボタンと同じ高さ・角丸の正方形アイコンボタンにする */
+.product-header-icon-btn {
+  width: 40px;
+  padding: 0;
+  justify-content: center;
+}
+
+.product-header-action i,
+.product-header-cta i,
+.product-header-icon-btn i {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  font-size: 16px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* サブアクション（ライトテーマ） */
+.product-header-action {
+  border: 1px solid #e5e7eb;
+  background-color: #ffffff;
+  color: #374151;
+}
+
+.product-header-action:hover {
+  background-color: #f9fafb;
+}
+
+/* 設定ボタン（ライトテーマ）：通常時は控えめなアイコン表示 */
+.product-header-icon-btn {
+  border: 1px solid #e5e7eb;
+  background-color: #ffffff;
+  color: #6b7280;
+}
+
+.product-header-icon-btn:hover {
+  background-color: #f9fafb;
+  color: #374151;
+}
+
+.product-header-icon-btn.is-open {
+  background-color: #f3f4f6;
+  color: #374151;
+}
+
+.product-header-action:focus-visible,
+.product-header-cta:focus-visible,
+.product-header-icon-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(107, 114, 128, 0.2);
+}
+
+/* ========================================================================
+   テストモード専用ダークテーマ（.is-test-dark）
+   ----------------------------------------------------------------------
+   通常モードはライトのまま、テストモードのときだけ管理画面を
+   チャコールグレーのダークテーマに切り替える。
+   新しい色名や新しいモード状態は増やさず、既存の .products-theme と
+   同じ5つの役割（background / foreground / primary / accent / secondary）
+   のトークン値だけを差し替える。そのため各コンポーネントの
+   bg-background-50 / text-foreground-950 / border-background-200 などは
+   そのまま暗い配色へ追従する。
+   付与は OperatingModeProvider の isTestMode にのみ連動させる。
+   ======================================================================== */
+.is-test-dark {
+  color-scheme: dark;
+
+  /* 面：ページ → ヘッダー → カード → ホバー → 境界線 の順に明るくなる */
+  --background-50: 0.178 0.008 250; /* #111418 ページ背景 */
+  --background-100: 0.215 0.01 250; /* #181D23 ヘッダー・淡い面 */
+  --background-200: 0.255 0.012 250; /* #20262D カード・入力欄 */
+  --background-300: 0.31 0.014 252; /* #2B333C ホバー・選択 */
+  --background-400: 0.365 0.016 252; /* #343D47 境界線 */
+  --background-500: 0.45 0.016 252;
+  --background-600: 0.54 0.016 252;
+  --background-700: 0.64 0.014 252;
+  --background-800: 0.75 0.012 250;
+  --background-900: 0.86 0.008 250;
+  --background-950: 0.94 0.006 250;
+
+  /* 文字：数字が大きいほど明るい（ライトテーマの反転）
+     補助情報（商品ID・ブランド・登録日時）は暗い面でも読み取れる明るさに引き上げる。
+     メインテキスト #F3F4F6 / セカンダリ #B5BEC9 / 補助 #9BA6B4（背景 #111418〜#1B2026 で AA 相当）。 */
+  --foreground-50: 0.2 0.008 250;
+  --foreground-100: 0.25 0.01 250;
+  --foreground-200: 0.31 0.012 250;
+  --foreground-300: 0.48 0.014 250;
+  --foreground-400: 0.715 0.016 250; /* #9BA6B4 補助情報 */
+  --foreground-500: 0.79 0.014 250; /* #B5BEC9 セカンダリテキスト */
+  --foreground-600: 0.845 0.012 250;
+  --foreground-700: 0.885 0.01 250;
+  --foreground-800: 0.92 0.008 250;
+  --foreground-900: 0.945 0.006 250;
+  --foreground-950: 0.965 0.004 250; /* #F3F4F6 メインテキスト */
+
+  /* 主要アクション：彩度を落とした深めのグリーン */
+  --primary-50: 0.245 0.028 155;
+  --primary-100: 0.285 0.042 155;
+  --primary-200: 0.345 0.055 155;
+  --primary-300: 0.41 0.066 155;
+  --primary-400: 0.47 0.076 155;
+  --primary-500: 0.53 0.082 155;
+  --primary-600: 0.59 0.084 155;
+  --primary-700: 0.79 0.075 155;
+  --primary-800: 0.85 0.055 155;
+  --primary-900: 0.9 0.04 155;
+  --primary-950: 0.94 0.025 155;
+
+  /* AI の金：暗い面に馴染むくすんだアンバー */
+  --accent-50: 0.25 0.03 85;
+  --accent-100: 0.3 0.045 85;
+  --accent-200: 0.36 0.052 85;
+  --accent-300: 0.44 0.062 85;
+  --accent-400: 0.55 0.075 85;
+  --accent-500: 0.66 0.088 85;
+  --accent-600: 0.73 0.088 85;
+  --accent-700: 0.79 0.078 85;
+  --accent-800: 0.85 0.06 85;
+  --accent-900: 0.9 0.045 85;
+  --accent-950: 0.94 0.03 85;
+
+  /* 補助：暖かいニュートラル */
+  --secondary-50: 0.22 0.012 45;
+  --secondary-100: 0.27 0.014 45;
+  --secondary-200: 0.33 0.016 45;
+  --secondary-300: 0.4 0.018 45;
+  --secondary-400: 0.48 0.02 45;
+  --secondary-500: 0.6 0.022 45;
+  --secondary-600: 0.68 0.022 45;
+  --secondary-700: 0.78 0.02 45;
+  --secondary-800: 0.85 0.016 45;
+  --secondary-900: 0.9 0.012 45;
+  --secondary-950: 0.94 0.008 45;
+
+  background-color: #111418;
+  color: #f3f4f6;
+}
+
+/* ヘッダーはページより一段沈んだ #181D23 にする */
+.is-test-dark header.bg-white {
+  background-color: #181d23;
+}
+
+/* カード・テーブル・モーダルの白面はすべてカード背景色へ */
+.is-test-dark .bg-white {
+  background-color: #20262d;
+}
+
+/* 濃い塗りの上に置く文字（text-background-50）は、ダークでも明るいまま保つ */
+.is-test-dark .text-background-50 {
+  color: #f3f4f6;
+}
+
+/* 画像の上に重ねる半透明の白チップは、暗い面の半透明に置き換える */
+.is-test-dark .bg-white\/90,
+.is-test-dark .bg-white\/85 {
+  background-color: rgba(32, 38, 45, 0.92);
+}
+
+/* 境界線：カード・テーブルの罫線は #303841、ボタン・入力欄の枠は #343D47 にする。
+   面と罫線の差を抑え、線が主張しすぎないようにする。 */
+.is-test-dark .border-background-200 {
+  border-color: #303841;
+}
+
+.is-test-dark .border-background-300 {
+  border-color: #343d47;
+}
+
+.is-test-dark .divide-background-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #303841;
+}
+
+/* 商品一覧テーブル
+   表（データ面）はページともカードとも違う #1B2026 に置き、
+   見出し #20262D → 行 #1B2026 → ホバー #272E36 → 選択 #29333A と、
+   背景差を小さくした自然な階層で並べる。カラム幅・行高さは変更しない。 */
+.is-test-dark .product-row {
+  background-color: #1b2026;
+}
+
+.is-test-dark .product-row:hover {
+  background-color: #272e36;
+}
+
+.is-test-dark .product-row.is-selected {
+  background-color: #29333a;
+}
+
+.is-test-dark .product-row.is-selected:hover {
+  background-color: #2f3a43;
+}
+
+/* 編集中の行は選択とは別の意味なので、行よりわずかに明るい面に留める */
+.is-test-dark .product-row.is-editing,
+.is-test-dark .product-row.is-editing:hover,
+.is-test-dark .product-row.is-editing.is-selected,
+.is-test-dark .product-row.is-editing.is-selected:hover {
+  background-color: #1f252c;
+}
+
+/* 列見出しはカード面（#20262D）を保ち、データ面より一段明るく見せる */
+.is-test-dark .product-table-head {
+  background-color: #20262d;
+}
+
+.is-test-dark .ui-card {
+  background-color: #20262d;
+  border-color: #343d47;
+  box-shadow: none;
+}
+
+.is-test-dark .ui-card-hover:hover {
+  transform: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+.is-test-dark .product-skeleton-block {
+  background-color: #20262d;
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.06) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+
+/* チェックボックス（未選択＝暗い面＋明るいグレー枠 / 選択＝緑） */
+.is-test-dark .product-checkbox-box {
+  border-color: #4b5663;
+  background-color: #20262d;
+}
+
+.is-test-dark .product-checkbox:hover input:not(:disabled) + .product-checkbox-box {
+  border-color: #7b8794;
+}
+
+.is-test-dark .product-checkbox input:checked + .product-checkbox-box,
+.is-test-dark .product-checkbox input:indeterminate + .product-checkbox-box {
+  border-color: #2e7d57;
+  background-color: #2e7d57;
+}
+
+.is-test-dark .product-checkbox input:focus-visible + .product-checkbox-box {
+  box-shadow: 0 0 0 3px rgba(46, 125, 87, 0.35);
+}
+
+/* ヘッダーのサブアクション・設定ボタン（ダークテーマ）
+   ヘッダー面（#181D23）より一段明るい #20262D を置き、
+   枠線 #343D47・文字 #E5E7EB で他のボタンと同じ輪郭に揃える。 */
+.is-test-dark .product-header-action,
+.is-test-dark .product-header-icon-btn {
+  background-color: #20262d;
+  border-color: #343d47;
+  color: #e5e7eb;
+}
+
+/* 設定ボタンは通常時もう一段控えめな文字色にする */
+.is-test-dark .product-header-icon-btn {
+  color: #b5bec9;
+}
+
+.is-test-dark .product-header-action:hover,
+.is-test-dark .product-header-icon-btn:hover,
+.is-test-dark .product-header-icon-btn.is-open {
+  background-color: #2b333c;
+  color: #f3f4f6;
+}
+
+.is-test-dark .product-header-action:focus-visible,
+.is-test-dark .product-header-icon-btn:focus-visible {
+  box-shadow: 0 0 0 3px rgba(120, 133, 148, 0.35);
+}
+
+/* 主要CTA（新しい商品を登録）：暗い面でも浮かない低彩度の深緑。
+   主CTAであることは保ちつつ、彩度と塗りの強さを落として
+   ヘッダー・サブボタン・テーブルと並んでも自然に馴染むようにする。
+   ・通常 #24543F / hover #2B6249 / active #1F4937
+   ・薄い境界線で輪郭だけを補い、発光感・影・グラデーションは使わない
+   ・左右パディングはサブボタン（16px）と揃え、横幅が大きく見えないようにする */
+.is-test-dark .product-cta {
+  background-color: #24543f;
+  color: #ffffff;
+  padding-left: 15px;
+  padding-right: 15px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+}
+
+.is-test-dark .product-cta:hover {
+  background-color: #2b6249;
+}
+
+.is-test-dark .product-cta:active {
+  background-color: #1f4937;
+}
+
+/* 先頭の「＋」アイコンは文字より一段控えめにして、アイコンだけが目立たないようにする */
+.is-test-dark .product-cta i {
+  font-size: 16px;
+  opacity: 0.9;
+}
+
+.is-test-dark .product-cta:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(36, 84, 63, 0.55);
+}
+
+/* 入力欄・選択欄は背景と同じ #20262D、境界線は #343D47 */
+.is-test-dark input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+.is-test-dark select,
+.is-test-dark textarea {
+  background-color: #20262d;
+  border-color: #343d47;
+  color: #f3f4f6;
+}
+
+.is-test-dark input::placeholder,
+.is-test-dark textarea::placeholder {
+  color: #8d98a6;
+}
+
+.is-test-dark select option {
+  background-color: #20262d;
+  color: #f3f4f6;
+}
+
+/* 意味で固定した色（tone-*）。淡いアンバーは暗いアンバーへ置き換える */
+.is-test-dark .tone-warning {
+  background-color: #3a3222;
+  color: #e3c48f;
+}
+
+/* ステータスバッジ（ダークテーマ）
+   色相はライトテーマと同じ意味に固定し、明るい塗りは低彩度の暗い面へ置き換える。
+   通常状態（グレー）は面とほぼ同じ明るさに留め、警告だけが浮くようにする。 */
+.is-test-dark .st-publish,
+.is-test-dark .st-ledger,
+.is-test-dark .st-link {
+  background-color: #22342b;
+  color: #a9d5ba;
+}
+
+.is-test-dark .st-ledger-strong {
+  background-color: #4a3f2a;
+  color: #f0d6a4;
+}
+
+/* 通常状態は控えめなグレー面。色ではなく文字とアイコンで意味を伝える。 */
+.is-test-dark .st-publish-off,
+.is-test-dark .st-inventory,
+.is-test-dark .st-ledger-soft {
+  background-color: #262d34;
+  color: #c2cbd5;
+}
+
+.is-test-dark .st-inventory-soft {
+  border-color: #3f4a55;
+  background-color: transparent;
+  color: #b5bec9;
+}
+
+.is-test-dark .st-inventory-off {
+  background-color: #20262d;
+  color: #8e99a6;
+}
+
+.is-test-dark .st-link-soft,
+.is-test-dark .st-muted {
+  border-color: #3f4a55;
+  background-color: transparent;
+  color: #9ba6b4;
+}
+
+/* テストモードでは一覧の全行がテスト商品のため、「テスト商品」バッジは
+   環境表示の重複になる。一覧の行内でのみ非表示にする（商品詳細では属性として残す）。 */
+.is-test-dark .product-row .st-test {
+  display: none;
+}
+
+/* 注意・エラー系の淡い背景（amber / red）もダーク用の淡い色へ */
+.is-test-dark .bg-amber-50 {
+  background-color: #2e2718;
+}
+
+.is-test-dark .bg-amber-100 {
+  background-color: #3a3222;
+}
+
+.is-test-dark .bg-amber-200 {
+  background-color: #463c28;
+}
+
+.is-test-dark .border-amber-200 {
+  border-color: #4a3f2a;
+}
+
+.is-test-dark .border-amber-300 {
+  border-color: #5a4a2e;
+}
+
+.is-test-dark .border-amber-400 {
+  border-color: #6b5735;
+}
+
+.is-test-dark .text-amber-900 {
+  color: #ebd2a4;
+}
+
+.is-test-dark .text-amber-800 {
+  color: #e3c48f;
+}
+
+.is-test-dark .text-amber-700 {
+  color: #d8b77e;
+}
+
+.is-test-dark .bg-red-50 {
+  background-color: #332124;
+}
+
+.is-test-dark .bg-red-100 {
+  background-color: #3d2629;
+}
+
+.is-test-dark .border-red-200 {
+  border-color: #5a3438;
+}
+
+.is-test-dark .border-red-300 {
+  border-color: #6b3c41;
+}
+
+.is-test-dark .text-red-700 {
+  color: #f0a9ae;
+}
+
+.is-test-dark .text-red-800 {
+  color: #f3b6ba;
 }
 
 /* 商品登録フォーム：バリデーションエラー時の入力枠線。
@@ -246,52 +765,68 @@ body {
      AI生成   = 金（accent）
    同じドメイン内の状態差は「塗りの濃さ・枠線・アイコン」で表し、色相は変えない。
    ======================================================================== */
+/* バッジは高さ22pxを維持したまま、文字を12px / 500 に揃える（状態名を読み取れる最小サイズ）。
+   色だけで状態を判別させないため、文字とアイコンは常に併記する。 */
 .st-badge {
-  @apply inline-flex h-[22px] max-w-full items-center gap-1 whitespace-nowrap rounded-md px-2 text-[11px] font-medium leading-none;
+  @apply inline-flex h-[22px] max-w-full items-center gap-1 whitespace-nowrap rounded-md px-2 text-[12px] font-medium leading-none;
+  letter-spacing: normal;
 }
 
-/* --- 公開状態（公開中だけ塗り、下書き・非公開は枠線のみ） --- */
+/* --- 公開状態 ---
+   ・公開中   = 控えめなグリーン（淡い面＋濃い文字）
+   ・下書き   = ニュートラルなグレー（淡い面）
+   ・非公開   = ニュートラルなグレー（下書きと同じ静けさ）
+   どの状態も文字とアイコンを併記し、色だけで判別させない。 */
 .st-publish {
-  @apply bg-primary-100 text-primary-700;
+  @apply bg-primary-50 text-primary-700;
 }
 
 .st-publish-off {
-  @apply border border-background-300 bg-white text-foreground-500;
+  @apply bg-background-100 text-foreground-500;
 }
 
-/* --- 在庫（在庫あり＝塗り / 取り置き＝枠線 / 売却済み＝淡いグレー） --- */
+/* --- 在庫 ---
+   ・在庫あり = ニュートラル（通常状態なので色を持たせない）
+   ・取り置き = 枠線（人の手が入っている状態として輪郭だけ残す）
+   ・売却済み = 一段沈んだグレー面＋専用アイコンで区別する */
 .st-inventory {
-  @apply bg-slate-100 text-slate-700;
+  @apply bg-background-100 text-foreground-600;
 }
 
 .st-inventory-soft {
-  @apply border border-slate-300 bg-white text-slate-600;
+  @apply border border-background-300 bg-white text-foreground-600;
 }
 
 .st-inventory-off {
-  @apply bg-slate-50 text-slate-400;
+  @apply bg-background-200 text-foreground-500;
 }
 
-/* --- 照合（照合済み＝塗り / 一部照合＝濃い塗り / 未照合＝枠線） --- */
+/* --- 仕入照合 ---
+   ・照合済み = 控えめなグリーン（チェック＋テキスト）
+   ・要確認   = アンバー（人が対応する必要がある状態だけ警告色）
+   ・未照合   = ニュートラルなグレー（まだ何もしていない状態） */
 .st-ledger {
-  @apply bg-amber-100 text-amber-800;
+  @apply bg-primary-50 text-primary-700;
 }
 
 .st-ledger-strong {
-  @apply bg-amber-200 text-amber-900;
+  @apply bg-amber-100 text-amber-800;
 }
 
 .st-ledger-soft {
-  @apply border border-amber-300 bg-white text-amber-700;
+  @apply bg-background-100 text-foreground-500;
 }
 
-/* --- 連携（連携済み＝グレー塗り / 未連携＝枠線） --- */
+/* --- 販売チャネル連携 ---
+   ・連携済み = 控えめな成功状態（淡いグリーン）
+   ・未連携   = 背景なしの静かなアウトライン
+   チャネルが増えても「連携済み / 未連携」の2トーンだけで表現できる構造にする。 */
 .st-link {
-  @apply bg-background-200 text-foreground-700;
+  @apply bg-primary-50 text-primary-700;
 }
 
 .st-link-soft {
-  @apply border border-background-300 bg-white text-foreground-500;
+  @apply border border-background-200 bg-transparent text-foreground-500;
 }
 
 /* --- 補助情報・アーカイブ・対象外（色を持たせない） --- */
@@ -552,18 +1087,33 @@ button:disabled.bg-accent-500:hover {
 
   background-color: var(--cat-paper);
   color: var(--cat-ink);
-  font-family: 'Inter', 'Noto Sans JP', system-ui, -apple-system,
-    'Segoe UI', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', Meiryo, sans-serif;
-  letter-spacing: -0.011em;
+  font-family: 'Inter', 'Noto Sans JP', system-ui, -apple-system, 'Segoe UI',
+    'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', Meiryo,
+    sans-serif;
+  letter-spacing: normal;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* テストモードでは商品詳細の「紙色」もダークへ差し替える（レイアウトは変更しない） */
+.is-test-dark.catalogue {
+  --cat-paper: #111418;
+  --cat-ink: #f3f4f6;
+  --cat-ink-soft: #b5bec9;
+  --cat-rule: #343d47;
+  --cat-rule-soft: #20262d;
+  --cat-green: #6fbf95;
+
+  background-color: #111418;
+  color: #f3f4f6;
 }
 
 /* 見出し・本文・数字はすべてサンセリフに統一する（旧セリフ体は廃止） */
 .catalogue .cat-display {
   font-family: inherit;
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.015em;
 }
 
 .catalogue .cat-serif {

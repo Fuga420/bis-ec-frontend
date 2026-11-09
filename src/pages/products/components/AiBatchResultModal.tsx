@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { useOperatingMode } from "@/context/OperatingModeProvider";
+import { adminThemeClass } from "@/lib/adminTheme";
 import type {
   AiBatchDisplayItem,
   AiBatchDisplayStatus,
@@ -90,6 +92,7 @@ export default function AiBatchResultModal({
   onRetryFailed,
   onClose,
 }: AiBatchResultModalProps) {
+  const { isTestMode } = useOperatingMode();
   const [filter, setFilter] = useState<ResultFilter>("all");
 
   // 開き直したときは絞り込みを解除する（前回の絞り込みで商品が見えない誤解を防ぐ）
@@ -159,11 +162,15 @@ export default function AiBatchResultModal({
       aria-modal="true"
       aria-label="AI一括生成の進捗・結果"
     >
-      <div className="products-theme admin-font flex max-h-[calc(100vh-48px)] w-full max-w-[800px] flex-col overflow-hidden rounded-[10px] border border-[#E5E7EB] bg-white">
+      <div
+        className={`products-theme admin-font ${adminThemeClass(
+          isTestMode
+        )} flex max-h-[calc(100vh-48px)] w-full max-w-[800px] flex-col overflow-hidden rounded-[10px] border border-background-200 bg-white`}
+      >
         {/* ヘッダー（固定） */}
-        <div className="flex items-start justify-between gap-4 border-b border-[#E5E7EB] px-5 py-3">
+        <div className="flex items-start justify-between gap-4 border-b border-background-200 px-5 py-3">
           <div className="min-w-0">
-            <h3 className="admin-title text-[17px] font-semibold leading-tight text-foreground-950">
+            <h3 className="admin-title text-[16px] font-semibold leading-[1.4] text-foreground-950">
               AI一括生成の進捗・結果
             </h3>
             <p className="mt-1 truncate text-[11px] leading-none text-foreground-500">
@@ -189,7 +196,7 @@ export default function AiBatchResultModal({
         </div>
 
         {/* 集計（固定） */}
-        <div className="border-b border-[#E5E7EB] px-5 py-3">
+        <div className="border-b border-background-200 px-5 py-3">
           <div className="flex flex-wrap items-end gap-x-8 gap-y-2">
             <StatBlock
               label="反映完了"
@@ -327,7 +334,7 @@ export default function AiBatchResultModal({
         </div>
 
         {/* フッター（固定） */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#E5E7EB] px-5 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-background-200 px-5 py-3">
           <p className="min-w-0 flex-1 text-[10px] leading-relaxed text-foreground-400">
             {terminal
               ? "閉じると、この結果表示は破棄されます。"

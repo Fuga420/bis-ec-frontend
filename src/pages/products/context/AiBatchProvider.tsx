@@ -7,6 +7,8 @@ import {
   type ReactNode,
 } from "react";
 import AiBatchResultModal from "@/pages/products/components/AiBatchResultModal";
+import { useOperatingMode } from "@/context/OperatingModeProvider";
+import { adminThemeClass } from "@/lib/adminTheme";
 import { useAiBatchGeneration } from "@/pages/products/hooks/useAiBatchGeneration";
 import { isTerminalBatchStatus } from "@/pages/products/lib/aiBatch";
 import type {
@@ -33,6 +35,12 @@ export interface AiBatchContextValue {
   isSubmitting: boolean;
   isPolling: boolean;
   isBusy: boolean;
+  /** 進捗を取得できず状態を断定できない（ポーリングは継続中） */
+  isTrackingUnknown: boolean;
+  /** items の件数がサーバーの実データに基づくか（復元直後は false） */
+  countsConfirmed: boolean;
+  /** 追跡を終了したことを一度だけ知らせるメッセージ */
+  noticeMessage: string;
   hasActiveBatch: boolean;
   errorMessage: string;
   pollError: string;
@@ -52,6 +60,8 @@ export interface AiBatchContextValue {
   retryFailed: () => Promise<void>;
   /** バッチ状態を破棄する（保存済みIDも削除） */
   dismiss: () => void;
+  /** 通知メッセージを閉じる */
+  clearNoticeMessage: () => void;
   /** 結果モーダルを開く */
   openResult: () => void;
   /** 結果モーダルを閉じる（終了状態なら破棄する） */
@@ -61,6 +71,7 @@ export interface AiBatchContextValue {
 const AiBatchContext = createContext<AiBatchContextValue | null>(null);
 
 export function AiBatchProvider({ children }: { children: ReactNode }) {
+  const { isTestMode } = useOperatingMode();
   const {
     items,
     batchStatus,
@@ -68,12 +79,16 @@ export function AiBatchProvider({ children }: { children: ReactNode }) {
     isSubmitting,
     isPolling,
     isBusy,
+    isTrackingUnknown,
+    countsConfirmed,
+    noticeMessage,
     hasActiveBatch,
     errorMessage,
     pollError,
     start: startBatch,
     retryFailed,
     dismiss,
+    clearNoticeMessage,
   } = useAiBatchGeneration();
 
   const [isResultOpen, setIsResultOpen] = useState(false);
@@ -115,6 +130,9 @@ export function AiBatchProvider({ children }: { children: ReactNode }) {
       isSubmitting,
       isPolling,
       isBusy,
+      isTrackingUnknown,
+      countsConfirmed,
+      noticeMessage,
       hasActiveBatch,
       errorMessage,
       pollError,
@@ -122,6 +140,7 @@ export function AiBatchProvider({ children }: { children: ReactNode }) {
       start,
       retryFailed,
       dismiss,
+      clearNoticeMessage,
       openResult,
       closeResult,
     }),
@@ -132,6 +151,9 @@ export function AiBatchProvider({ children }: { children: ReactNode }) {
       isSubmitting,
       isPolling,
       isBusy,
+      isTrackingUnknown,
+      countsConfirmed,
+      noticeMessage,
       hasActiveBatch,
       errorMessage,
       pollError,
@@ -139,6 +161,7 @@ export function AiBatchProvider({ children }: { children: ReactNode }) {
       start,
       retryFailed,
       dismiss,
+      clearNoticeMessage,
       openResult,
       closeResult,
     ]
@@ -159,6 +182,32 @@ export function AiBatchProvider({ children }: { children: ReactNode }) {
         onRetryFailed={retryFailed}
         onClose={closeResult}
       />
+      {/* 追跡を終了した理由を一度だけ控えめに知らせる（進捗バーは既に消えているため） */}
+      {noticeMessage && (
+        <div
+          className={`products-theme admin-font ${adminThemeClass(
+            isTestMode
+          )} pointer-events-none fixed bottom-4 left-1/2 z-40 w-[min(92vw,460px)] -translate-x-1/2`}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="pointer-events-auto flex items-start gap-2 rounded-lg border border-background-200 bg-white px-3 py-2">
+            <i className="ri-information-line mt-0.5 flex h-4 w-4 items-center justify-center text-[15px] text-foreground-400"></i>
+            <p className="min-w-0 flex-1 text-[12px] leading-relaxed text-foreground-700">
+              {noticeMessage}
+            </p>
+            <button
+              type="button"
+              onClick={clearNoticeMessage}
+              aria-label="通知を閉じる"
+              title="通知を閉じる"
+              className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-foreground-400 transition-colors hover:bg-background-100 hover:text-foreground-700"
+            >
+              <i className="ri-close-line flex h-3.5 w-3.5 items-center justify-center text-[13px]"></i>
+            </button>
+          </div>
+        </div>
+      )}
     </AiBatchContext.Provider>
   );
 }

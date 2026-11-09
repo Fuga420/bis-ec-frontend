@@ -9,8 +9,8 @@ interface ProductDetailTabsProps {
 
 const TABS: Array<{ key: ProductDetailTabKey; label: string }> = [
   { key: "sales", label: "販売管理" },
-  { key: "purchase", label: "来歴・仕入" },
-  { key: "integration", label: "翻訳・外部連携" },
+  { key: "purchase", label: "仕入・書類" },
+  { key: "integration", label: "外部連携" },
 ];
 
 /**

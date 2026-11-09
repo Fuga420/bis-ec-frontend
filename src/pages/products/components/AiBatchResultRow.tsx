@@ -53,7 +53,7 @@ function AiBatchResultRow({ item }: AiBatchResultRowProps) {
   const displayName = isNameMissing ? "商品名未入力" : rawName;
 
   return (
-    <div className="flex items-start gap-3 border-b border-[#E5E7EB]/70 px-5 py-2 transition-colors last:border-b-0 hover:bg-background-50">
+    <div className="flex items-start gap-3 border-b border-background-200/70 px-5 py-2 transition-colors last:border-b-0 hover:bg-background-50">
       <div className="min-w-0 flex-1">
         <p
           className={`truncate text-[13px] leading-snug ${

@@ -21,11 +21,10 @@ const ICONS: Record<LedgerMatchStatus, string> = {
 /**
  * 商品一覧の「仕入照合」セル。
  *
- * 照合は「照合ドメイン」なので、色は黄色（amber）系に固定する。
- * 状態の差は色相ではなく「塗りの濃さ・枠線・アイコン」で表す。
- *  - 照合済み: 黄色の塗り + チェック
- *  - 要確認  : 濃い黄色 + 警告
- *  - 未照合  : 黄色の枠線のみ
+ * 状態の意味は色より先にアイコンと文字で示す（色だけで判別させない）。
+ *  - 照合済み: チェック + 控えめなグリーン（ライト・ダーク共通の意味）
+ *  - 要確認  : 警告アイコン + アンバー（人が対応する状態だけ警告色）
+ *  - 未照合  : 横棒 + ニュートラルなグレー
  * 高さ・文字サイズは他のステータスバッジと同じ（.st-badge）。
  */
 export default function LedgerMatchCell({
@@ -35,7 +34,7 @@ export default function LedgerMatchCell({
   if (loading || !status) {
     return (
       <span
-        className="inline-flex h-[22px] items-center gap-1 whitespace-nowrap text-[11px] leading-none text-foreground-300"
+        className="admin-numeric inline-flex h-[22px] items-center gap-1 whitespace-nowrap text-[12px] leading-none text-foreground-400"
         title={
           loading ? "仕入照合の状態を確認中" : "仕入照合の状態を判定できません"
         }

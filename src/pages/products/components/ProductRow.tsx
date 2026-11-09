@@ -51,18 +51,31 @@ const actionIconBase =
   "flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-background-300 bg-white text-base text-foreground-500 transition-colors hover:border-background-400 hover:bg-background-100 hover:text-foreground-800 focus:outline-none focus-visible:border-primary-400 focus-visible:ring-2 focus-visible:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-background-300 disabled:hover:bg-white";
 
 // 色は「ドメイン」で固定する（index.css の .st-* を参照）。
-// 公開状態 = 緑 / 在庫 = 青グレー / 照合 = 黄 / 連携 = グレー。
-// 同じ色を別の意味に使い回さないため、ここでは色を追加しない。
+// 公開状態 = 控えめな緑（公開中のみ）/ 在庫 = ニュートラル / 照合 = 緑・アンバー / 連携 = 緑。
+// 状態の違いは塗りの強さ・枠線・アイコンで表し、色相は増やさない。
 const statusStyles: Record<string, string> = {
   draft: "st-publish-off",
   published: "st-publish",
   hidden: "st-publish-off",
 };
 
+// 状態名だけでなくアイコンも添え、色に依存せず読み取れるようにする。
+const statusIcons: Record<string, string> = {
+  draft: "ri-pencil-line",
+  published: "ri-check-line",
+  hidden: "ri-eye-off-line",
+};
+
 const inventoryStyles: Record<string, string> = {
   in_stock: "st-inventory",
   reserved: "st-inventory-soft",
   sold: "st-inventory-off",
+};
+
+const inventoryIcons: Record<string, string> = {
+  in_stock: "ri-checkbox-circle-line",
+  reserved: "ri-time-line",
+  sold: "ri-forbid-line",
 };
 
 // スニーカーのサイズが入力済みか判定する（null・空文字・0 は未入力扱い）
@@ -168,18 +181,35 @@ export default function ProductRow({
   };
 
   const statusBadge = (
-    <span className={`${badgeBase} ${statusClass}`}>{statusLabel}</span>
+    <span className={`${badgeBase} ${statusClass}`}>
+      <i
+        className={`${
+          statusIcons[product.publish_status] ?? "ri-subtract-line"
+        } w-3 h-3 flex items-center justify-center text-xs`}
+      ></i>
+      {statusLabel}
+    </span>
   );
 
   const inventoryBadge = (
-    <span className={`${badgeBase} ${inventoryClass}`}>{inventoryLabel}</span>
+    <span className={`${badgeBase} ${inventoryClass}`}>
+      <i
+        className={`${
+          inventoryIcons[product.inventory_status] ?? "ri-subtract-line"
+        } w-3 h-3 flex items-center justify-center text-xs`}
+      ></i>
+      {inventoryLabel}
+    </span>
   );
 
   const recordStatusLabel =
     RECORD_STATUS_LABELS[product.record_status] ??
     (product.record_status || "—");
+  // テスト商品バッジはデータ属性（is_test）ではあるが、テストモードの一覧では全行が
+  // テスト商品になるため環境表示の重複になる。ダークテーマ時のみ一覧行では非表示にする
+  // （CSS: .is-test-dark .product-row .st-test）。商品詳細では属性表示として残す。
   const testBadge = product.is_test ? (
-    <span className={`${badgeBase} st-muted`}>テスト商品</span>
+    <span className={`${badgeBase} st-muted st-test`}>テスト商品</span>
   ) : null;
   const recordStatusBadge =
     product.record_status === "archived" ? (
@@ -197,7 +227,9 @@ export default function ProductRow({
   const sneakerSizeText = formatSneakerSize(product.sneaker_size);
   const hasSize = sneakerSizeText !== "";
   // 補助情報バッジ（サイズ）: ドメイン色（公開・在庫・照合・連携）は状態専用のため、
-  // 補助情報は色を持たせず枠線のグレーで表示する。未設定はアイコンで注意を示す。
+  // 補助情報は色を持たせず枠線のグレーで表示する。未設定は「注意」ではなく
+  // 「まだ入力されていない」ことが分かる控えめなアイコンに留め、
+  // 商品名・価格より目立たせない（アンバーなどの警告色は使わない）。
   const sneakerSizeBadge = isSneaker ? (
     <span
       className={`${badgeBase} st-muted`}
@@ -205,15 +237,16 @@ export default function ProductRow({
     >
       <i
         className={`${
-          hasSize ? "ri-ruler-2-line" : "ri-error-warning-line"
+          hasSize ? "ri-ruler-2-line" : "ri-information-line"
         } w-3 h-3 flex items-center justify-center text-xs`}
       ></i>
       {hasSize ? `サイズ ${sneakerSizeText}` : "サイズ未設定"}
     </span>
   ) : null;
 
-  // 連携ドメインのバッジ（Square）: 連携済み＝グレー塗り / 未連携＝グレー枠線。
-  // 「未連携」を黄色にしないことで、黄色は照合ドメイン専用に保つ。
+  // 連携ドメインのバッジ（Square）: 連携済み＝控えめな成功色 / 未連携＝静かなアウトライン。
+  // 「未連携」を警告色にしないことで、アンバーは「要確認」だけに保つ。
+  // ラベルとアイコンの2要素だけなので、販売チャネルが増えても同じ形で追加できる。
   const squareBadge = (
     <span
       className={`${badgeBase} ${isSquareLinked ? "st-link" : "st-link-soft"}`}
@@ -229,7 +262,7 @@ export default function ProductRow({
     </span>
   );
 
-  // ブランドは 10px のグレー文字。未設定なら要素自体を出さず、空行を作らない。
+  // ブランドは補助情報の12pxグレー文字。未設定なら要素自体を出さず、空行を作らない。
   const brandText = (product.brand ?? "").toString().trim();
   const hasBrand = brandText !== "";
 
@@ -310,10 +343,10 @@ export default function ProductRow({
           className="block min-w-0 flex-1 cursor-pointer rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-400"
         >
           {/* デスクトップ（一覧表）
-              情報密度を優先し、画像64px・上下余白12pxの行（標準80px前後）に揃える。
-              商品ID・ブランド・商品の状態・登録日時・補助バッジは、商品名の下の1行に
-              まとめて折り返す。視線は「画像 → 商品名 → 価格」の順に流れる。 */}
-          <div className="hidden items-center gap-3 px-4 py-3 lg:flex lg:min-h-[80px]">
+              情報密度を優先し、画像64px・上下余白12pxの行（標準90px前後）に揃える。
+              商品名の下に、補助情報（ブランド・商品ID・商品の状態・登録日時）の1行、
+              その下に連携・サイズのバッジ段を置く。視線は「画像 → 商品名 → 価格」の順に流れる。 */}
+          <div className="hidden items-center gap-3.5 px-4 py-3 lg:flex lg:min-h-[80px]">
             {/* 画像列はヘッダーの「画像」ラベルと同じ幅（64px）に固定する */}
             <span className={`flex items-center ${COL_IMAGE}`}>
               <ProductThumbnail
@@ -325,49 +358,57 @@ export default function ProductRow({
             {/* 商品情報列は最小320pxを確保しつつ、余剰幅を最も多く受け取る。
                 ただし他列にも比率で余剰幅を配分するため、右側の状態列が
                 端に寄って詰まることはない（列幅は productTableColumns に集約）。 */}
-            <div className={COL_NAME}>
-              {/* 商品名は最大2行（13〜14px / 600）。超過分は末尾を省略し、
-                  全文は商品詳細で確認できる。行の高さが商品名で伸びすぎないよう行間も詰める。
+            <div className={`${COL_NAME} min-w-0`}>
+              {/* 商品名は一覧の主役（14px / 600 / 行間1.4）。最大2行で末尾を省略し、
+                  全文は title（ツールチップ）と商品詳細で確認できる。
                   商品名未入力は「情報待ちの下書き」でありエラーではないため、
-                  色を薄く・ウェイトを1段落として（500）控えめに置き、通常の商品名を主役にする。 */}
+                  色を一段淡く・ウェイトを1段落として（500）控えめに置く
+                  （ライトでも薄くなりすぎないよう 500 番台の色に留める）。 */}
               <p
-                className={`admin-title line-clamp-2 text-[13.5px] leading-snug ${
+                title={displayName}
+                className={`admin-title line-clamp-2 text-[14px] leading-[1.4] ${
                   isNameMissing
-                    ? "font-medium text-foreground-400"
+                    ? "font-medium text-foreground-500"
                     : "font-semibold text-foreground-950"
                 }`}
               >
                 {displayName}
               </p>
-              {/* 補助情報（ブランド・商品ID・状態・登録日時・補助バッジ）は1行にまとめ、
-                  収まらない場合だけ折り返す。縦の間隔を詰めて行の高さを一定に保つ。 */}
-              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] leading-none text-foreground-400">
+              {/* 補助情報（ブランド・商品ID・商品の状態・登録日時）はコンパクトな1行にまとめ、
+                  横幅が足りないときだけ自然に折り返す。12px を保ち、ID・日時は一段淡くして
+                  商品名との優先順位を明確にする。区切り記号は増やさず、余白（12px）で区切る。 */}
+              <div className="admin-meta mt-0.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-foreground-500">
                 {hasBrand && (
-                  <span className="admin-eyebrow max-w-[160px] shrink-0 truncate text-[10px] font-semibold uppercase">
+                  // ブランド名は補助情報として通常の文字組みで置く
+                  // （全大文字＋広い字間の装飾は使わない）。
+                  <span className="max-w-[160px] shrink-0 truncate text-foreground-600">
                     {brandText}
                   </span>
                 )}
-                <span className="shrink-0 whitespace-nowrap font-mono tabular-nums">
+                <span className="admin-numeric shrink-0 whitespace-nowrap">
                   {product.product_id}
                 </span>
                 {conditionText && (
-                  <span className="min-w-0 max-w-[160px] truncate">
+                  <span className="min-w-0 max-w-[160px] truncate text-foreground-600">
                     {conditionText}
                   </span>
                 )}
-                <span className="shrink-0 whitespace-nowrap tabular-nums">
+                <span className="admin-numeric shrink-0 whitespace-nowrap">
                   {formatDate(product.created_at)}
                 </span>
-                {hasBadges && (
-                  <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
-                    {/* 並び順は全画面で統一: 公開 → 在庫 → 照合 → 連携 → 補助情報 */}
-                    {squareBadge}
-                    {testBadge}
-                    {recordStatusBadge}
-                    {sneakerSizeBadge}
-                  </span>
-                )}
               </div>
+              {/* 連携情報・サイズは補助情報の下の段に置く。
+                  バッジの寸法（高さ22px・角丸6px）は .st-badge に共通化されており、
+                  色も増やさず既存のドメイン色だけを使う。 */}
+              {hasBadges && (
+                <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                  {/* 並び順は全画面で統一: 公開 → 在庫 → 照合 → 連携 → 補助情報 */}
+                  {squareBadge}
+                  {testBadge}
+                  {recordStatusBadge}
+                  {sneakerSizeBadge}
+                </div>
+              )}
             </div>
             <span className={`${COL_CATEGORY} truncate text-xs text-foreground-500`}>
               {categoryLabel}
@@ -375,10 +416,10 @@ export default function ProductRow({
             {/* 価格未設定は「¥0」ではなく補助テキストとして淡く置く。
                 入力済みの価格（15px / 700）との差で、価格の有無が一目で分かる。 */}
             <span
-              className={`admin-numeric ${COL_PRICE} whitespace-nowrap text-right tracking-tight ${
+              className={`admin-numeric ${COL_PRICE} whitespace-nowrap text-right ${
                 hasPrice
-                  ? "text-[15px] font-bold text-foreground-950"
-                  : "text-[12.5px] font-normal text-foreground-400"
+                  ? "text-[15px] font-semibold text-foreground-950"
+                  : "text-[12px] font-normal text-foreground-400"
               }`}
             >
               {priceText}
@@ -399,7 +440,7 @@ export default function ProductRow({
           </div>
 
           {/* モバイル（画像72pxで、デスクトップと同じ階層感を保つ） */}
-          <div className="flex items-center gap-3 px-4 py-3 lg:hidden">
+          <div className="flex items-center gap-3.5 px-4 py-3 lg:hidden">
             <ProductThumbnail
               src={product.main_image_display_url}
               alt={name}
@@ -407,23 +448,29 @@ export default function ProductRow({
             />
             <div className="min-w-0 flex-1">
               <p
-                className={`admin-title line-clamp-2 text-[15px] leading-snug ${
+                title={displayName}
+                className={`admin-title line-clamp-2 text-[14px] leading-[1.4] ${
                   isNameMissing
-                    ? "font-medium text-foreground-400"
+                    ? "font-medium text-foreground-500"
                     : "font-semibold text-foreground-950"
                 }`}
               >
                 {displayName}
               </p>
-              {hasBrand && (
-                <p className="admin-eyebrow mt-1.5 truncate text-[10px] font-semibold leading-none text-foreground-400">
-                  {brandText}
-                </p>
-              )}
-              <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
-                <span className="whitespace-nowrap font-mono text-[11px] tabular-nums text-foreground-400">
+              <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px] leading-[1.5] text-foreground-500">
+                {hasBrand && (
+                  <span className="max-w-[160px] truncate text-foreground-600">
+                    {brandText}
+                  </span>
+                )}
+                <span className="admin-numeric whitespace-nowrap">
                   {product.product_id}
                 </span>
+                <span className="admin-numeric whitespace-nowrap">
+                  {formatDate(product.created_at)}
+                </span>
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
                 {/* 並び順は全画面で統一: 公開 → 在庫 → 照合 → 連携 → 補助情報 */}
                 {statusBadge}
                 {inventoryBadge}
@@ -439,15 +486,15 @@ export default function ProductRow({
             </div>
             <div className="shrink-0 text-right">
               <p
-                className={`admin-numeric whitespace-nowrap tracking-tight ${
+                className={`admin-numeric whitespace-nowrap ${
                   hasPrice
-                    ? "text-base font-bold text-foreground-950"
-                    : "text-[12.5px] font-normal text-foreground-400"
+                    ? "text-[16px] font-semibold text-foreground-950"
+                    : "text-[12px] font-normal text-foreground-400"
                 }`}
               >
                 {priceText}
               </p>
-              <p className="mt-1 text-xs text-foreground-500">{categoryLabel}</p>
+              <p className="mt-1 text-[12px] text-foreground-500">{categoryLabel}</p>
             </div>
           </div>
         </Link>

@@ -54,7 +54,7 @@ export default function ProductInlineEditor({
   }, [product.product_id]);
 
   const fieldBase =
-    "h-11 w-full rounded-lg border border-background-300 bg-white px-3 text-[13.5px] text-foreground-950 placeholder:text-foreground-400 outline-none transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:cursor-not-allowed disabled:border-background-200 disabled:bg-background-100 disabled:text-foreground-400";
+    "h-11 w-full rounded-lg border border-background-300 bg-white px-3 text-[14px] text-foreground-950 placeholder:text-foreground-400 outline-none transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:cursor-not-allowed disabled:border-background-200 disabled:bg-background-100 disabled:text-foreground-400";
 
   return (
     <div className="border-t border-background-200 bg-white px-4 py-4">
@@ -67,10 +67,10 @@ export default function ProductInlineEditor({
       >
         {/* 見出し＋編集対象の商品ID（行にも商品IDは出ているので控えめに添えるだけ） */}
         <div className="mb-2.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <h4 className="text-[13px] font-semibold leading-none text-foreground-800">
+          <h4 className="text-[14px] font-semibold leading-[1.4] text-foreground-800">
             商品情報を編集
           </h4>
-          <span className="font-mono text-[11px] leading-none tabular-nums text-foreground-400">
+          <span className="admin-numeric text-[12px] leading-none text-foreground-400">
             {product.product_id}
           </span>
         </div>
@@ -80,7 +80,7 @@ export default function ProductInlineEditor({
           <div className="min-w-0 flex-1">
             <label
               htmlFor={titleId}
-              className="block text-[11px] font-medium text-foreground-500"
+              className="block text-[12px] font-medium leading-[1.5] text-foreground-500"
             >
               商品名
             </label>
@@ -97,7 +97,7 @@ export default function ProductInlineEditor({
             />
             {/* スニーカーの英語タイトル行だけ、保存先が本票の商品名と異なることを示す（既存の説明を維持） */}
             {titleField === "translated_title" && (
-              <p className="mt-1 text-[11px] leading-relaxed text-foreground-400">
+              <p className="mt-1 text-[12px] leading-[1.5] text-foreground-400">
                 英語タイトル（翻訳タイトル）として保存します。本票の商品名は変更しません。
               </p>
             )}
@@ -107,7 +107,7 @@ export default function ProductInlineEditor({
           <div className="w-full lg:w-[240px] lg:shrink-0">
             <label
               htmlFor={priceId}
-              className="block text-[11px] font-medium text-foreground-500"
+              className="block text-[12px] font-medium leading-[1.5] text-foreground-500"
             >
               販売予定価格（円）
             </label>

@@ -7,8 +7,8 @@ import type {
   ProductTranslationApproveResponse,
 } from "../../types";
 import SaveStatusMessage from "@/components/base/SaveStatusMessage";
-import CatalogueSubHeading from "./CatalogueSubHeading";
 import CollapsibleText from "./CollapsibleText";
+import { normalizeDisplayNewlines } from "../lib/format";
 
 type SyncState = "idle" | "generating" | "success" | "error";
 type ApproveState = "idle" | "approving";
@@ -59,6 +59,11 @@ function statusBadge(translation: ProductTranslation | null | undefined): {
   };
 }
 
+/**
+ * 英語翻訳（English表示）の中身。
+ * 独立した管理タブではなく、商品説明セクションの言語切り替えで表示する。
+ * 生成・承認の処理は従来のまま変更しない。
+ */
 export default function ProductTranslationSection({
   productId,
   translation,
@@ -190,25 +195,28 @@ export default function ProductTranslationSection({
       ? translationData.translation_status
       : null;
 
+  // 英語説明は保存データを書き換えず、表示時だけ改行を整える
+  const translatedDescription = normalizeDisplayNewlines(
+    translationData?.translated_description ?? ""
+  );
+
   return (
     <div>
-      <CatalogueSubHeading
-        title="英語翻訳"
-        right={<span className={`st-badge ${badge.className}`}>{badge.label}</span>}
-      />
-
-      <p className="mt-1.5 text-[12px] leading-relaxed text-foreground-500">
-        越境EC向けに英語の商品説明を生成します。
-      </p>
+      {/* 翻訳の状態（ステータス）と承認状態は、既存データの値だけを表示する */}
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+        <p className="text-[11px] leading-5 text-foreground-500">英語の商品情報</p>
+        <span className={`st-badge ${badge.className}`}>{badge.label}</span>
+      </div>
 
       {translationData ? (
-        <div className="mt-3.5 flex flex-col gap-3.5">
+        <div className="mt-2.5 flex flex-col gap-3.5">
           <div>
             <p className="text-[11px] text-foreground-500">英語タイトル</p>
-            <p className="mt-0.5 text-[13.5px] font-semibold leading-relaxed text-foreground-900">
+            <p className="mt-0.5 break-words text-[13.5px] font-semibold leading-relaxed text-foreground-900">
               {translationData.translated_title || "—"}
             </p>
           </div>
+
           {(translationData.translated_condition ||
             translationData.translated_box ||
             translationData.translated_accessories) && (
@@ -245,11 +253,12 @@ export default function ProductTranslationSection({
               )}
             </dl>
           )}
+
           <div>
             <p className="text-[11px] text-foreground-500">英語説明</p>
-            {translationData.translated_description ? (
+            {translatedDescription ? (
               <CollapsibleText
-                text={translationData.translated_description}
+                text={translatedDescription}
                 collapsedLines={5}
                 threshold={160}
                 className="mt-1"
@@ -260,9 +269,12 @@ export default function ProductTranslationSection({
               </p>
             )}
           </div>
+
           <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-background-200 pt-2.5 text-[11.5px] text-foreground-500">
             <span>ロケール：{translationData.locale || "—"}</span>
-            <span>生成日時：{formatGeneratedAt(translationData.generated_at)}</span>
+            <span>
+              生成日時：{formatGeneratedAt(translationData.generated_at)}
+            </span>
             {status && (
               <span className="font-medium text-foreground-800">
                 ステータス：
@@ -272,9 +284,11 @@ export default function ProductTranslationSection({
           </div>
         </div>
       ) : (
-        <p className="mt-2.5 rounded-md bg-background-50 px-3 py-2.5 text-[12px] leading-relaxed text-foreground-500">
-          まだ英語翻訳が生成されていません
-        </p>
+        <div className="mt-2.5">
+          <p className="text-[12.5px] leading-relaxed text-foreground-600">
+            英語の商品情報は未生成です
+          </p>
+        </div>
       )}
 
       {translationData?.translation_status === "draft" && (
@@ -282,7 +296,7 @@ export default function ProductTranslationSection({
           type="button"
           onClick={handleApprove}
           disabled={approveState === "approving"}
-          className="mt-3.5 inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-primary-300 bg-white px-3.5 py-1.5 text-[12px] font-semibold text-primary-700 transition-colors hover:bg-primary-50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-3 inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-primary-300 bg-white px-3.5 py-1.5 text-[12px] font-semibold text-primary-700 transition-colors hover:bg-primary-50 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {approveState === "approving" ? (
             <>
@@ -309,8 +323,8 @@ export default function ProductTranslationSection({
       {message && (
         <SaveStatusMessage
           tone={message.type === "success" ? "success" : "error"}
-          text={message.text}
           className="mt-3"
+          text={message.text}
         />
       )}
     </div>
