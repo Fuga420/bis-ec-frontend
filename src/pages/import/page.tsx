@@ -4,10 +4,16 @@ import ImportSetCard from "@/pages/import/components/ImportSetCard";
 import ImportBatchSection from "@/pages/import/components/ImportBatchSection";
 import { sameFiles } from "@/pages/import/lib/multiImport";
 import { useMultiSetImport } from "@/pages/import/hooks/useMultiSetImport";
+import {
+  useOperatingMode,
+  useOperatingModeLock,
+} from "@/context/OperatingModeProvider";
 
 export default function ImportPage() {
-  const importer = useMultiSetImport();
+  const { isTestMode } = useOperatingMode();
+  const importer = useMultiSetImport(isTestMode);
   const { sets, isImporting, summary } = importer;
+  useOperatingModeLock(isImporting);
 
   const anyDone =
     summary.success > 0 || summary.error > 0 || summary.unknown > 0;
@@ -246,24 +252,14 @@ export default function ImportPage() {
           {/* 書類（請求書・領収書）の商品への直接添付は撤去済み。
               仕入書類は独立した書類台帳で取り込む。 */}
 
-          <div className="mt-3 border-t border-background-200 pt-3">
-            <label
-              className={`inline-flex cursor-pointer select-none items-center gap-2 text-xs text-foreground-600 ${
-                isImporting || anyDone
-                  ? "cursor-not-allowed opacity-50"
-                  : "hover:text-foreground-900"
-              }`}
-            >
-              <input
-                type="checkbox"
-                checked={importer.isTest}
-                disabled={isImporting || anyDone}
-                onChange={(e) => importer.setIsTest(e.target.checked)}
-                className="h-3.5 w-3.5 cursor-pointer accent-primary-500 disabled:cursor-not-allowed"
-              />
-              <span>テスト商品として取り込む（通常一覧から除外）</span>
-            </label>
-          </div>
+          {isTestMode && (
+            <p className="mt-3 flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] leading-relaxed text-amber-900">
+              <i className="ri-flask-line mt-0.5 w-3.5 h-3.5 shrink-0 flex items-center justify-center text-amber-700"></i>
+              <span>
+                テストモード中：テスト商品（is_test: true・下書き）として取り込みます。
+              </span>
+            </p>
+          )}
 
           <div className="mt-3 flex flex-col gap-2">
             <button
@@ -330,7 +326,7 @@ export default function ImportPage() {
         <ImportBatchSection
           products={successProducts}
           blockedAiSelectionCount={aiSelectionBlockedCount}
-          testOnly={importer.isTest}
+          testOnly={isTestMode}
         />
       </main>
     </div>

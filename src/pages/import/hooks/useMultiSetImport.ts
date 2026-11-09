@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { MAX_AI_ANALYSIS_IMAGES } from "@/pages/products/lib/aiBatch";
 import { saveImportAiSelection } from "@/pages/import/lib/aiImageSelection";
 import {
@@ -100,20 +100,13 @@ function emptySet(): ImportSet {
  * - 受付済みか不明なセットは、保持した同一ペイロード・同一 import_attempt_id で再送できる。
  * - 状態はメモリ上のみで保持する（ページ再読込で復元されない。新しいIDでの自動再送も行わない）。
  */
-export function useMultiSetImport() {
+export function useMultiSetImport(isTestMode = false) {
   const [sets, setSets] = useState<ImportSet[]>(() => [emptySet()]);
   const setsRef = useRef<ImportSet[]>(sets);
   const [isImporting, setIsImporting] = useState(false);
   const importingRef = useRef(false);
-  const [isTest, setIsTestState] = useState(false);
-  const isTestRef = useRef(false);
-
-  const setIsTest = useCallback((next: boolean) => {
-    if (importingRef.current) return;
-    if (setsRef.current.some((s) => s.status !== "idle")) return;
-    isTestRef.current = next;
-    setIsTestState(next);
-  }, []);
+  const isTestRef = useRef(isTestMode);
+  isTestRef.current = isTestMode;
 
   // ref を正本にしつつ state へ反映する（逐次処理中も常に最新を参照できるようにする）。
   const commit = useCallback((next: ImportSet[]) => {
@@ -502,10 +495,20 @@ export function useMultiSetImport() {
 
   const resetAll = useCallback(() => {
     if (importingRef.current) return;
-    isTestRef.current = false;
-    setIsTestState(false);
     commit([emptySet()]);
   }, [commit]);
+
+  // 取込完了済みのセットがある状態で動作モードを切り替えた場合は、実商品とテスト商品の混在を防ぐため初期化する。
+  // （まだ未送信の画像セットだけを準備中の場合は維持し、切り替え後のモードでそのまま取り込める。）
+  const prevModeRef = useRef(isTestMode);
+  useEffect(() => {
+    if (prevModeRef.current === isTestMode) return;
+    prevModeRef.current = isTestMode;
+    if (importingRef.current) return;
+    if (setsRef.current.some((s) => s.status !== "idle")) {
+      commit([emptySet()]);
+    }
+  }, [isTestMode, commit]);
 
   const hasImportableSet = sets.some(
     (s) =>
@@ -525,8 +528,6 @@ export function useMultiSetImport() {
     sets,
     isImporting,
     hasImportableSet,
-    isTest,
-    setIsTest,
     summary,
     addSet,
     removeSet,

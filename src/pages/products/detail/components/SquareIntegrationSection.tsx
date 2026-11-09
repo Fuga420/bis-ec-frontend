@@ -86,10 +86,13 @@ export default function SquareIntegrationSection({
   const hasProdItemId = Boolean(product.square_item_id);
   const hasProdVariationId = Boolean(product.square_variation_id);
   const hasProdCheckoutUrl = Boolean(product.square_checkout_url);
+  const isTestProduct = Boolean(product.is_test);
   const isProdLinked = hasProdVariationId;
   const isProdLinkInvalid = hasProdItemId !== hasProdVariationId;
-  const isProdReflectDisabled = product.record_status !== "active";
+  const isProdReflectDisabled =
+    product.record_status !== "active" || isTestProduct;
   const isPaymentLinkDisabled =
+    isTestProduct ||
     product.inventory_status === "sold" ||
     product.record_status !== "active" ||
     product.publish_status !== "published";
@@ -104,6 +107,7 @@ export default function SquareIntegrationSection({
 
   const handleSyncSquareProduction = async () => {
     if (prodSyncState === "saving") return;
+    if (product.is_test) return;
     // 本番連携済み（variation IDあり）の場合は二重登録しない
     if (product.square_variation_id) return;
     // アーカイブ済みは本番反映不可
@@ -265,6 +269,7 @@ export default function SquareIntegrationSection({
 
   const handleGenerateSquarePaymentLink = async () => {
     if (paymentLinkState === "saving") return;
+    if (product.is_test) return;
     // variation IDが無い場合は生成しない
     if (!product.square_variation_id) return;
     // すでに生成済みの場合は再生成しない
@@ -394,6 +399,15 @@ export default function SquareIntegrationSection({
       <p className="mt-1.5 text-[12px] leading-relaxed text-foreground-500">
         本番環境の商品情報・在庫・決済リンクを連携します。
       </p>
+
+      {isTestProduct && (
+        <p className="mt-3 flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11.5px] leading-relaxed text-amber-900">
+          <i className="ri-flask-line mt-0.5 w-3.5 h-3.5 shrink-0 flex items-center justify-center text-amber-700"></i>
+          <span>
+            テスト商品のため、本番Squareへの反映および決済リンク生成は無効化されています。
+          </span>
+        </p>
+      )}
 
       {/* 未連携のときは、何が揃えば連携できるかをチェックリストで示す */}
       {!isProdLinked && (

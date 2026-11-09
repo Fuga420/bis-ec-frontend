@@ -5,6 +5,7 @@ interface ProductDetailNavProps {
   productId: string;
   // 「一覧へ戻る」の遷移先（既存の戻り先と同じ）
   listPath: string;
+  isTest?: boolean;
 }
 
 const LINK_BASE =
@@ -26,8 +27,9 @@ const TITLE_DISABLED = "text-foreground-400";
 export default function ProductDetailNav({
   productId,
   listPath,
+  isTest = false,
 }: ProductDetailNavProps) {
-  const { prev, next } = useCatalogNeighbors(productId);
+  const { prev, next } = useCatalogNeighbors(productId, isTest);
 
   return (
     <footer className="mt-5 rounded-lg border border-background-200 bg-white p-4 md:px-5">

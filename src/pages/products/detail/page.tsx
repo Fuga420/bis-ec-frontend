@@ -28,6 +28,7 @@ import type {
 } from "../types";
 import { CATEGORY_LABELS, PUBLISH_STATUS_LABELS } from "../types";
 import { peekProductListReturnPending } from "../lib/listViewState";
+import { useOperatingMode } from "@/context/OperatingModeProvider";
 import {
   extractAiDraftPrice,
   getAiProductDraft,
@@ -101,6 +102,7 @@ function mapListProductToDetail(product: AdminProduct): AdminProductDetail {
     square_variation_id: product.square_variation_id ?? "",
     square_payment_link_id: product.square_payment_link_id ?? "",
     square_checkout_url: product.square_checkout_url ?? "",
+    is_test: Boolean(product.is_test),
     images,
   };
 }
@@ -170,10 +172,12 @@ export default function ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
+  const { isTestMode } = useOperatingMode();
+
   // 一覧から遷移してきた場合は、戻り先を遷移元と同じタブ（通常／アーカイブ済み）に揃える。
   // 直接アクセス（一覧を経由していない）の場合は既存どおり通常一覧に戻る。
   const [listPath] = useState(() =>
-    peekProductListReturnPending(true)
+    peekProductListReturnPending(true, isTestMode)
       ? "/products?record_status=archived"
       : "/products"
   );
@@ -424,6 +428,14 @@ export default function ProductDetailPage() {
   // 失敗した場合は選択を元の状態（保存済みの値）に戻す。
   const handleSaveStatus = async (targetStatus: string) => {
     if (!product || saveState === "saving") return;
+    if (product.is_test) {
+      setSelectedStatus(product.publish_status);
+      setMessage({
+        type: "error",
+        text: "テスト商品のため公開状態は変更できません（本番Squareへの公開はできません）。",
+      });
+      return;
+    }
 
     const previousStatus = product.publish_status;
     if (targetStatus === previousStatus) return;
@@ -1231,8 +1243,13 @@ export default function ProductDetailPage() {
                         currentStatus: product.publish_status,
                         selectedStatus,
                         saving: saveState === "saving",
+                        disabled: Boolean(product.is_test),
+                        disabledReason: product.is_test
+                          ? "テスト商品のため公開操作は無効です（本番Squareへの公開はできません）。"
+                          : undefined,
                         message,
                         onSelect: (value) => {
+                          if (product.is_test) return;
                           setSelectedStatus(value);
                           setMessage(null);
                         },
@@ -1412,7 +1429,11 @@ export default function ProductDetailPage() {
               />
             )}
             {/* 最下部: 前後の商品への移動 */}
-            <ProductDetailNav productId={product.product_id} listPath={listPath} />
+            <ProductDetailNav
+              productId={product.product_id}
+              listPath={listPath}
+              isTest={Boolean(product.is_test)}
+            />
           </>
         )}
       </main>

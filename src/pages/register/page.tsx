@@ -16,6 +16,10 @@ import PokemonCardFields, {
 } from "./components/PokemonCardFields";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
 import {
+  useOperatingMode,
+  useOperatingModeLock,
+} from "@/context/OperatingModeProvider";
+import {
   createDraftProductViaApi,
   markDraftProductSyncedInSession,
   syncProductToReadDb,
@@ -146,9 +150,9 @@ export default function RegisterPage() {
 
   // 公開・Square連携オプション（既定はどちらもOFF）
   // 登録した瞬間に公開・Square本番公開が走らないよう、利用者が明示的にオンにした時だけ有効にする。
+  const { isTestMode } = useOperatingMode();
   const [publishOn, setPublishOn] = useState(false);
   const [squareOn, setSquareOn] = useState(false);
-  const [isTest, setIsTest] = useState(false);
 
   // 登録〜Square連携の進捗表示
   const [progressSteps, setProgressSteps] = useState<string[]>([]);
@@ -159,10 +163,27 @@ export default function RegisterPage() {
   const [checkoutCopyFeedback, setCheckoutCopyFeedback] = useState("");
 
   // AI商品情報生成（① 単品生成）
-  const ai = useAiProductGeneration(images, aiSelectedImageIndexes, isTest);
+  const ai = useAiProductGeneration(images, aiSelectedImageIndexes, isTestMode);
   const [isApplyConfirmOpen, setIsApplyConfirmOpen] = useState(false);
   // AI候補の確定保存（confirm_ai_product_draft）
   const [isConfirming, setIsConfirming] = useState(false);
+  useOperatingModeLock(isSubmitting || isConfirming || ai.phase === "saving" || ai.phase === "generating");
+
+  // テストモード時は公開・Square連携を強制OFFにし、モード切替時に別モードで作られた仮draftを持ち越さない。
+  const prevOperatingModeRef = useRef(isTestMode);
+  const resetAiDraft = ai.reset;
+  useEffect(() => {
+    if (isTestMode) {
+      setPublishOn(false);
+      setSquareOn(false);
+    }
+    if (prevOperatingModeRef.current !== isTestMode) {
+      prevOperatingModeRef.current = isTestMode;
+      resetAiDraft();
+      draftCreateAttemptRef.current = null;
+      confirmAttemptRef.current = null;
+    }
+  }, [isTestMode, resetAiDraft]);
   const [confirmError, setConfirmError] = useState("");
   // 同じ内容の再送（通信失敗時のリトライ）では同じ confirmation_attempt_id を再利用する
   const confirmAttemptRef = useRef<{
@@ -558,7 +579,7 @@ export default function RegisterPage() {
   };
 
   const handlePublishChange = (checked: boolean) => {
-    if (isTest) return;
+    if (isTestMode) return;
     setPublishOn(checked);
     // 公開OFF時はSquare連携を強制OFF（下書きを本番へ出さない）
     if (!checked) setSquareOn(false);
@@ -657,7 +678,7 @@ export default function RegisterPage() {
           const draftSignature = JSON.stringify({
             payload,
             aiSelectedImageIndexes,
-            isTest,
+            isTestMode,
             imagesMeta: images.map((f) => `${f.name}:${f.size}:${f.lastModified}`),
           });
           const requestId =
@@ -671,7 +692,7 @@ export default function RegisterPage() {
           response = await createDraftProductViaApi({
             ...payload,
             client_request_id: requestId,
-            ...(isTest ? { is_test: true } : {}),
+            is_test: isTestMode,
             images: imagesPayload,
             ...(aiSelectedImageIndexes.length > 0
               ? { selected_image_indexes: aiSelectedImageIndexes }
@@ -682,7 +703,11 @@ export default function RegisterPage() {
           response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
             method: "POST",
             headers: { "Content-Type": "text/plain;charset=utf-8" },
-            body: JSON.stringify({ ...payload, images: imagesPayload }),
+            body: JSON.stringify({
+              ...payload,
+              is_test: false,
+              images: imagesPayload,
+            }),
           });
         }
       }
@@ -789,7 +814,6 @@ export default function RegisterPage() {
     setSubmitError("");
     setProductId("");
     setPublishOn(false);
-    setIsTest(false);
     setSquareOn(false);
     setProgressSteps([]);
     setProgressIndex(-1);
@@ -1152,47 +1176,24 @@ export default function RegisterPage() {
         {/* 公開・Square連携 */}
         <FormSection title="公開・Square連携" className="ui-card mb-4 rounded-lg p-4 md:p-5">
           <PublishSquareOptions
-            publishChecked={publishOn}
-            squareChecked={squareOn}
-            disabled={isSubmitting}
+            publishChecked={isTestMode ? false : publishOn}
+            squareChecked={isTestMode ? false : squareOn}
+            disabled={isSubmitting || isTestMode}
             onPublishChange={handlePublishChange}
             onSquareChange={handleSquareChange}
           />
+          {isTestMode && (
+            <p className="mt-2.5 flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
+              <i className="ri-flask-line mt-0.5 w-4 h-4 shrink-0 flex items-center justify-center text-amber-700"></i>
+              <span>
+                テストモード中は自動でテスト商品（is_test: true・下書き専用）として登録されるため、公開およびSquare本番連携は無効です。
+              </span>
+            </p>
+          )}
         </FormSection>
 
         {/* 登録ボタン。取込画面のサマリーと同じ「実行ボタンも白カードの中」の型に揃える。 */}
-        {/* 登録ボタン。取込画面のサマリーと同じ「実行ボタンも白カードの中」の型に揃える。 */}
         <div className="ui-card rounded-lg p-4 md:p-5">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-background-200 pb-3">
-            <label
-              className={`inline-flex cursor-pointer select-none items-center gap-2 text-xs text-foreground-600 ${
-                isSubmitting || Boolean(ai.draftProductId)
-                  ? "cursor-not-allowed opacity-50"
-                  : "hover:text-foreground-900"
-              }`}
-            >
-              <input
-                type="checkbox"
-                checked={isTest}
-                disabled={isSubmitting || Boolean(ai.draftProductId)}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  setIsTest(checked);
-                  if (checked) {
-                    setPublishOn(false);
-                    setSquareOn(false);
-                  }
-                }}
-                className="h-3.5 w-3.5 cursor-pointer accent-primary-500 disabled:cursor-not-allowed"
-              />
-              <span>テスト商品として登録（通常一覧から除外・下書き専用）</span>
-            </label>
-            {Boolean(ai.draftProductId) && (
-              <span className="text-[11px] text-foreground-400">
-                仮下書き作成済みのため変更できません
-              </span>
-            )}
-          </div>
           <button
             type="button"
             onClick={handleSubmit}

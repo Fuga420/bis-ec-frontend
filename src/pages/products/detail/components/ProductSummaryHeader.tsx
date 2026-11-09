@@ -70,6 +70,7 @@ export default function ProductSummaryHeader({
             >
               {inventoryLabel}
             </span>
+            {product.is_test && <span className="st-badge st-muted">テスト商品</span>}
             {isArchived && <span className="st-badge st-muted">アーカイブ済み</span>}
           </div>
 

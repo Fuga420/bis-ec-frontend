@@ -22,12 +22,13 @@ export const EMPTY_PRODUCT_FILTER: ProductFilterValue = {
   category: "",
   publishStatus: "",
   inventoryStatus: "",
-  showTest: false,
 };
 
 interface UseProductListParams {
   // 通常一覧 / アーカイブ済み一覧の切り替え。
   isArchived: boolean;
+  // 通常モード / テストモードの切り替え。
+  isTestMode: boolean;
   // 一括操作後に一覧を再取得するためのキー。
   reloadKey: number;
   // 詳細画面から戻ってきたときだけ渡される初期状態（検索・フィルター・並び替え・ページ）。
@@ -57,6 +58,7 @@ interface UseProductListParams {
  */
 export function useProductList({
   isArchived,
+  isTestMode,
   reloadKey,
   initialState,
 }: UseProductListParams) {
@@ -87,19 +89,28 @@ export function useProductList({
     return () => window.clearTimeout(timer);
   }, [filter.search]);
 
-  // タブ（通常／アーカイブ）を切り替えたら1ページ目に戻す。
-  const prevArchivedRef = useRef(isArchived);
-  useEffect(() => {
-    if (prevArchivedRef.current !== isArchived) {
-      prevArchivedRef.current = isArchived;
-      setPage(1);
-    }
-  }, [isArchived]);
+  // タブ（通常／アーカイブ）やモード（通常／テスト）を切り替えた際のスコープ変化追跡。
+  const prevScopeRef = useRef({ isArchived, isTestMode });
 
   // 古い応答が新しい検索結果を上書きしないための通番ガード。
   const requestSeqRef = useRef(0);
 
   useEffect(() => {
+    const scopeChanged =
+      prevScopeRef.current.isArchived !== isArchived ||
+      prevScopeRef.current.isTestMode !== isTestMode;
+    if (scopeChanged) {
+      prevScopeRef.current = { isArchived, isTestMode };
+      setProducts([]);
+      setCount(0);
+      setTotalPages(0);
+      setLoadState("loading");
+      if (page !== 1) {
+        setPage(1);
+        return;
+      }
+    }
+
     const seq = requestSeqRef.current + 1;
     requestSeqRef.current = seq;
     let cancelled = false;
@@ -117,7 +128,7 @@ export function useProductList({
         params.set("publish_status", filter.publishStatus || "all");
         params.set("inventory_status", filter.inventoryStatus || "all");
         params.set("record_status", isArchived ? "archived" : "active");
-        params.set("is_test", filter.showTest ? "true" : "false");
+        params.set("is_test", isTestMode ? "true" : "false");
         params.set("sort", sortKey);
 
         const response = await fetchProductsReadApi(params.toString());
@@ -151,8 +162,8 @@ export function useProductList({
           return;
         }
 
-        // 旧 v2 が新パラメータを解釈できず空を返した場合は、旧形式で取り直して表示する。
-        if (filter.showTest) {
+        // テストモード時は旧 GAS v2 フォールバック（is_test 非対応）へ流さない。
+        if (isTestMode) {
           setProducts([]);
           setCount(0);
           setTotalPages(0);
@@ -199,10 +210,10 @@ export function useProductList({
     filter.category,
     filter.publishStatus,
     filter.inventoryStatus,
-    Boolean(filter.showTest),
     sortKey,
     page,
     isArchived,
+    isTestMode,
     reloadKey,
   ]);
 

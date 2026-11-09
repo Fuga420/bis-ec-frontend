@@ -96,7 +96,7 @@ export async function importProductByImages(params: {
       // 型は文字列のまま送る（"00842-01" のような値を保持するため数値にしない）。
       auction_item_number: (params.auctionItemNumber ?? "").trim(),
       publish_status: "draft",
-      ...(params.isTest ? { is_test: true } : {}),
+      is_test: Boolean(params.isTest),
     });
   } catch {
     // 通信断・タイムアウト等：サーバーが受付済みか判断できない。

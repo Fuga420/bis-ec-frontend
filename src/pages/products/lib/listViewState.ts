@@ -24,10 +24,12 @@ export interface ProductListViewState {
   page: number;
   scrollY: number;
   archived: boolean;
+  isTestMode?: boolean;
 }
 
 interface ReturnFlag {
   archived: boolean;
+  isTestMode?: boolean;
   at: number;
 }
 
@@ -77,12 +79,12 @@ function normalizeState(raw: unknown): ProductListViewState | null {
       category: toText(filter.category),
       publishStatus: toText(filter.publishStatus),
       inventoryStatus: toText(filter.inventoryStatus),
-      showTest: filter.showTest === true,
     },
     sortKey,
     page,
     scrollY,
     archived: source.archived,
+    isTestMode: source.isTestMode === true,
   };
 }
 
@@ -98,11 +100,14 @@ export function saveProductListViewState(state: ProductListViewState): void {
 }
 
 // 一覧へ戻ってくる予定であることを記録する（詳細へ遷移する直前にだけ呼ぶ）
-export function markProductListReturnPending(archived: boolean): void {
+export function markProductListReturnPending(
+  archived: boolean,
+  isTestMode = false
+): void {
   const storage = getStorage();
   if (!storage) return;
   try {
-    const flag: ReturnFlag = { archived, at: Date.now() };
+    const flag: ReturnFlag = { archived, isTestMode, at: Date.now() };
     storage.setItem(RETURN_FLAG_KEY, JSON.stringify(flag));
   } catch {
     // 記録できなくても一覧表示には影響させない
@@ -110,7 +115,10 @@ export function markProductListReturnPending(archived: boolean): void {
 }
 
 // フラグを消費せずに読む（描画中に呼んでも安全。StrictModeの二重描画でも結果が変わらない）
-export function peekProductListReturnPending(archived: boolean): boolean {
+export function peekProductListReturnPending(
+  archived: boolean,
+  isTestMode?: boolean
+): boolean {
   const storage = getStorage();
   if (!storage) return false;
   try {
@@ -119,6 +127,9 @@ export function peekProductListReturnPending(archived: boolean): boolean {
     const flag = JSON.parse(raw) as Partial<ReturnFlag> | null;
     if (!flag || typeof flag.archived !== "boolean") return false;
     if (typeof flag.at === "number" && Date.now() - flag.at > RETURN_FLAG_TTL_MS) {
+      return false;
+    }
+    if (typeof isTestMode === "boolean" && Boolean(flag.isTestMode) !== isTestMode) {
       return false;
     }
     return flag.archived === archived;
@@ -138,9 +149,10 @@ export function clearProductListReturnPending(): void {
   }
 }
 
-// 保存済みの一覧状態を読み出す（同じタブ＝通常／アーカイブのときだけ返す）
+// 保存済みの一覧状態を読み出す（同じタブ＝通常／アーカイブ かつ 同じモードのときだけ返す）
 export function readProductListViewState(
-  archived: boolean
+  archived: boolean,
+  isTestMode = false
 ): ProductListViewState | null {
   const storage = getStorage();
   if (!storage) return null;
@@ -149,6 +161,7 @@ export function readProductListViewState(
     if (!raw) return null;
     const state = normalizeState(JSON.parse(raw) as unknown);
     if (!state || state.archived !== archived) return null;
+    if (Boolean(state.isTestMode) !== isTestMode) return null;
     return state;
   } catch {
     return null;

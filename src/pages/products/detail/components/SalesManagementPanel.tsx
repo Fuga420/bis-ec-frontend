@@ -29,6 +29,8 @@ interface SalesManagementPanelProps {
     currentStatus: string;
     selectedStatus: string;
     saving: boolean;
+    disabled?: boolean;
+    disabledReason?: string;
     message: SaveMessage;
     // 選択時: 選択値だけを親に伝える（保存はまだしない）
     onSelect: (value: string) => void;
@@ -260,8 +262,9 @@ export default function SalesManagementPanel({
                 ariaLabel="公開状態"
                 options={PUBLISH_STATUS_OPTIONS}
                 value={pendingPublish ?? publish.selectedStatus}
-                disabled={publish.saving}
+                disabled={publish.saving || Boolean(publish.disabled)}
                 onChange={(value) => {
+                  if (publish.disabled) return;
                   if (value === publish.currentStatus) {
                     setPendingPublish(null);
                     publish.onCancel();
@@ -316,6 +319,13 @@ export default function SalesManagementPanel({
                   </button>
                 </div>
               </div>
+            )}
+
+            {publish.disabled && publish.disabledReason && (
+              <p className="mt-2 flex items-start gap-1.5 text-[11.5px] leading-relaxed text-foreground-500">
+                <i className="ri-flask-line mt-0.5 w-3.5 h-3.5 shrink-0 flex items-center justify-center"></i>
+                <span>{publish.disabledReason}</span>
+              </p>
             )}
 
             {publish.message?.type === "error" && (

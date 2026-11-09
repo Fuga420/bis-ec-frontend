@@ -5,18 +5,23 @@ import i18n from "./i18n";
 import { AiBatchProvider } from "@/pages/products/context/AiBatchProvider";
 import AiBatchProgressBar from "@/components/feature/AiBatchProgressBar";
 import ProductSyncWarningBanner from "@/components/feature/ProductSyncWarningBanner";
+import AdminOperatingModeBar from "@/components/feature/AdminOperatingModeBar";
+import { OperatingModeProvider } from "@/context/OperatingModeProvider";
 
 
 function App() {
   return (
     <I18nextProvider i18n={i18n}>
       <BrowserRouter basename={__BASE_PATH__}>
-        {/* AI一括生成の状態は管理画面全体で1つだけ持つ（ポーリングは1系統） */}
-        <AiBatchProvider>
-          <AiBatchProgressBar />
-          <ProductSyncWarningBanner />
-          <AppRoutes />
-        </AiBatchProvider>
+        <OperatingModeProvider>
+          {/* AI一括生成の状態は管理画面全体で1つだけ持つ（ポーリングは1系統） */}
+          <AiBatchProvider>
+            <AdminOperatingModeBar />
+            <AiBatchProgressBar />
+            <ProductSyncWarningBanner />
+            <AppRoutes />
+          </AiBatchProvider>
+        </OperatingModeProvider>
       </BrowserRouter>
     </I18nextProvider>
   );

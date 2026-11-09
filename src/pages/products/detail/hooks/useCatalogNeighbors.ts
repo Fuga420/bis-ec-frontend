@@ -31,7 +31,8 @@ const EMPTY: CatalogNeighborsState = {
  * 取得に失敗しても画面は壊さず、前後リンクを出さないだけに留める（読み取り専用）。
  */
 export function useCatalogNeighbors(
-  productId: string | undefined
+  productId: string | undefined,
+  isTest = false
 ): CatalogNeighborsState {
   const [state, setState] = useState<CatalogNeighborsState>({
     ...EMPTY,
@@ -53,6 +54,7 @@ export function useCatalogNeighbors(
         params.set("mode", "admin");
         params.set("page", "1");
         params.set("page_size", "100");
+        params.set("is_test", isTest ? "true" : "false");
         const response = await fetchProductsReadApi(params.toString());
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = (await response.json()) as AdminProductListResponse;
@@ -95,7 +97,7 @@ export function useCatalogNeighbors(
     return () => {
       cancelled = true;
     };
-  }, [productId]);
+  }, [productId, isTest]);
 
   return state;
 }

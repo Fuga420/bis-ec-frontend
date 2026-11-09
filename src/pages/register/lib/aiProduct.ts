@@ -538,7 +538,7 @@ export async function createTempProductDraft(
 
   const response = await createDraftProductViaApi({
     publish_status: "draft",
-    ...(options?.isTest ? { is_test: true } : {}),
+    is_test: Boolean(options?.isTest),
     client_request_id: clientRequestId,
     images: imagesPayload,
   });
