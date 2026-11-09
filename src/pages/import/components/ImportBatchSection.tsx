@@ -16,6 +16,7 @@ interface ImportBatchSectionProps {
   products: AiBatchTarget[];
   // AI解析用画像の保存が終わっていないため、対象から外した商品の件数。
   blockedAiSelectionCount?: number;
+  testOnly?: boolean;
 }
 
 /**
@@ -28,6 +29,7 @@ interface ImportBatchSectionProps {
 export default function ImportBatchSection({
   products,
   blockedAiSelectionCount = 0,
+  testOnly = false,
 }: ImportBatchSectionProps) {
   // バッチ状態は管理画面共通のプロバイダーが保持する（ここで独自にポーリングしない）。
   const batch = useAiBatch();
@@ -62,7 +64,7 @@ export default function ImportBatchSection({
     if (percent === null) return;
     setIsConfirmOpen(false);
     const rate = Math.round((percent / 100) * 10000) / 10000;
-    await batch.start(pendingTargets, rate);
+    await batch.start(pendingTargets, rate, { testOnly });
   };
 
   return (
@@ -205,6 +207,7 @@ export default function ImportBatchSection({
         onMinMarkupPercentChange={setMinMarkupPercent}
         onCancel={() => setIsConfirmOpen(false)}
         onConfirm={confirmStart}
+        testOnly={testOnly}
       />
 
     </div>

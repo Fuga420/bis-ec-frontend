@@ -182,6 +182,9 @@ export default function ProductRow({
   const recordStatusLabel =
     RECORD_STATUS_LABELS[product.record_status] ??
     (product.record_status || "—");
+  const testBadge = product.is_test ? (
+    <span className={`${badgeBase} st-muted`}>テスト商品</span>
+  ) : null;
   const recordStatusBadge =
     product.record_status === "archived" ? (
       <span className={`${badgeBase} st-muted`}>{recordStatusLabel}</span>
@@ -241,7 +244,7 @@ export default function ProductRow({
   // 商品名の下に置く補助情報バッジ（サイズ・Square連携・アーカイブ状態）。
   // すべて無い場合はバッジ行そのものを描画しない。
   const hasBadges = Boolean(
-    sneakerSizeBadge || squareBadge || recordStatusBadge
+    testBadge || sneakerSizeBadge || squareBadge || recordStatusBadge
   );
 
   // 一覧行の編集（インライン編集）を開くボタン。
@@ -357,6 +360,7 @@ export default function ProductRow({
                   <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
                     {/* 並び順は全画面で統一: 公開 → 在庫 → 照合 → 連携 → 補助情報 */}
                     {squareBadge}
+                    {testBadge}
                     {recordStatusBadge}
                     {sneakerSizeBadge}
                   </span>
@@ -426,6 +430,7 @@ export default function ProductRow({
                   loading={ledgerMatchLoading}
                 />
                 {squareBadge}
+                {testBadge}
                 {recordStatusBadge}
                 {sneakerSizeBadge}
               </div>

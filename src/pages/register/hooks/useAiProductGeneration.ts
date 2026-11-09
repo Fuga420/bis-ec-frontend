@@ -27,7 +27,8 @@ export function useAiProductGeneration(
   images: File[],
   // AI解析に使う画像（0始まりの画像インデックス、最大3枚）。
   // 未選択（空配列）の場合は従来どおり GAS 側で先頭3枚が使われる。
-  selectedAiIndexes: number[] = []
+  selectedAiIndexes: number[] = [],
+  isTest = false
 ) {
   const [phase, setPhase] = useState<AiGeneratePhase>("idle");
   const [errorMessage, setErrorMessage] = useState("");
@@ -112,7 +113,7 @@ export function useAiProductGeneration(
       if (!currentProductId) {
         // 初回のみ：画像保存 + 商品ID付き仮draft作成
         setPhase("saving");
-        currentProductId = await createTempProductDraft(images);
+        currentProductId = await createTempProductDraft(images, { isTest });
         setDraftProductId(currentProductId);
         draftImageBaselineRef.current = images;
       } else if (draftImageBaselineRef.current !== images) {
@@ -139,7 +140,7 @@ export function useAiProductGeneration(
       );
       setPhase("error");
     }
-  }, [images, phase, draftProductId, persistAiSelection]);
+  }, [images, phase, draftProductId, persistAiSelection, isTest]);
 
   const updateCandidate = useCallback((patch: Partial<AiProductCandidate>) => {
     setCandidate((prev) => (prev ? { ...prev, ...patch } : prev));

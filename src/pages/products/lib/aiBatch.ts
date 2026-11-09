@@ -257,6 +257,8 @@ export async function createAiProductDraftBatch(params: {
   forceRegenerate?: boolean;
   // 概算原価への最低上乗せ率（0より大きく5.0以下の小数）。未指定は 0.30（30%）。
   minCostMarkupRate?: number;
+  // テスト実行モード: true の場合、対象IDがすべて is_test=true でなければサーバーが受付前に拒否する。
+  testOnly?: boolean;
 }): Promise<AiBatchCreateResponse> {
   const body: Record<string, unknown> = {
     action: AI_BATCH_ACTIONS.create,
@@ -267,6 +269,9 @@ export async function createAiProductDraftBatch(params: {
   };
   if (params.forceRegenerate !== undefined) {
     body.force_regenerate = params.forceRegenerate;
+  }
+  if (params.testOnly === true) {
+    body.test_only = true;
   }
   // product_costs は送らない。原価はサーバー側が確定済み照合（documents-relay）から取得する
   // （ブラウザ送信値を原価の正本として採用しない）。
@@ -420,6 +425,11 @@ const DEFINITIVE_REJECTION_CODES: ReadonlySet<string> = new Set([
   "UNAUTHORIZED",
   "FORBIDDEN",
   "UNAUTHORIZED_ADMIN_ACCESS",
+  "NON_TEST_PRODUCT_INCLUDED",
+  "INVALID_TEST_ONLY_FLAG",
+  "INVALID_PRODUCT_IDS",
+  "BATCH_SIZE_EXCEEDED",
+  "INVALID_MIN_COST_MARKUP_RATE",
 ]);
 
 /**
