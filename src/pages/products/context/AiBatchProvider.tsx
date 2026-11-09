@@ -144,13 +144,15 @@ export function AiBatchProvider({ children }: { children: ReactNode }) {
     setIsResultOpen(true);
   }, []);
 
+  // ヘッダーの入口からは、履歴が1件も無い場合でも同じモーダルを開いて空状態を表示する
+  // （新しい履歴保存や新しい取得APIは追加せず、既存の一覧取得だけを使う）。
   const openRunHistory = useCallback(async () => {
     const list = await refreshRuns(isTestMode);
     const targetKey = activeRunKey || list[0]?.run_key;
     if (targetKey) {
       await selectRun(targetKey);
-      setIsResultOpen(true);
     }
+    setIsResultOpen(true);
   }, [refreshRuns, isTestMode, activeRunKey, selectRun]);
 
   // 完了後に閉じたら上部の進捗帯を閉じ、「AI生成履歴・予約」からいつでも再閲覧可能にする

@@ -37,7 +37,10 @@ import { useBulkArchive } from "./hooks/useBulkArchive";
 import { useProductList } from "./hooks/useProductList";
 import { useProductLedgerMatch } from "./hooks/useProductLedgerMatch";
 import { useProductInlineEdit } from "./hooks/useProductInlineEdit";
-import { isTerminalBatchStatus } from "./lib/aiBatch";
+import {
+  deriveAiBatchDisplayStatus,
+  isTerminalBatchStatus,
+} from "./lib/aiBatch";
 import { getProductDisplayTitle } from "./lib/productTitle";
 import {
   PRODUCT_SORT_OPTIONS,
@@ -478,6 +481,61 @@ export default function ProductsPage() {
   const [minMarkupPercent, setMinMarkupPercent] = useState("30");
   const aiBatch = useAiBatch();
 
+  // ヘッダーのAI生成入口に添える補助状態。
+  // 追跡中のジョブ（既存の items）を優先し、追跡していない場合はサーバー保存の直近ジョブ
+  // （既存の runs サマリー）の集計だけを使う。固定のダミー件数は使わない。
+  const aiHeaderStatus = useMemo(() => {
+    const trackedItems = aiBatch.items;
+    if (trackedItems && trackedItems.length > 0 && aiBatch.countsConfirmed) {
+      let processing = 0;
+      let failed = 0;
+      trackedItems.forEach((item) => {
+        const status = deriveAiBatchDisplayStatus(item);
+        if (status === "failed") failed += 1;
+        if (
+          status === "processing" ||
+          status === "pending" ||
+          status === "retry_wait"
+        ) {
+          processing += 1;
+        }
+      });
+      if (isTerminalBatchStatus(aiBatch.batchStatus)) {
+        return { processing: 0, failed };
+      }
+      // 予約待ちは「処理中」ではなく、開始前として扱う
+      const waitingSchedule =
+        aiBatch.batchStatus === "scheduled" ||
+        aiBatch.batchStatus === "dispatch_retry";
+      return { processing: waitingSchedule ? 0 : processing, failed: 0 };
+    }
+
+    const latest = aiBatch.runs[0];
+    if (!latest) return { processing: 0, failed: 0 };
+    if (
+      latest.overall_status === "processing" ||
+      latest.overall_status === "queued" ||
+      latest.overall_status === "starting"
+    ) {
+      return {
+        processing: Math.max(
+          0,
+          (latest.processing_count ?? 0) + (latest.pending_count ?? 0)
+        ),
+        failed: 0,
+      };
+    }
+    if (isTerminalBatchStatus(latest.overall_status)) {
+      return { processing: 0, failed: Math.max(0, latest.failed_count ?? 0) };
+    }
+    return { processing: 0, failed: 0 };
+  }, [
+    aiBatch.items,
+    aiBatch.batchStatus,
+    aiBatch.countsConfirmed,
+    aiBatch.runs,
+  ]);
+
   // 一括アーカイブ（既存の単品APIを1件ずつ実行）
   const archive = useBulkArchive();
   const [isArchiveConfirmOpen, setIsArchiveConfirmOpen] = useState(false);
@@ -827,6 +885,38 @@ export default function ProductsPage() {
               <i className="ri-file-list-3-line" aria-hidden="true"></i>
               書類管理
             </Link>
+            {/* AI一括生成の進捗・結果・実行履歴への入口。
+                常時表示のコンパクトな副ボタンとし、処理中・失敗があるときだけ
+                小さな件数表示を添える（新しい上部固定バーは追加しない）。 */}
+            <span className="inline-flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => void aiBatch.openRunHistory()}
+                title="AI一括生成の進捗・結果・実行履歴を確認"
+                className="product-header-action"
+              >
+                <i className="ri-list-check-2" aria-hidden="true"></i>
+                AI生成
+              </button>
+              {aiHeaderStatus.processing > 0 && (
+                <span
+                  className="st-badge tone-ai"
+                  title="AI生成の処理中件数"
+                >
+                  <i className="ri-loader-4-line flex h-3 w-3 animate-spin items-center justify-center text-[12px]"></i>
+                  処理中 {aiHeaderStatus.processing}
+                </span>
+              )}
+              {aiHeaderStatus.processing === 0 && aiHeaderStatus.failed > 0 && (
+                <span
+                  className="st-badge tone-warning"
+                  title="AI生成の失敗件数"
+                >
+                  <i className="ri-error-warning-line flex h-3 w-3 items-center justify-center text-[12px]"></i>
+                  失敗 {aiHeaderStatus.failed}
+                </span>
+              )}
+            </span>
             <Link to="/register" className="product-cta product-header-cta">
               <i className="ri-add-line" aria-hidden="true"></i>
               新しい商品を登録
@@ -839,7 +929,8 @@ export default function ProductsPage() {
       {/* 一覧系の画面は横幅を最大限使うフルワイド（最大幅の制限なし・左右24〜32px）。
           詳細／登録／画像取込のフォーム系は従来の幅のまま変更しない。 */}
       <main className="page-fade w-full px-4 py-4 md:px-6 md:py-5 lg:px-8">
-        {/* 一覧切り替えタブ（左揃え・高さ36px前後。上下余白は詰める）＋サーバー保存のAI予約・結果確認 */}
+        {/* 一覧切り替えタブ（左揃え・高さ36px前後。上下余白は詰める）。
+            AI生成の進捗・結果・履歴はヘッダーの「AI生成」から開く。 */}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <div className="inline-flex items-center gap-1 rounded-lg bg-background-100 p-1">
             <Link
@@ -863,16 +954,6 @@ export default function ProductsPage() {
               アーカイブ済み
             </Link>
           </div>
-          {aiBatch.runs.length > 0 && (
-            <button
-              type="button"
-              onClick={() => void aiBatch.openRunHistory()}
-              className="inline-flex h-8 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border border-background-300 bg-white px-3 text-[12px] font-medium text-foreground-700 transition-colors hover:bg-background-100"
-            >
-              <i className="ri-history-line flex h-3.5 w-3.5 items-center justify-center text-[14px] text-accent-600"></i>
-              AI生成履歴・予約（{aiBatch.runs.length}）
-            </button>
-          )}
         </div>
 
         {locationDeleteMessage && (
