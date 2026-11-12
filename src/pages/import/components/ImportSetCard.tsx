@@ -5,9 +5,10 @@ import { inputClass } from "@/pages/register/components/FormField";
 import { MAX_AI_ANALYSIS_IMAGES } from "@/pages/products/lib/aiBatch";
 import {
   IMPORT_PAYLOAD_MISMATCH_CODE,
+  POKECA_RAW_STORAGE_MODE,
   evaluateRejectionRisk,
-  sameAuctionNumber,
   sameFiles,
+  type ImportMode,
 } from "@/pages/import/lib/multiImport";
 import type {
   ImportSet,
@@ -18,9 +19,14 @@ interface ImportSetCardProps {
   index: number;
   set: ImportSet;
   disabled: boolean;
+  // 画面モード（従来の画像だけ取込 / ポケカ素地取込）。
+  mode: ImportMode;
   onImagesChange: (files: File[]) => void;
   // 仕入台帳の商品番号（任意入力）の変更。文字列のまま扱う。
   onAuctionItemNumberChange: (value: string) => void;
+  // ポケカ素地モードの箱番・枝番（必須）の変更。文字列のまま扱う。
+  onBoxNumberChange: (value: string) => void;
+  onBranchNumberChange: (value: string) => void;
   onRemove: () => void;
   onResend: () => void;
   // success:false のセットで内容を変更した後、新IDでの取り込みに進む前の明示承認。
@@ -51,8 +57,11 @@ export default function ImportSetCard({
   index,
   set,
   disabled,
+  mode,
   onImagesChange,
   onAuctionItemNumberChange,
+  onBoxNumberChange,
+  onBranchNumberChange,
   onRemove,
   onResend,
   onAcknowledgeNewId,
@@ -70,12 +79,17 @@ export default function ImportSetCard({
 
   // 送信済み（受付状況が不明 or success:false）＝ペイロードと attempt_id を保持している。
   const hadAttempt = set.retainedPayload !== null && set.attemptId !== null;
-  // 現在の画像・仕入台帳の商品番号が「送信時の内容」と同一か。
+  // ポケカ素地モードか（識別情報の項目を切り替える）。
+  const isPokeca = mode === POKECA_RAW_STORAGE_MODE;
+  // 現在の画像・識別情報（商品番号 or 箱番・枝番）が「送信時の内容」と同一か。
+  const identifierUnchanged = isPokeca
+    ? (set.attemptBoxNumber ?? "").trim() === set.boxNumber.trim() &&
+      (set.attemptBranchNumber ?? "").trim() === set.branchNumber.trim()
+    : (set.attemptAuctionNumber ?? "").trim() === set.auctionItemNumber.trim();
   const contentUnchanged =
-    sameFiles(set.attemptFiles, set.images) &&
-    sameAuctionNumber(set.attemptAuctionNumber, set.auctionItemNumber);
-  // 仕入台帳の商品番号の入力可否（取り込み中・成功・受付不明は変更不可）。
-  const auctionInputDisabled = editorDisabled;
+    sameFiles(set.attemptFiles, set.images) && identifierUnchanged;
+  // 識別情報の入力可否（取り込み中・成功・受付不明は変更不可）。
+  const identifierInputDisabled = editorDisabled;
   // 「前回の取込結果を確認した」というスタッフ承認が現在の内容に対して有効か。
   const acknowledged = sameFiles(set.newIdAckFiles, set.images);
 
@@ -161,32 +175,97 @@ export default function ImportSetCard({
         </div>
       </div>
 
-      {/* 仕入台帳の商品番号（任意入力）。商品ID・メーカー品番・型番とは別項目。 */}
-      <div className="mt-3">
-        <label
-          htmlFor={`auction-item-number-${set.id}`}
-          className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm font-medium text-foreground-700"
-        >
-          仕入台帳の商品番号
-          <span className="rounded border border-background-200 bg-background-50 px-1.5 py-0.5 text-[10px] font-medium text-foreground-500">
-            任意
-          </span>
-        </label>
-        <input
-          id={`auction-item-number-${set.id}`}
-          type="text"
-          inputMode="text"
-          autoComplete="off"
-          className={`${inputClass} mt-1.5 font-mono`}
-          placeholder="例: 00842-01"
-          value={set.auctionItemNumber}
-          disabled={auctionInputDisabled}
-          onChange={(e) => onAuctionItemNumberChange(e.target.value)}
-        />
-        <p className="mt-1 text-[11px] leading-relaxed text-foreground-400">
-          オークション等の仕入台帳にある商品番号を入力します。先頭のゼロやハイフンはそのまま保存されます（商品ID・メーカー品番・型番とは別項目）。空欄のままでも取り込めます。
-        </p>
-      </div>
+      {isPokeca ? (
+        /* ポケカ素地モード：仕入台帳の商品番号の代わりに箱番・枝番（どちらも必須）を入力する。 */
+        <div className="mt-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label
+                htmlFor={`box-number-${set.id}`}
+                className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm font-medium text-foreground-700"
+              >
+                箱番
+                <span
+                  className="text-[13px] font-semibold leading-none text-red-500"
+                  aria-label="必須"
+                >
+                  *
+                </span>
+              </label>
+              <input
+                id={`box-number-${set.id}`}
+                type="text"
+                inputMode="text"
+                autoComplete="off"
+                spellCheck={false}
+                className={`${inputClass} mt-1.5 font-mono`}
+                placeholder="例: 042"
+                value={set.boxNumber}
+                disabled={identifierInputDisabled}
+                aria-required="true"
+                onChange={(e) => onBoxNumberChange(e.target.value)}
+              />
+            </div>
+            <div>
+              <label
+                htmlFor={`branch-number-${set.id}`}
+                className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm font-medium text-foreground-700"
+              >
+                枝番
+                <span
+                  className="text-[13px] font-semibold leading-none text-red-500"
+                  aria-label="必須"
+                >
+                  *
+                </span>
+              </label>
+              <input
+                id={`branch-number-${set.id}`}
+                type="text"
+                inputMode="text"
+                autoComplete="off"
+                spellCheck={false}
+                className={`${inputClass} mt-1.5 font-mono`}
+                placeholder="例: 001"
+                value={set.branchNumber}
+                disabled={identifierInputDisabled}
+                aria-required="true"
+                onChange={(e) => onBranchNumberChange(e.target.value)}
+              />
+            </div>
+          </div>
+          <p className="mt-1.5 text-[11px] leading-relaxed text-foreground-400">
+            箱番・枝番は文字列としてそのまま送信されます（先頭のゼロも保持）。どちらも必須です。このセット1つが商品1件になります。
+          </p>
+        </div>
+      ) : (
+        /* 従来の画像だけ取込：仕入台帳の商品番号（任意入力）。商品ID・メーカー品番・型番とは別項目。 */
+        <div className="mt-3">
+          <label
+            htmlFor={`auction-item-number-${set.id}`}
+            className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm font-medium text-foreground-700"
+          >
+            仕入台帳の商品番号
+            <span className="rounded border border-background-200 bg-background-50 px-1.5 py-0.5 text-[10px] font-medium text-foreground-500">
+              任意
+            </span>
+          </label>
+          <input
+            id={`auction-item-number-${set.id}`}
+            type="text"
+            inputMode="text"
+            autoComplete="off"
+            className={`${inputClass} mt-1.5 font-mono`}
+            placeholder="例: 00842-01"
+            value={set.auctionItemNumber}
+            disabled={identifierInputDisabled}
+            onChange={(e) => onAuctionItemNumberChange(e.target.value)}
+          />
+          <p className="mt-1 text-[11px] leading-relaxed text-foreground-400">
+            オークション等の仕入台帳にある商品番号を入力します。先頭のゼロやハイフンはそのまま保存されます（商品ID・メーカー品番・型番とは別項目）。空欄のままでも取り込めます。
+          </p>
+        </div>
+      )}
 
       <div className="mt-3">
         <SetImageEditor
@@ -196,6 +275,11 @@ export default function ImportSetCard({
           aiSelectedFiles={set.aiSelectedFiles}
           onToggleAiImage={onToggleAiImage}
           aiMaxCount={MAX_AI_ANALYSIS_IMAGES}
+          helperText={
+            isPokeca
+              ? "表の画像を先頭にすると、表が商品一覧のメイン画像になります。裏の画像も忘れずに追加してください。"
+              : undefined
+          }
         />
       </div>
 
@@ -246,16 +330,25 @@ export default function ImportSetCard({
               </span>
             </p>
           )}
-          <p className="mt-1 text-xs text-foreground-600">
-            仕入台帳の商品番号：
-            {set.auctionItemNumber.trim() ? (
+          {isPokeca ? (
+            <p className="mt-1 text-xs text-foreground-600">
+              箱番・枝番：
               <span className="font-mono text-foreground-950">
-                {set.auctionItemNumber.trim()}
+                {set.boxNumber.trim()} / {set.branchNumber.trim()}
               </span>
-            ) : (
-              <span className="text-foreground-400">未設定</span>
-            )}
-          </p>
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-foreground-600">
+              仕入台帳の商品番号：
+              {set.auctionItemNumber.trim() ? (
+                <span className="font-mono text-foreground-950">
+                  {set.auctionItemNumber.trim()}
+                </span>
+              ) : (
+                <span className="text-foreground-400">未設定</span>
+              )}
+            </p>
+          )}
           <p className="mt-1 text-[11px] text-foreground-500">
             ※ 商品情報（名前・状態・価格など）は未入力です。商品一覧の「一括AI生成」で生成できます。
           </p>

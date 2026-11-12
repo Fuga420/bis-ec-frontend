@@ -8,12 +8,15 @@ import {
 import {
   IMPORT_MAX_IMAGES,
   IMPORT_MIN_IMAGES,
+  POKECA_RAW_STORAGE_MODE,
   buildImagePayload,
   createImportAttemptId,
+  hasPokecaIdentifiers,
   importProductByImages,
   sameAuctionNumber,
   sameFiles,
   type ImportImagePayload,
+  type ImportMode,
 } from "@/pages/import/lib/multiImport";
 
 export type ImportSetStatus =
@@ -40,12 +43,18 @@ export interface ImportSet {
   status: ImportSetStatus;
   // 仕入台帳の商品番号（任意入力）。文字列として保持し、先頭ゼロ・ハイフンを保つ。
   auctionItemNumber: string;
+  // ポケカ素地モードの箱番・枝番（必須）。文字列として保持し、先頭ゼロを保つ。
+  boxNumber: string;
+  branchNumber: string;
   // 送信に使った（使う）import_attempt_id。
   attemptId: string | null;
   // attemptId を発行したときの画像配列。編集検知＝attemptId の再利用可否の判定に使う。
   attemptFiles: File[] | null;
   // attemptId で送信したときの仕入台帳の商品番号。再送時に同じ値を送るために保持する。
   attemptAuctionNumber: string | null;
+  // attemptId で送信したときの箱番・枝番（ポケカ素地モード）。再送時に同じ値を送る。
+  attemptBoxNumber: string | null;
+  attemptBranchNumber: string | null;
   attemptIsTest: boolean | null;
   // 「受付済みか不明」のセットで保持する、送信済みの完全なペイロード。
   // 同一ID・同一内容での再送に使う（再送前に編集させない）。
@@ -77,10 +86,14 @@ function emptySet(): ImportSet {
     aiSelectionError: null,
     aiSelectedFileIds: [],
     auctionItemNumber: "",
+    boxNumber: "",
+    branchNumber: "",
     status: "idle",
     attemptId: null,
     attemptFiles: null,
     attemptAuctionNumber: null,
+    attemptBoxNumber: null,
+    attemptBranchNumber: null,
     attemptIsTest: null,
     retainedPayload: null,
     newIdAckFiles: null,
@@ -100,13 +113,17 @@ function emptySet(): ImportSet {
  * - 受付済みか不明なセットは、保持した同一ペイロード・同一 import_attempt_id で再送できる。
  * - 状態はメモリ上のみで保持する（ページ再読込で復元されない。新しいIDでの自動再送も行わない）。
  */
-export function useMultiSetImport(isTestMode = false) {
+export function useMultiSetImport(
+  isTestMode = false,
+  mode: ImportMode = "auction"
+) {
   const [sets, setSets] = useState<ImportSet[]>(() => [emptySet()]);
   const setsRef = useRef<ImportSet[]>(sets);
   const [isImporting, setIsImporting] = useState(false);
   const importingRef = useRef(false);
   const isTestRef = useRef(isTestMode);
   isTestRef.current = isTestMode;
+  const isPokeca = mode === POKECA_RAW_STORAGE_MODE;
 
   // ref を正本にしつつ state へ反映する（逐次処理中も常に最新を参照できるようにする）。
   const commit = useCallback((next: ImportSet[]) => {
@@ -221,13 +238,44 @@ export function useMultiSetImport(isTestMode = false) {
     [updateSet]
   );
 
-  // 画像と仕入台帳の商品番号の両方が送信時と同じか（同一IDでの再送可否の判定）。
+  // ポケカ素地モードの箱番・枝番（必須入力）。文字列のまま保持し、先頭のゼロを保つ。
+  const setBoxNumber = useCallback(
+    (id: string, value: string) => {
+      updateSet(id, (s) => {
+        if (s.status === "processing" || s.status === "success") return s;
+        if (s.status === "unknown") return s;
+        return { ...s, boxNumber: value };
+      });
+    },
+    [updateSet]
+  );
+
+  const setBranchNumber = useCallback(
+    (id: string, value: string) => {
+      updateSet(id, (s) => {
+        if (s.status === "processing" || s.status === "success") return s;
+        if (s.status === "unknown") return s;
+        return { ...s, branchNumber: value };
+      });
+    },
+    [updateSet]
+  );
+
+  // 画像と識別情報（モードに応じて商品番号 or 箱番・枝番）の両方が送信時と同じか
+  // （同一 import_attempt_id での再送可否の判定）。
   const isAttemptContentSame = useCallback(
-    (s: ImportSet) =>
-      sameFiles(s.attemptFiles, s.images) &&
-      (s.attemptIsTest ?? false) === isTestRef.current &&
-      sameAuctionNumber(s.attemptAuctionNumber, s.auctionItemNumber),
-    []
+    (s: ImportSet) => {
+      if (!sameFiles(s.attemptFiles, s.images)) return false;
+      if ((s.attemptIsTest ?? false) !== isTestRef.current) return false;
+      if (mode === POKECA_RAW_STORAGE_MODE) {
+        return (
+          (s.attemptBoxNumber ?? "").trim() === s.boxNumber.trim() &&
+          (s.attemptBranchNumber ?? "").trim() === s.branchNumber.trim()
+        );
+      }
+      return sameAuctionNumber(s.attemptAuctionNumber, s.auctionItemNumber);
+    },
+    [mode]
   );
 
   const moveImage = useCallback(
@@ -278,6 +326,8 @@ export function useMultiSetImport(isTestMode = false) {
       files: File[],
       aiSelected: File[],
       auctionItemNumber: string,
+      boxNumber: string,
+      branchNumber: string,
       sendIsTest: boolean
     ) => {
       updateSet(id, (s) => ({
@@ -285,6 +335,8 @@ export function useMultiSetImport(isTestMode = false) {
         status: "processing",
         attemptId,
         attemptAuctionNumber: auctionItemNumber,
+        attemptBoxNumber: boxNumber,
+        attemptBranchNumber: branchNumber,
         errorCode: null,
         errorMessage: null,
       }));
@@ -293,7 +345,11 @@ export function useMultiSetImport(isTestMode = false) {
         importAttemptId: attemptId,
         isTest: sendIsTest,
         images: payload,
+        // モードに応じて送信内容を切り替える（ポケカ素地では商品番号を送らない）。
+        mode,
         auctionItemNumber,
+        boxNumber,
+        branchNumber,
       });
 
       if (result.kind === "success") {
@@ -309,7 +365,13 @@ export function useMultiSetImport(isTestMode = false) {
 
         // 商品IDが確定し、仕入台帳の商品番号が入力されているときだけ自動照合を試みる。
         // 照合の結果は商品登録の成否とは別に保持する（失敗しても登録は成功のまま）。
-        if (!sendIsTest && result.productId && auctionItemNumber !== "") {
+        // ポケカ素地モードは商品番号を使わないため、自動照合を呼び出さない。
+        if (
+          !isPokeca &&
+          !sendIsTest &&
+          result.productId &&
+          auctionItemNumber !== ""
+        ) {
           const autoLink = await autoLinkProductByItemNumber({
             productId: result.productId,
             auctionItemNumber,
@@ -347,7 +409,7 @@ export function useMultiSetImport(isTestMode = false) {
         }));
       }
     },
-    [persistAiSelection, updateSet]
+    [isPokeca, mode, persistAiSelection, updateSet]
   );
 
   // 1セットを（必要なら再送として）処理する。
@@ -377,6 +439,8 @@ export function useMultiSetImport(isTestMode = false) {
           set.images,
           set.aiSelectedFiles,
           set.attemptAuctionNumber ?? "",
+          set.attemptBoxNumber ?? "",
+          set.attemptBranchNumber ?? "",
           set.attemptIsTest === true
         );
         return;
@@ -394,6 +458,14 @@ export function useMultiSetImport(isTestMode = false) {
       if (set.status === "error" && hadAttempt && !contentUnchanged) {
         const acknowledged = sameFiles(set.newIdAckFiles, set.images);
         if (!acknowledged) return;
+      }
+
+      // ポケカ素地モードは箱番・枝番が必須。未入力のまま送信しない。
+      if (
+        isPokeca &&
+        !hasPokecaIdentifiers(set.boxNumber, set.branchNumber)
+      ) {
+        return;
       }
 
       if (set.images.length < IMPORT_MIN_IMAGES) return; // 画像なしは対象外
@@ -430,7 +502,9 @@ export function useMultiSetImport(isTestMode = false) {
 
       // 内容が前回と完全に同一のときだけ attempt_id を再利用する。
       // 1文字でも変わっていれば新しい attempt_id を発行する（契約の指紋照合に合わせる）。
-      const auctionItemNumber = set.auctionItemNumber.trim();
+      const auctionItemNumber = isPokeca ? "" : set.auctionItemNumber.trim();
+      const boxNumber = isPokeca ? set.boxNumber.trim() : "";
+      const branchNumber = isPokeca ? set.branchNumber.trim() : "";
       const currentIsTest = isTestRef.current;
       const reuse = set.attemptId !== null && isAttemptContentSame(set);
       const attemptId =
@@ -440,6 +514,8 @@ export function useMultiSetImport(isTestMode = false) {
         attemptFiles: s.images,
         attemptIsTest: currentIsTest,
         attemptAuctionNumber: auctionItemNumber,
+        attemptBoxNumber: boxNumber,
+        attemptBranchNumber: branchNumber,
         newIdAckFiles: null,
       }));
 
@@ -450,10 +526,12 @@ export function useMultiSetImport(isTestMode = false) {
         set.images,
         set.aiSelectedFiles,
         auctionItemNumber,
+        boxNumber,
+        branchNumber,
         currentIsTest
       );
     },
-    [isAttemptContentSame, sendSet, updateSet]
+    [isAttemptContentSame, isPokeca, sendSet, updateSet]
   );
 
   const importAll = useCallback(async () => {
@@ -464,7 +542,9 @@ export function useMultiSetImport(isTestMode = false) {
       (s) =>
         s.status !== "success" &&
         s.status !== "unknown" &&
-        s.images.length > 0
+        s.images.length > 0 &&
+        // ポケカ素地モードは箱番・枝番が揃っているセットだけを送信する。
+        (!isPokeca || hasPokecaIdentifiers(s.boxNumber, s.branchNumber))
     );
     if (targets.length === 0) return;
 
@@ -476,7 +556,7 @@ export function useMultiSetImport(isTestMode = false) {
     }
     importingRef.current = false;
     setIsImporting(false);
-  }, [runSet]);
+  }, [isPokeca, runSet]);
 
   // セット単位の再送。
   // - unknown / success:false（保留）: 保存した同一ペイロード・同一 import_attempt_id で再送
@@ -512,8 +592,22 @@ export function useMultiSetImport(isTestMode = false) {
 
   const hasImportableSet = sets.some(
     (s) =>
-      s.images.length > 0 && s.status !== "success" && s.status !== "unknown"
+      s.images.length > 0 &&
+      s.status !== "success" &&
+      s.status !== "unknown" &&
+      (!isPokeca || hasPokecaIdentifiers(s.boxNumber, s.branchNumber))
   );
+
+  // ポケカ素地モードで、画像はあるが箱番・枝番が未入力のセット数（送信前の案内用）。
+  const missingIdentifierCount = isPokeca
+    ? sets.filter(
+        (s) =>
+          s.images.length > 0 &&
+          s.status !== "success" &&
+          s.status !== "unknown" &&
+          !hasPokecaIdentifiers(s.boxNumber, s.branchNumber)
+      ).length
+    : 0;
 
   const summary = {
     total: sets.filter((s) => s.images.length > 0).length,
@@ -528,11 +622,14 @@ export function useMultiSetImport(isTestMode = false) {
     sets,
     isImporting,
     hasImportableSet,
+    missingIdentifierCount,
     summary,
     addSet,
     removeSet,
     setImages,
     setAuctionItemNumber,
+    setBoxNumber,
+    setBranchNumber,
     moveImage,
     setMainImage,
     toggleAiImage,

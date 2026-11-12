@@ -15,6 +15,8 @@ interface SetImageEditorProps {
   aiSelectedFiles?: File[];
   onToggleAiImage?: (file: File) => void;
   aiMaxCount?: number;
+  // モード固有の短い案内（ポケカ素地モードの表裏画像の説明など）。
+  helperText?: string;
 }
 
 /**
@@ -31,6 +33,7 @@ export default function SetImageEditor({
   aiSelectedFiles = [],
   onToggleAiImage,
   aiMaxCount = 3,
+  helperText,
 }: SetImageEditorProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -133,6 +136,12 @@ export default function SetImageEditor({
 
   return (
     <div className="flex flex-col gap-2">
+      {helperText && (
+        <p className="flex items-start gap-1.5 rounded-md bg-background-50 px-2.5 py-2 text-[11px] leading-relaxed text-foreground-600">
+          <i className="ri-information-line mt-0.5 w-3.5 h-3.5 shrink-0 flex items-center justify-center text-foreground-400"></i>
+          <span className="min-w-0 flex-1">{helperText}</span>
+        </p>
+      )}
       {isEmpty ? (
         // 画像0枚：横幅いっぱいのドロップエリア
         disabled ? (

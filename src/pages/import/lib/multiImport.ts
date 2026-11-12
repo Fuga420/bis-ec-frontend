@@ -7,6 +7,30 @@ import { fileToBase64 } from "@/pages/register/lib/aiProduct";
 // 新API action 名（MULTI_PRODUCT_IMPORT_API_CONTRACT.md に一致させる）。
 export const IMPORT_PRODUCT_BY_IMAGES_ACTION = "import_product_by_images";
 
+/**
+ * 画像セット一括取込の画面モード。
+ * - auction            : 従来の「画像だけ取込」（仕入台帳の商品番号・自動照合あり）
+ * - pokeca_raw_storage : 「ポケカ素地取込」（箱番・枝番で保存場所を作る。自動照合なし）
+ */
+export type ImportMode = "auction" | "pokeca_raw_storage";
+
+export const POKECA_RAW_STORAGE_MODE: ImportMode = "pokeca_raw_storage";
+
+/** URL の ?mode= からモードを決める（不明な値は従来モード）。 */
+export function parseImportMode(value: string | null | undefined): ImportMode {
+  return (value ?? "").trim() === POKECA_RAW_STORAGE_MODE
+    ? POKECA_RAW_STORAGE_MODE
+    : "auction";
+}
+
+/** ポケカ素地モードで必須の「箱番」「枝番」が入力済みか。 */
+export function hasPokecaIdentifiers(
+  boxNumber: string,
+  branchNumber: string
+): boolean {
+  return boxNumber.trim() !== "" && branchNumber.trim() !== "";
+}
+
 // 同一 import_attempt_id で内容（画像の順序・内容・ファイル名）が変わったため中止されたコード。
 // 新IDでの安易な自動再送はせず、先の取込結果を確認する操作として扱う（契約の指紋照合）。
 export const IMPORT_PAYLOAD_MISMATCH_CODE = "IMPORT_IDEMPOTENCY_PAYLOAD_MISMATCH";
@@ -84,20 +108,35 @@ export async function importProductByImages(params: {
   // 仕入台帳の商品番号（任意）。文字列のまま送り、先頭ゼロ・ハイフンを保持する。
   // 未入力のときは空文字を送る（数値変換はしない）。
   auctionItemNumber?: string;
+  // 画面モード。pokeca_raw_storage のときは箱番・枝番を送り、商品番号は送らない。
+  mode?: ImportMode;
+  boxNumber?: string;
+  branchNumber?: string;
   isTest?: boolean;
 }): Promise<ImportSendResult> {
+  // 送信内容はモードごとに切り替える（ポケカ素地モードでは auction_item_number を送らない）。
+  const basePayload: Record<string, unknown> = {
+    action: IMPORT_PRODUCT_BY_IMAGES_ACTION,
+    import_attempt_id: params.importAttemptId,
+    images: params.images,
+    publish_status: "draft",
+    // テストモードの is_test は従来どおり引き継ぐ。
+    is_test: Boolean(params.isTest),
+  };
+
+  if (params.mode === POKECA_RAW_STORAGE_MODE) {
+    basePayload.import_mode = POKECA_RAW_STORAGE_MODE;
+    basePayload.box_number = (params.boxNumber ?? "").trim();
+    basePayload.branch_number = (params.branchNumber ?? "").trim();
+  } else {
+    // 仕入台帳の商品番号（そのセットに対する任意入力）。
+    // 型は文字列のまま送る（"00842-01" のような値を保持するため数値にしない）。
+    basePayload.auction_item_number = (params.auctionItemNumber ?? "").trim();
+  }
+
   let response: Response;
   try {
-    response = await importProductByImagesViaApi({
-      action: IMPORT_PRODUCT_BY_IMAGES_ACTION,
-      import_attempt_id: params.importAttemptId,
-      images: params.images,
-      // 仕入台帳の商品番号（そのセットに対する任意入力）。
-      // 型は文字列のまま送る（"00842-01" のような値を保持するため数値にしない）。
-      auction_item_number: (params.auctionItemNumber ?? "").trim(),
-      publish_status: "draft",
-      is_test: Boolean(params.isTest),
-    });
+    response = await importProductByImagesViaApi(basePayload);
   } catch {
     // 通信断・タイムアウト等：サーバーが受付済みか判断できない。
     return {

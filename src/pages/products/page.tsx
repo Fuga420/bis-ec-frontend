@@ -493,7 +493,7 @@ export default function ProductsPage() {
   // 一括AI生成の状態（バッチ受付＋進捗ポーリング。一括公開・決済リンク処理とは別操作）
   // 状態は管理画面共通のプロバイダーが保持する。ここで独自にポーリングしない。
   const [isAiConfirmOpen, setIsAiConfirmOpen] = useState(false);
-  // 販売価格に対する最低粗利率（％表記の入力値）。送信時に小数（0.3 = 30％）へ変換する。
+  // 概算原価への最低上乗せ率（％表記の入力値）。送信時に小数（0.3 = 30％）へ変換する。
   const [minMarkupPercent, setMinMarkupPercent] = useState("30");
   const aiBatch = useAiBatch();
 
@@ -1009,6 +1009,14 @@ export default function ProductsPage() {
             <Link to="/import" className="product-header-action">
               <i className="ri-image-add-line" aria-hidden="true"></i>
               画像だけ取込
+            </Link>
+            {/* 既存の画像セット一括取込画面をポケカ素地モードで開く（画面は複製しない）。 */}
+            <Link
+              to="/import?mode=pokeca_raw_storage"
+              className="product-header-action"
+            >
+              <i className="ri-archive-drawer-line" aria-hidden="true"></i>
+              ポケカ素地取込
             </Link>
             <Link to="/documents" className="product-header-action">
               <i className="ri-file-list-3-line" aria-hidden="true"></i>

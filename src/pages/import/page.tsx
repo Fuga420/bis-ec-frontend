@@ -1,8 +1,12 @@
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import IndeterminateProgressBar from "@/components/base/IndeterminateProgressBar";
 import ImportSetCard from "@/pages/import/components/ImportSetCard";
 import ImportBatchSection from "@/pages/import/components/ImportBatchSection";
-import { sameFiles } from "@/pages/import/lib/multiImport";
+import {
+  POKECA_RAW_STORAGE_MODE,
+  parseImportMode,
+  sameFiles,
+} from "@/pages/import/lib/multiImport";
 import { adminThemeClass } from "@/lib/adminTheme";
 import { useMultiSetImport } from "@/pages/import/hooks/useMultiSetImport";
 import {
@@ -11,8 +15,13 @@ import {
 } from "@/context/OperatingModeProvider";
 
 export default function ImportPage() {
+  // 同じ画面をモードで切り替える（画面・画像アップロード処理は複製しない）。
+  const [searchParams] = useSearchParams();
+  const mode = parseImportMode(searchParams.get("mode"));
+  const isPokeca = mode === POKECA_RAW_STORAGE_MODE;
+
   const { isTestMode } = useOperatingMode();
-  const importer = useMultiSetImport(isTestMode);
+  const importer = useMultiSetImport(isTestMode, mode);
   const { sets, isImporting, summary } = importer;
   useOperatingModeLock(isImporting);
 
@@ -70,7 +79,7 @@ export default function ImportPage() {
             商品一覧
           </Link>
           <span className="admin-eyebrow text-[10px] font-semibold text-foreground-400">
-            Bulk Import
+            {isPokeca ? "Pokeca Raw Storage" : "Bulk Import"}
           </span>
         </div>
       </header>
@@ -83,13 +92,19 @@ export default function ImportPage() {
         {/* 説明（コンパクト） */}
         <div className="ui-card rounded-lg px-4 py-3.5 md:px-5">
           <div className="flex items-center gap-2">
-            <i className="ri-stack-line w-5 h-5 flex items-center justify-center text-primary-600"></i>
+            <i
+              className={`w-5 h-5 flex items-center justify-center text-primary-600 ${
+                isPokeca ? "ri-archive-drawer-line" : "ri-stack-line"
+              }`}
+            ></i>
             <h1 className="text-[15px] font-semibold text-foreground-950">
-              画像セットで一括取込
+              {isPokeca ? "ポケカ素地で一括取込" : "画像セットで一括取込"}
             </h1>
           </div>
           <p className="mt-1.5 text-sm leading-relaxed text-foreground-600">
-            商品ごとに画像をまとめて、複数商品を下書き登録します。
+            {isPokeca
+              ? "商品ごとに箱番・枝番と画像をまとめて、複数商品を下書き登録します。"
+              : "商品ごとに画像をまとめて、複数商品を下書き登録します。"}
           </p>
 
           {/* 詳細説明・注意事項（初期状態は閉じる） */}
@@ -111,6 +126,12 @@ export default function ImportPage() {
                   <i className="ri-checkbox-blank-circle-fill w-3.5 h-3.5 flex items-center justify-center text-[6px] text-primary-500"></i>
                   1セット＝1商品（画像1〜20枚・1枚目がメイン）
                 </li>
+                {isPokeca && (
+                  <li className="flex items-center gap-1.5">
+                    <i className="ri-checkbox-blank-circle-fill w-3.5 h-3.5 flex items-center justify-center text-[6px] text-primary-500"></i>
+                    箱番・枝番は必須（先頭のゼロもそのまま保存）
+                  </li>
+                )}
                 <li className="flex items-center gap-1.5">
                   <i className="ri-checkbox-blank-circle-fill w-3.5 h-3.5 flex items-center justify-center text-[6px] text-primary-500"></i>
                   追加・並べ替え・メイン変更・削除ができます
@@ -127,6 +148,12 @@ export default function ImportPage() {
                   <i className="ri-checkbox-blank-circle-fill w-3.5 h-3.5 flex items-center justify-center text-[6px] text-primary-500"></i>
                   AI解析に使う画像を最大3枚まで選択可（未選択は先頭3枚）
                 </li>
+                {isPokeca && (
+                  <li className="flex items-center gap-1.5">
+                    <i className="ri-checkbox-blank-circle-fill w-3.5 h-3.5 flex items-center justify-center text-[6px] text-primary-500"></i>
+                    表を先頭にすると表がメイン画像（裏の画像も追加）
+                  </li>
+                )}
               </ul>
               <p className="mt-2.5 flex items-start gap-1.5 rounded-md bg-background-100 px-3 py-2 text-[11px] leading-relaxed text-foreground-500">
                 <i className="ri-information-line mt-0.5 w-4 h-4 flex items-center justify-center"></i>
@@ -147,9 +174,16 @@ export default function ImportPage() {
               index={index}
               set={set}
               disabled={isImporting}
+              mode={mode}
               onImagesChange={(files) => importer.setImages(set.id, files)}
               onAuctionItemNumberChange={(value) =>
                 importer.setAuctionItemNumber(set.id, value)
+              }
+              onBoxNumberChange={(value) =>
+                importer.setBoxNumber(set.id, value)
+              }
+              onBranchNumberChange={(value) =>
+                importer.setBranchNumber(set.id, value)
               }
               onRemove={() => importer.removeSet(set.id)}
               onResend={() => importer.resendSet(set.id)}
@@ -308,11 +342,22 @@ export default function ImportPage() {
               </span>
             )}
           </div>
+          {isPokeca && importer.missingIdentifierCount > 0 && !isImporting && (
+            <p className="mt-2 flex items-start gap-1.5 rounded-md bg-background-50 px-2.5 py-2 text-[11px] leading-relaxed text-foreground-600">
+              <i className="ri-information-line mt-0.5 w-3.5 h-3.5 shrink-0 flex items-center justify-center text-foreground-400"></i>
+              <span>
+                箱番・枝番が未入力のセットがあります（
+                {importer.missingIdentifierCount}件）。箱番・枝番が揃ったセットだけを取り込みます。
+              </span>
+            </p>
+          )}
           {!importer.hasImportableSet && !isImporting && (
             <p className="mt-2 text-xs text-foreground-400">
               {summary.unknown > 0
                 ? "受付状況が不明なセットは、各セットの「同じ内容で再送」から再送してください。"
-                : "取り込むには、いずれかのセットに画像を1枚以上追加してください。"}
+                : isPokeca
+                  ? "取り込むには、各セットに箱番・枝番を入力し、画像を1枚以上追加してください。"
+                  : "取り込むには、いずれかのセットに画像を1枚以上追加してください。"}
             </p>
           )}
           {needsResultConfirm > 0 && !isImporting && (
