@@ -11,6 +11,10 @@ import type {
 // MVP既定の1ページあたり件数（契約の既定値・上限値に合わせる）。
 export const PRODUCT_LIST_PAGE_SIZE = 50;
 
+// 「条件に一致する全件を選択」でページ送りする上限（50件 × 60ページ = 3,000件）。
+// 無限にAPIを叩き続けないための安全弁で、通常運用では到達しない。
+const SELECT_ALL_MAX_PAGES = 60;
+
 // 連続入力による通信を防ぐ検索のデバウンス時間。
 const SEARCH_DEBOUNCE_MS = 400;
 
@@ -95,6 +99,72 @@ export function useProductList({
   // 古い応答が新しい検索結果を上書きしないための通番ガード。
   const requestSeqRef = useRef(0);
 
+  // 一覧APIの取得条件（既存パラメータの範囲内）を1か所で組み立てる。
+  // 通常のページ取得と「条件に一致する全件を選択」のページ送りで同じ条件を使う。
+  const buildListParams = useCallback(
+    (pageNumber: number) => {
+      const params = new URLSearchParams();
+      // 必ずページ分割モードで呼ぶ（page の送信を省略しない）。
+      params.set("mode", "admin");
+      params.set("page", String(pageNumber));
+      params.set("page_size", String(PRODUCT_LIST_PAGE_SIZE));
+      params.set("search", debouncedSearch);
+      params.set("category", filter.category || "all");
+      params.set("publish_status", filter.publishStatus || "all");
+      params.set("inventory_status", filter.inventoryStatus || "all");
+      params.set("record_status", isArchived ? "archived" : "active");
+      params.set("is_test", isTestMode ? "true" : "false");
+      params.set("sort", sortKey);
+      return params;
+    },
+    [
+      debouncedSearch,
+      filter.category,
+      filter.publishStatus,
+      filter.inventoryStatus,
+      isArchived,
+      isTestMode,
+      sortKey,
+    ]
+  );
+
+  /**
+   * 現在の絞り込み条件（検索・カテゴリ・公開状態・在庫状態・記録状態・通常/テスト）の
+   * 全件を既存の一覧APIでページ送りして集める（新しいAPIは使わない）。
+   * product_id の重複は Map で排除し、取得順は一覧APIの並び順のまま保つ。
+   */
+  const fetchAllMatchingProducts = useCallback(async () => {
+    const collected = new Map<string, AdminProduct>();
+    let pageNumber = 1;
+    let lastPage = 1;
+
+    while (pageNumber <= lastPage && pageNumber <= SELECT_ALL_MAX_PAGES) {
+      const response = await fetchProductsReadApi(
+        buildListParams(pageNumber).toString()
+      );
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const data = (await response.json()) as AdminProductListResponse;
+      if (!data || data.success !== true) {
+        throw new Error("Invalid response");
+      }
+      const list = data.products ?? [];
+      list.forEach((product) => {
+        if (product && product.product_id && !collected.has(product.product_id)) {
+          collected.set(product.product_id, product);
+        }
+      });
+
+      // ページ分割非対応（旧v2）の応答では total_pages が無いため、その1回で打ち切る。
+      lastPage = typeof data.total_pages === "number" ? data.total_pages : 1;
+      if (list.length === 0) break;
+      pageNumber += 1;
+    }
+
+    return Array.from(collected.values());
+  }, [buildListParams]);
+
   useEffect(() => {
     const scopeChanged =
       prevScopeRef.current.isArchived !== isArchived ||
@@ -118,20 +188,9 @@ export function useProductList({
 
     const load = async () => {
       try {
-        const params = new URLSearchParams();
-        // 必ずページ分割モードで呼ぶ（page の送信を省略しない）。
-        params.set("mode", "admin");
-        params.set("page", String(page));
-        params.set("page_size", String(PRODUCT_LIST_PAGE_SIZE));
-        params.set("search", debouncedSearch);
-        params.set("category", filter.category || "all");
-        params.set("publish_status", filter.publishStatus || "all");
-        params.set("inventory_status", filter.inventoryStatus || "all");
-        params.set("record_status", isArchived ? "archived" : "active");
-        params.set("is_test", isTestMode ? "true" : "false");
-        params.set("sort", sortKey);
-
-        const response = await fetchProductsReadApi(params.toString());
+        const response = await fetchProductsReadApi(
+          buildListParams(page).toString()
+        );
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
@@ -205,17 +264,7 @@ export function useProductList({
     return () => {
       cancelled = true;
     };
-  }, [
-    debouncedSearch,
-    filter.category,
-    filter.publishStatus,
-    filter.inventoryStatus,
-    sortKey,
-    page,
-    isArchived,
-    isTestMode,
-    reloadKey,
-  ]);
+  }, [buildListParams, page, reloadKey]);
 
   const resetFilter = useCallback(() => {
     setFilter(EMPTY_PRODUCT_FILTER);
@@ -234,5 +283,7 @@ export function useProductList({
     page,
     setPage,
     resetFilter,
+    // 現在の絞り込み条件で全ページ分の商品を取得する（「全件を選択」用）。
+    fetchAllMatchingProducts,
   };
 }
