@@ -411,7 +411,7 @@ export interface AiBatchItem {
   // GAS v102以降: 提案価格・価格根拠（candidate.price_note）・解析に使った画像
   proposed_price?: number | null;
   price_note?: string | null;
-  // GAS v103: 価格根拠の種別。"cost_markup_floor" は「原価上乗せ下限」を採用したことを示す。
+  // 価格根拠の種別。"gross_margin_floor" は「最低粗利率下限」を採用したことを示す。
   price_basis?: string | null;
   source_image_ids?: string[];
 }
@@ -569,10 +569,10 @@ export interface AiBatchDisplayItem {
   // 進捗表示・商品詳細への導線の補助に使う（表示名の生成には使わない）。
   draft_id?: string | null;
   draft_version?: number | null;
-  // GAS が返す提案価格と価格根拠（相場より原価上乗せ下限を優先した場合の理由も含む）
+  // 提案価格と価格根拠（相場より最低粗利率下限を優先した場合の理由も含む）
   proposed_price?: number | null;
   price_note?: string | null;
-  // GAS v103: 価格根拠の種別（"cost_markup_floor" = 原価上乗せ下限を採用）
+  // 価格根拠の種別（"gross_margin_floor" = 最低粗利率下限を採用）
   price_basis?: string | null;
 }
 

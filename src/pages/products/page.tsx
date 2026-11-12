@@ -493,7 +493,7 @@ export default function ProductsPage() {
   // 一括AI生成の状態（バッチ受付＋進捗ポーリング。一括公開・決済リンク処理とは別操作）
   // 状態は管理画面共通のプロバイダーが保持する。ここで独自にポーリングしない。
   const [isAiConfirmOpen, setIsAiConfirmOpen] = useState(false);
-  // 概算原価への最低上乗せ率（％表記の入力値）。送信時に小数（0.3 = 30％）へ変換する。
+  // 販売価格に対する最低粗利率（％表記の入力値）。送信時に小数（0.3 = 30％）へ変換する。
   const [minMarkupPercent, setMinMarkupPercent] = useState("30");
   const aiBatch = useAiBatch();
 

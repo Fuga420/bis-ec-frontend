@@ -42,18 +42,19 @@ export const AI_BATCH_ACTIONS = {
   saveSelectedImages: "save_product_ai_selected_images",
 } as const;
 
-// 概算原価への最低上乗せ率の既定値（30% = 下限価格は原価 × 1.30）。
-// GAS v103 契約: 0 < min_cost_markup_rate <= 5.0
+// 販売価格に対する最低粗利率の既定値（30% = 下限価格は 原価 ÷ (1 − 0.30)）。
+// 許容範囲: 0 < min_cost_markup_rate < 1.0（UI入力上限 95%）
 export const DEFAULT_MIN_COST_MARKUP_RATE = 0.3;
 export const MIN_COST_MARKUP_RATE_EXCLUSIVE_MIN = 0;
-export const MIN_COST_MARKUP_RATE_MAX = 5.0;
+export const MIN_COST_MARKUP_RATE_MAX = 0.95;
 
-// 価格根拠の種別（GAS v103）。原価上乗せ下限を採用した場合の price_basis。
-export const PRICE_BASIS_COST_MARKUP_FLOOR = "cost_markup_floor";
+// 価格根拠の種別。最低粗利率下限を採用した場合の price_basis（旧識別子 "cost_markup_floor" とも後方互換）。
+export const PRICE_BASIS_COST_MARKUP_FLOOR = "gross_margin_floor";
 
-/** price_basis が「原価上乗せ下限」かどうか。 */
+/** price_basis が「最低粗利率下限」かどうか。 */
 export function isCostMarkupFloorBasis(basis?: string | null): boolean {
-  return (basis ?? "").trim() === PRICE_BASIS_COST_MARKUP_FLOOR;
+  const b = (basis ?? "").trim();
+  return b === PRICE_BASIS_COST_MARKUP_FLOOR || b === "cost_markup_floor";
 }
 
 // AI解析に使う画像の最大枚数（サーバー・GASと一致）
@@ -450,7 +451,7 @@ export async function createAiProductDraftBatch(params: {
   requestId: string;
   productIds: string[];
   forceRegenerate?: boolean;
-  // 概算原価への最低上乗せ率（0より大きく5.0以下の小数）。未指定は 0.30（30%）。
+  // 販売価格に対する最低粗利率（0より大きく1.0未満の小数）。未指定は 0.30（30%）。
   minCostMarkupRate?: number;
   // テスト実行モード: true の場合、対象IDがすべて is_test=true でなければサーバーが受付前に拒否する。
   testOnly?: boolean;

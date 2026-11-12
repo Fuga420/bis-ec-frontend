@@ -156,14 +156,18 @@ function AiBatchResultRow({ item }: AiBatchResultRowProps) {
         <div className="space-y-1 px-6 pb-2.5">
           {hasPrice && (
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              {item.proposed_price != null && (
+              {item.proposed_price != null ? (
                 <span className="admin-numeric text-[11px] font-semibold leading-none text-foreground-800">
                   提案価格 ¥{item.proposed_price.toLocaleString("ja-JP")}
                 </span>
-              )}
+              ) : display === "success" ? (
+                <span className="text-[11px] font-medium leading-none text-amber-700">
+                  提案価格 未設定（要入力）
+                </span>
+              ) : null}
               {isCostMarkupFloorBasis(item.price_basis) && (
                 <span className="inline-flex h-[16px] items-center whitespace-nowrap rounded border border-background-300 px-1 text-[10px] font-medium leading-none text-foreground-600">
-                  原価上乗せ下限
+                  最低粗利率下限
                 </span>
               )}
               {item.price_note && (
