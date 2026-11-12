@@ -19,8 +19,8 @@ interface AiBatchConfirmModalProps {
   targets: AiBatchTarget[];
   isBusy: boolean;
   errorMessage?: string;
-  // 概算原価への最低上乗せ率（「30」のような％表記の文字列）。
-  // 小数（0より大きく5.0以下）への変換は送信時に行う。
+  // 販売価格に対する最低粗利率（「30」のような％表記の文字列）。
+  // 小数（0より大きく1.0未満）への変換は送信時に行う。
   minMarkupPercent: string;
   onMinMarkupPercentChange: (value: string) => void;
   onCancel: () => void;
@@ -32,10 +32,10 @@ interface AiBatchConfirmModalProps {
   ) => void | Promise<void>;
 }
 
-// 許容範囲は GAS v103 契約（0 < min_cost_markup_rate <= 5.0）に合わせる。
+// 許容範囲（0 < min_cost_markup_rate <= 0.95 = 95%）に合わせる。
 const MAX_MARKUP_PERCENT = MIN_COST_MARKUP_RATE_MAX * 100;
 
-/** 入力された％表記を検証する（0％より大きく500％以下のみ受ける）。 */
+/** 入力された％表記を検証する（0％より大きく95％以下のみ受ける）。 */
 export function parseMinMarkupPercent(input: string): number | null {
   const trimmed = input.trim();
   if (trimmed === "") return null;
@@ -93,7 +93,7 @@ export default function AiBatchConfirmModal({
   const markupPercent = parseMinMarkupPercent(minMarkupPercent);
   const markupError =
     markupPercent === null
-      ? `概算原価への最低上乗せ率は 0％より大きく ${MAX_MARKUP_PERCENT}％ 以下の数値で入力してください。`
+      ? `販売価格に対する最低粗利率は 0％より大きく ${MAX_MARKUP_PERCENT}％ 以下の数値で入力してください。`
       : "";
 
   const scheduleError = timing === "scheduled" ? parsedSchedule.error : "";
@@ -290,13 +290,13 @@ export default function AiBatchConfirmModal({
             </div>
           )}
 
-          {/* 概算原価への最低上乗せ率: 下限価格 = 概算原価 × (1 + 上乗せ率)。 */}
+          {/* 販売価格に対する最低粗利率: 下限価格 = 原価 ÷ (1 − 粗利率) を価格単位で切り上げ。 */}
           <div className="mt-3.5 rounded-lg border border-background-200 bg-background-50 px-3 py-3">
             <label
               htmlFor="ai-batch-min-markup"
               className="text-[13px] font-semibold text-foreground-900"
             >
-              概算原価への最低上乗せ率（％）
+              販売価格に対する最低粗利率（％）
             </label>
             <div className="mt-2 flex items-center gap-2">
               <div className="relative w-28">
@@ -323,7 +323,7 @@ export default function AiBatchConfirmModal({
               </span>
             </div>
             <p className="mt-1.5 text-[11px] leading-relaxed text-foreground-500">
-              下限価格は「概算原価 ×（1 + 上乗せ率）」を切り上げた金額です。原価は実行時にサーバー側で確定済み仕入明細から取得します（取得失敗時は原価なし扱いせず中断します）。
+              原価が確定している場合、下限価格は「原価 ÷（1 − 粗利率）」を価格単位で切り上げた金額です（原価なし・未取得時は下限を適用せず生成を継続します）。
             </p>
             {markupError && (
               <p className="mt-1.5 text-[11px] font-medium text-red-700">

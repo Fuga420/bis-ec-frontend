@@ -167,7 +167,7 @@ function AiBatchResultRow({ item }: AiBatchResultRowProps) {
               ) : null}
               {isCostMarkupFloorBasis(item.price_basis) && (
                 <span className="inline-flex h-[16px] items-center whitespace-nowrap rounded border border-background-300 px-1 text-[10px] font-medium leading-none text-foreground-600">
-                  原価上乗せ下限
+                  最低粗利率下限
                 </span>
               )}
               {item.price_note && (
