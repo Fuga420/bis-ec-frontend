@@ -278,3 +278,19 @@
 - 表示：一覧テーブルの「在庫状態」の右（操作列の手前）に幅104pxの列を追加。12pxのアイコン＋文字のみで、強い塗りバッジは使わない（照合済み＝小さなグリーンのチェック、要確認＝淡いアンバー、未照合＝グレー文字、不明＝「—」）。モバイル表示では商品名下のバッジ行に同じ表現を出す。
 - 実装：`src/pages/products/lib/ledgerMatch.ts`（判定・まとめ読み）／`src/pages/products/hooks/useProductLedgerMatch.ts`（ページ単位で1回取得）／`src/pages/products/components/LedgerMatchCell.tsx`（表示）。商品一覧の検索・絞り込み・並び替え・ページング・一括操作は無変更。
 - 状態：ビルド成功。実データでの表示確認はスタッフが実画面で実施する。
+
+### フェーズ6追加：一括AI生成の「ライト版（旧裏ストレージ向け）」2026-11-12 実装・フロントのみ
+- 目的：旧裏ストレージのポケカ商品だけを、価格を変えずに短い説明文で生成できるようにする。既存の確認ダイアログに生成方式の選択を最小限で追加する（新しい専用画面は作らない）。
+- 判定（`src/pages/products/lib/pokecaRawStorage.ts`）
+  - 選択済み商品の `storage_location` が `旧裏ストレージ/` で始まる場合のみ「旧裏ストレージ商品」とする。カテゴリの空欄や取込モードでは判定しない。
+  - 旧裏のみ → ライト版を初期選択、通常のみ・混在 → 通常版を初期選択。混在でライト版を選ぶと対象外商品の存在と件数を表示し、実行させない（勝手に除外しない）。
+- 実行（`src/pages/products/lib/pokecaRawStorageAi.ts`）
+  - `POST /pokeca-raw-storage-ai/run` に `{ product_ids, background: true, is_test }` を送る。認証は既存の `getBackendWriteAuthHeaders`（Cloud Run と同一）。
+  - 即時開始のみ。日時指定予約・原価・最低上乗せ率の入力はライト版では表示しない。`/ai-batches` へは送らない。
+  - `already_running: true` は「今回の選択が開始された」と扱わず、既存ジョブの表示とその旨の案内のみ行う（成功表示を出さない）。
+- 進捗（`src/pages/products/hooks/usePokecaRawStorageAi.ts` / `components/PokecaLightProgressBar.tsx`）
+  - `GET /pokeca-raw-storage-ai/status` の `worker_state` から対象件数・処理済み・成功・失敗・スキップ・失敗内容を表示。`worker_state.is_test` が現在の画面モードと一致する実行だけを表示する。
+  - 画面を開き直した場合・別デバイスで開いた場合も同じジョブを表示（ページ表示時とモード切替時に取得、実行中は約5秒間隔＋タブ復帰時に更新）。
+  - 実行中→完了（または失敗）に変わった時点で商品一覧を再読み込みし、生成された商品名を反映する。
+- 変更範囲：商品一覧画面・確認ダイアログ・上記 lib/hook/component のみ。通常版（`/ai-batches`）の既存処理、商品登録、公開・Square連携、バックエンド・DB・GAS は無変更。
+- 状態：ビルド成功。少数件での実行確認はスタッフが実画面で実施する（大量実行は行わない）。

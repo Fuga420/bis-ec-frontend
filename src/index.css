@@ -2,6 +2,9 @@
    使用するウェイト（400 / 500 / 600 / 700）に限定して読み込み量を抑える。
    display=swap により、フォント取得待ちでも本文は即座に表示される（レイアウトシフトを抑制）。 */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap');
+/* BIS ロゴだけに使う書体。本文（Inter）とは別に、ロゴのみ字面の個性を出す。
+   モダンで上品なセリフ体（Playfair Display）を、ロゴの3文字だけに当てる。 */
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -196,43 +199,63 @@ body {
   --primary-950: 0.19 0.05 150;
 }
 
+/* 商品一覧ヘッダーのブランドロゴ（BIS）
+   通常のUI文字（Inter）とは別書体のセリフ体（Playfair Display）で組み、
+   ロゴとしての個性と品格を出す。サイズは見出し「商品管理」より明確に大きく、
+   ウェイトも一段強くして、ブランド → ページ名 → 補助ラベルの順に視線が流れるようにする。
+   過度な装飾（影・グラデーション・色付け）は使わない。 */
+.products-header-brand {
+  font-family: 'Playfair Display', 'Inter', 'Noto Sans JP', Georgia,
+    'Times New Roman', serif;
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1;
+  /* セリフ体は字間をわずかに詰めると締まって見える（詰めすぎない） */
+  letter-spacing: -0.02em;
+  font-feature-settings: 'liga' 1, 'kern' 1;
+  /* 負の字間で末尾の S が詰まって見えるため、右側だけ字間分を戻す */
+  padding-right: 0.03em;
+}
+
 /* 商品一覧ヘッダーの主要CTA（新しい商品を登録）
-   緑の塗りは使わず、モノトーンのアウトラインで「主要操作」を表す。
-   色ではなく、枠線の明るさ・文字ウェイト・先頭の「＋」アイコンで
-   サブアクションとの差を作る（位置・順序はそのまま）。
-   ライトテーマ：白面＋ #CBD5E1 の枠線＋ #111827 の文字
+   「主要操作」であることは塗りで示すが、彩度の高い緑は使わない。
+   全体の落ち着いたトーンに馴染む深いフォレストグリーン＋白文字にし、
+   影はごく浅く1枚だけ重ねる（発光・グラデーションは使わない）。
+   サブアクションとの差は「塗り」と「文字の明るさ」で作り、寸法は共通。
    products-theme 配下の .product-cta だけに効くため、他の画面・他のボタンには影響しない。 */
 .products-theme .product-cta {
   gap: 8px;
   height: 40px;
   padding-left: 16px;
   padding-right: 16px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid #14492f;
   border-radius: 8px;
-  background-color: #ffffff;
-  color: #111827;
-  font-size: 13px;
+  background-color: #1a5c3f;
+  color: #ffffff;
+  font-size: 14px;
   font-weight: 600;
-  box-shadow: none;
+  letter-spacing: 0.01em;
+  box-shadow: 0 1px 1px rgba(16, 24, 20, 0.08);
 }
 
 .products-theme .product-cta i {
-  color: #111827;
+  color: #ffffff;
+  opacity: 0.92;
 }
 
 .products-theme .product-cta:hover {
-  background-color: #f3f4f6;
-  border-color: #b6c2d1;
+  background-color: #1f6b4a;
+  border-color: #17563a;
 }
 
 .products-theme .product-cta:active {
-  background-color: #e5e7eb;
-  border-color: #a9b6c6;
+  background-color: #16503a;
+  border-color: #123f2c;
 }
 
 .products-theme .product-cta:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(107, 114, 128, 0.35);
+  box-shadow: 0 0 0 3px rgba(26, 92, 63, 0.35);
 }
 
 /* ========================================================================
@@ -240,9 +263,13 @@ body {
    ------------------------------------------------------------------------
    「画像だけ取込」「書類管理」（サブアクション）、「新しい商品を登録」（主CTA）、
    環境切り替え（設定アイコン）の高さ・角丸・文字・アイコン・余白を揃える。
-   色だけを役割ごとに分け、寸法はここ1か所で管理する。
-     高さ40px / 角丸8px / 文字13px・500 / アイコン16px / 間隔8px
-     横パディング15px / ボタン間隔は親のgap-2（8px）
+   色だけを役割ごとに分け、寸法・書体はここ1か所で管理する。
+     高さ40px / 角丸8px / 文字14px・600 / アイコン17px / 間隔8px
+     横パディング14px / ボタン間隔は親のgap-2（8px）
+   アイコンは Remix Icon の線画（-line）だけを使い、線幅の種類を混在させない。
+   色は文字色を継承させ、意味のないアクセントカラーは使わない。
+   日本語ラベルが「安っぽく」見えないよう、文字サイズ・ウェイト・字間を
+   全ボタンで同じ値に固定する（ボタンごとに見え方を変えない）。
    強い影・グラデーションは使わない。
    ======================================================================== */
 .product-header-action,
@@ -250,14 +277,16 @@ body {
 .product-header-icon-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   height: 40px;
   border-radius: 8px;
-  padding: 0 15px;
-  font-size: 13px;
-  font-weight: 500;
+  padding: 0 14px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
   line-height: 1;
-  letter-spacing: normal;
+  letter-spacing: 0.01em;
   white-space: nowrap;
   cursor: pointer;
   text-decoration: none;
@@ -278,13 +307,16 @@ body {
 .product-header-cta i,
 .product-header-icon-btn i {
   flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
-  font-size: 16px;
+  width: 17px;
+  height: 17px;
+  font-size: 17px;
   line-height: 1;
+  letter-spacing: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  /* アイコンの色は必ずボタンの文字色に追従させる（ライト／ダーク共通） */
+  color: currentColor;
 }
 
 /* サブアクション（ライトテーマ） */
@@ -551,38 +583,38 @@ body {
   box-shadow: 0 0 0 3px rgba(120, 133, 148, 0.35);
 }
 
-/* 主要CTA（新しい商品を登録）：ダークテーマではチャコール系のアウトライン。
-   サブアクション（#20262D 面＋#343D47 枠）と面の高さは揃えたまま、
-   枠線だけ一段明るい #414A55 にして「主要操作」であることを示す。
-   ・通常 #20262D面 / #414A55枠 / #F3F4F6文字
-   ・hover #303945 / active #39434F
+/* 主要CTA（新しい商品を登録）：ダークテーマでも「主操作」は塗りで示す。
+   ただし明るいグリーンは使わず、暗い面（#181D23 / #20262D）に馴染む
+   深くくすんだグリーン（#2A6049）を面にする。
+   ・通常 #2A6049面 / #3C7A5C枠 / #ECF5F0文字
+   ・hover #316B51 / active #38755A
    ・影・発光・グラデーションは使わない
-   ・左右パディング16pxはライトテーマと揃える */
+   ・寸法・パディングはライトテーマと完全に揃える */
 .is-test-dark .product-cta {
-  background-color: #20262d;
-  border: 1px solid #414a55;
-  color: #f3f4f6;
+  background-color: #2a6049;
+  border: 1px solid #3c7a5c;
+  color: #ecf5f0;
   padding-left: 16px;
   padding-right: 16px;
-  box-shadow: none;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
 }
 
 /* 先頭の「＋」アイコンは文字と同じ明るさに揃える */
 .is-test-dark .product-cta i {
-  font-size: 16px;
-  color: #f3f4f6;
-  opacity: 1;
+  font-size: 17px;
+  color: #ecf5f0;
+  opacity: 0.92;
 }
 
 .is-test-dark .product-cta:hover {
-  background-color: #303945;
-  border-color: #4b5563;
-  color: #f3f4f6;
+  background-color: #316b51;
+  border-color: #478669;
+  color: #f3faf6;
 }
 
 .is-test-dark .product-cta:active {
-  background-color: #39434f;
-  border-color: #525d69;
+  background-color: #38755a;
+  border-color: #4f9073;
 }
 
 .is-test-dark .product-cta:focus-visible {

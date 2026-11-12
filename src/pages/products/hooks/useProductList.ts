@@ -26,6 +26,7 @@ export const EMPTY_PRODUCT_FILTER: ProductFilterValue = {
   category: "",
   publishStatus: "",
   inventoryStatus: "",
+  importMode: "",
 };
 
 interface UseProductListParams {
@@ -112,6 +113,11 @@ export function useProductList({
       params.set("category", filter.category || "all");
       params.set("publish_status", filter.publishStatus || "all");
       params.set("inventory_status", filter.inventoryStatus || "all");
+      // 旧裏ストレージ（ポケカ素地取込）の商品だけに絞る。
+      // 「すべての商品」ではパラメータ自体を送らず、従来どおりの取得条件を保つ。
+      if (filter.importMode) {
+        params.set("import_mode", filter.importMode);
+      }
       params.set("record_status", isArchived ? "archived" : "active");
       params.set("is_test", isTestMode ? "true" : "false");
       params.set("sort", sortKey);
@@ -122,6 +128,7 @@ export function useProductList({
       filter.category,
       filter.publishStatus,
       filter.inventoryStatus,
+      filter.importMode,
       isArchived,
       isTestMode,
       sortKey,

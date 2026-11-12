@@ -9,6 +9,9 @@ export interface ProductFilterValue {
   category: string;
   publishStatus: string;
   inventoryStatus: string;
+  // 取込モードでの絞り込み（空＝すべての商品）。旧裏ストレージ商品は category が空欄のため、
+  // カテゴリではなく取込モード（import_mode）で判定する。
+  importMode: string;
 }
 
 interface ProductFilterBarProps {
@@ -43,6 +46,13 @@ const INVENTORY_OPTIONS: Array<{ value: string; label: string }> = [
   })),
 ];
 
+// 取込モードの絞り込み。旧裏ストレージ（ポケカ素地）取込で登録された商品だけを表示する。
+// 空（すべての商品）では import_mode パラメータを送らない＝従来どおり全件。
+const IMPORT_MODE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "", label: "すべての商品" },
+  { value: "pokeca_raw_storage", label: "旧裏ストレージ" },
+];
+
 // 一覧の取得は全件一括だが、画面での絞り込みは「取得済み全件」を対象にする。
 // 件数表示はフィルターエリア直下に1か所だけまとめて表示する。
 //
@@ -60,7 +70,8 @@ export default function ProductFilterBar({
     value.search.trim() !== "" ||
     value.category !== "" ||
     value.publishStatus !== "" ||
-    value.inventoryStatus !== "";
+    value.inventoryStatus !== "" ||
+    value.importMode !== "";
   const hasSearch = value.search !== "";
 
   // 各セレクト共通の見た目（高さ40px・角丸・スタイルを統一）。
@@ -139,6 +150,21 @@ export default function ProductFilterBar({
         ))}
       </select>
 
+      {/* 取込モード（旧裏ストレージ）。絞り込みはAPI側で行うため、選択変更で1ページ目に戻す */}
+      <select
+        value={value.importMode}
+        disabled={disabled}
+        onChange={(e) => onChange({ ...value, importMode: e.target.value })}
+        aria-label="取込モードで絞り込み"
+        className={selectClass}
+      >
+        {IMPORT_MODE_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+
       {/* 条件クリアは操作群の末尾に控えめに置く（横へ押し広げない） */}
       {hasFilter && (
         <button
@@ -149,6 +175,7 @@ export default function ProductFilterBar({
               category: "",
               publishStatus: "",
               inventoryStatus: "",
+              importMode: "",
             })
           }
           disabled={disabled}

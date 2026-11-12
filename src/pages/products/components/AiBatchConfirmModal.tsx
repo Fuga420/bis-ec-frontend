@@ -13,6 +13,18 @@ import type { AiBatchTarget } from "@/pages/products/types";
 
 export type AiBatchExecutionTiming = "immediate" | "scheduled";
 
+/** AI生成の方式。normal=通常版 / light=ライト版（旧裏ストレージ向け）。 */
+export type AiBatchGenerationMode = "normal" | "light";
+
+/** 選択商品の内訳（旧裏ストレージ判定結果）。 */
+export interface AiBatchLightVersionInfo {
+  status: "idle" | "checking" | "ready" | "unavailable";
+  /** 選択商品のうち旧裏ストレージ（ポケカ素地取込）商品の件数 */
+  pokecaCount: number;
+  /** 選択商品のうち旧裏ストレージ商品ではない件数 */
+  normalCount: number;
+}
+
 interface AiBatchConfirmModalProps {
   open: boolean;
   count: number;
@@ -23,6 +35,11 @@ interface AiBatchConfirmModalProps {
   // 小数（0より大きく5.0以下）への変換は送信時に行う。
   minMarkupPercent: string;
   onMinMarkupPercentChange: (value: string) => void;
+  generationMode: AiBatchGenerationMode;
+  onGenerationModeChange: (mode: AiBatchGenerationMode) => void;
+  lightVersion: AiBatchLightVersionInfo;
+  /** ライト版の開始（即時・バックグラウンド実行のみ） */
+  onConfirmLight: () => void | Promise<void>;
   onCancel: () => void;
   testOnly?: boolean;
   onConfirmImmediate: (forceRegenerate: boolean) => void | Promise<void>;
@@ -62,6 +79,10 @@ export default function AiBatchConfirmModal({
   errorMessage,
   minMarkupPercent,
   onMinMarkupPercentChange,
+  generationMode,
+  onGenerationModeChange,
+  lightVersion,
+  onConfirmLight,
   onCancel,
   onConfirmImmediate,
   onConfirmSchedule,
@@ -115,19 +136,39 @@ export default function AiBatchConfirmModal({
 
   if (!open) return null;
 
+  const isLightMode = generationMode === "light";
   const tooMany = count > MAX_AI_BATCH_SIZE;
   const markupPercent = parseMinMarkupPercent(minMarkupPercent);
-  const markupError =
-    markupPercent === null
+  // ライト版は原価・最低上乗せ率の入力を求めないため、検証もしない。
+  const markupError = isLightMode
+    ? ""
+    : markupPercent === null
       ? `0％より大きく ${MAX_MARKUP_PERCENT}％ 以下の数値で入力してください。`
       : "";
 
-  const scheduleError = timing === "scheduled" ? parsedSchedule.error : "";
+  const scheduleError =
+    !isLightMode && timing === "scheduled" ? parsedSchedule.error : "";
+
+  // ライト版の実行対象は「選択商品がすべて旧裏ストレージ商品」のときだけ。
+  // 混在時は通常商品を黙って除外せず、実行させない。
+  const lightEligible =
+    lightVersion.status === "ready" &&
+    lightVersion.pokecaCount > 0 &&
+    lightVersion.normalCount === 0;
+  const lightBlocked = isLightMode && !lightEligible;
+
   const canSubmit =
-    count > 0 && !tooMany && !isBusy && !markupError && !scheduleError;
+    count > 0 &&
+    !tooMany &&
+    !isBusy &&
+    (isLightMode ? !lightBlocked : !markupError && !scheduleError);
 
   const handleSubmit = () => {
     if (!canSubmit) return;
+    if (isLightMode) {
+      void onConfirmLight();
+      return;
+    }
     if (timing === "scheduled") {
       if (!parsedSchedule.iso) return;
       void onConfirmSchedule(parsedSchedule.iso, forceRegenerate);
@@ -173,11 +214,68 @@ export default function AiBatchConfirmModal({
 
         {/* 内容（この領域だけスクロールする） */}
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-4">
-          {/* 実行方法 */}
+          {/* 生成方式（通常版 / ライト版）。既存の実行処理には触れず、選択に応じて
+              下の確認項目を出し分けるだけに留める。 */}
+          <div className="rounded-md border border-background-200 bg-background-50 px-3 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[12px] font-semibold text-foreground-900">
+                生成方式
+              </span>
+              {lightVersion.status === "checking" && (
+                <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] text-foreground-500">
+                  <i className="ri-loader-4-line flex h-3.5 w-3.5 animate-spin items-center justify-center text-[13px]"></i>
+                  旧裏ストレージを判定中
+                </span>
+              )}
+            </div>
+            <div
+              role="radiogroup"
+              aria-label="生成方式"
+              className="mt-2 grid grid-cols-2 gap-1 rounded-lg bg-background-100 p-1"
+            >
+              <button
+                type="button"
+                role="radio"
+                aria-checked={!isLightMode}
+                disabled={isBusy}
+                onClick={() => onGenerationModeChange("normal")}
+                className={`${segmentBase} ${
+                  !isLightMode ? segmentOn : segmentOff
+                }`}
+              >
+                <i className="ri-file-text-line flex h-4 w-4 items-center justify-center text-[15px]"></i>
+                通常版
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={isLightMode}
+                disabled={isBusy}
+                onClick={() => {
+                  setTiming("immediate");
+                  onGenerationModeChange("light");
+                }}
+                className={`${segmentBase} ${
+                  isLightMode ? segmentOn : segmentOff
+                }`}
+              >
+                <i className="ri-flashlight-line flex h-4 w-4 items-center justify-center text-[15px]"></i>
+                ライト版
+              </button>
+            </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-foreground-500">
+              {isLightMode
+                ? "旧裏ストレージ商品向け。カード名・カード番号・イラストレーターを読み取り、短い説明文を生成します（価格は変更しません）。"
+                : "従来の生成方式。概算原価と最低上乗せ率から下限価格を決めて生成します。"}
+            </p>
+          </div>
+
+          {/* 実行方法（通常版のみ） */}
+          {!isLightMode && (
           <div
             role="radiogroup"
             aria-label="実行タイミング"
-            className="grid grid-cols-2 gap-1 rounded-lg bg-background-100 p-1"
+            className="mt-3 grid grid-cols-2 gap-1 rounded-lg bg-background-100 p-1"
           >
             <button
               type="button"
@@ -206,6 +304,58 @@ export default function AiBatchConfirmModal({
               日時を指定して予約
             </button>
           </div>
+          )}
+
+          {/* ライト版の案内（対象条件・現在の状態） */}
+          {isLightMode && (
+            <div className="mt-3 rounded-md border border-background-200 bg-background-50 px-3 py-3">
+              <div className="space-y-1.5">
+                {lightVersion.status === "checking" && (
+                  <p className="text-[11px] leading-relaxed text-foreground-600">
+                    選択商品の内訳を確認しています。
+                  </p>
+                )}
+                {lightVersion.status === "idle" && (
+                  <p className="text-[11px] leading-relaxed text-foreground-600">
+                    選択商品の内訳を確認できていません。通常版を選択してください。
+                  </p>
+                )}
+                {lightVersion.status === "unavailable" && (
+                  <p className="text-[11px] leading-relaxed text-foreground-600">
+                    選択商品の内訳を確認できませんでした。ライト版は旧裏ストレージ商品のみが対象のため、通常版を選択してください。
+                  </p>
+                )}
+                {lightVersion.status === "ready" && lightVersion.normalCount > 0 && (
+                  <p className="flex items-start gap-1.5 rounded bg-amber-50 px-2 py-1.5 text-[11px] leading-relaxed text-amber-800">
+                    <i className="ri-error-warning-line mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center text-[13px]"></i>
+                    <span>
+                      選択中の {lightVersion.normalCount} 件は旧裏ストレージ商品ではありません。ライト版の実行対象は旧裏ストレージ商品のみです（通常商品を自動的に除外して実行することはありません）。通常版を選択してください。
+                    </span>
+                  </p>
+                )}
+                {lightVersion.status === "ready" &&
+                  lightVersion.normalCount === 0 &&
+                  lightVersion.pokecaCount > 0 && (
+                    <p className="text-[11px] leading-relaxed text-foreground-700">
+                      選択中の {lightVersion.pokecaCount} 件はすべて旧裏ストレージ商品です。ライト版の実行対象になります。
+                    </p>
+                  )}
+                <p className="text-[11px] leading-relaxed text-foreground-600">
+                  ライト版は原価・最低上乗せ率の入力を必要とせず、バックグラウンドで実行します（画面を閉じても処理は継続します）。進捗・件数・失敗内容は商品一覧の上部に表示され、ページを開き直した場合や別の端末で開いた場合も同じジョブを確認できます。
+                </p>
+                {lightVersion.status === "ready" &&
+                  lightVersion.normalCount === 0 &&
+                  lightVersion.pokecaCount > 0 && (
+                    <p className="flex items-start gap-1.5 rounded bg-background-100 px-2 py-1.5 text-[11px] leading-relaxed text-foreground-600">
+                      <i className="ri-information-line mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center text-[13px]"></i>
+                      <span>
+                        日時指定の予約はできません（即時開始のみ）。実行中に別のライト版が動いている場合、今回の選択は開始されません。
+                      </span>
+                    </p>
+                  )}
+              </div>
+            </div>
+          )}
 
           {/* 対象商品の概要 */}
           <div className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -249,8 +399,8 @@ export default function AiBatchConfirmModal({
             </div>
           )}
 
-          {/* 開始日時（日時指定のときだけ表示） */}
-          {timing === "scheduled" && (
+          {/* 開始日時（日時指定のときだけ表示・通常版のみ） */}
+          {!isLightMode && timing === "scheduled" && (
             <div className="mt-3 rounded-md border border-background-200 bg-background-50 px-3 py-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <label
@@ -372,7 +522,8 @@ export default function AiBatchConfirmModal({
             )}
           </div>
 
-          {/* 最低上乗せ率 */}
+          {/* 最低上乗せ率（通常版のみ。ライト版では入力を求めない） */}
+          {!isLightMode && (
           <div className="mt-3 rounded-md border border-background-200 bg-background-50 px-3 py-3">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <label
@@ -413,8 +564,10 @@ export default function AiBatchConfirmModal({
               </p>
             )}
           </div>
+          )}
 
-          {/* 再生成オプション */}
+          {/* 再生成オプション（通常版のみ） */}
+          {!isLightMode && (
           <label className="mt-3 flex cursor-pointer items-start gap-2.5 rounded-md border border-background-200 bg-white px-3 py-2.5">
             <input
               type="checkbox"
@@ -432,8 +585,10 @@ export default function AiBatchConfirmModal({
               </span>
             </span>
           </label>
+          )}
 
           {/* 注意事項（必要なときだけ展開） */}
+          {!isLightMode && (
           <div className="mt-2">
             <button
               type="button"
@@ -457,6 +612,7 @@ export default function AiBatchConfirmModal({
               </p>
             )}
           </div>
+          )}
 
           {tooMany && (
             <p className="mt-3 flex items-start gap-1.5 rounded-md bg-red-50 px-3 py-2 text-[11px] leading-relaxed text-red-700">
@@ -494,6 +650,8 @@ export default function AiBatchConfirmModal({
                 <i className="ri-loader-4-line flex h-4 w-4 animate-spin items-center justify-center text-[15px]"></i>
                 {timing === "scheduled" ? "予約中..." : "実行中..."}
               </>
+            ) : isLightMode ? (
+              "ライト版で実行する"
             ) : timing === "scheduled" ? (
               "予約する"
             ) : (

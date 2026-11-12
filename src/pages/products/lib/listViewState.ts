@@ -79,6 +79,7 @@ function normalizeState(raw: unknown): ProductListViewState | null {
       category: toText(filter.category),
       publishStatus: toText(filter.publishStatus),
       inventoryStatus: toText(filter.inventoryStatus),
+      importMode: toText(filter.importMode),
     },
     sortKey,
     page,
