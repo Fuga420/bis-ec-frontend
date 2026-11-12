@@ -25,7 +25,8 @@ interface ProductRowProps {
   ledgerMatch?: LedgerMatchStatus;
   ledgerMatchLoading: boolean;
   isSelected: boolean;
-  onToggleSelect: (productId: string) => void;
+  // Shift+クリックの範囲選択を親側で処理するため、shiftKey も渡す。
+  onToggleSelect: (productId: string, options?: { shiftKey?: boolean }) => void;
   selectDisabled: boolean;
   // インライン編集（下書きのみ）。表示タイトルと販売予定価格をその場で編集する。
   canEdit: boolean;
@@ -328,6 +329,12 @@ export default function ProductRow({
               type="checkbox"
               checked={isSelected}
               disabled={selectDisabled}
+              // Shift+クリックは click 側で受け取り、既定の切り替え（change）は止める。
+              onClick={(event) => {
+                if (!event.shiftKey) return;
+                event.preventDefault();
+                onToggleSelect(product.product_id, { shiftKey: true });
+              }}
               onChange={() => onToggleSelect(product.product_id)}
               aria-label={`${name} を選択`}
             />

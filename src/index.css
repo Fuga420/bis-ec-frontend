@@ -196,26 +196,43 @@ body {
   --primary-950: 0.19 0.05 150;
 }
 
-/* 商品一覧ヘッダーの主要CTA（新しい商品を登録）専用の色。
-   鮮やかな緑ではなく、低彩度で深いグリーンにして「上質さ」で目立たせる。
+/* 商品一覧ヘッダーの主要CTA（新しい商品を登録）
+   緑の塗りは使わず、モノトーンのアウトラインで「主要操作」を表す。
+   色ではなく、枠線の明るさ・文字ウェイト・先頭の「＋」アイコンで
+   サブアクションとの差を作る（位置・順序はそのまま）。
+   ライトテーマ：白面＋ #CBD5E1 の枠線＋ #111827 の文字
    products-theme 配下の .product-cta だけに効くため、他の画面・他のボタンには影響しない。 */
 .products-theme .product-cta {
-  background-color: #1f6b45;
-  color: #ffffff;
+  gap: 8px;
+  height: 40px;
+  padding-left: 16px;
+  padding-right: 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background-color: #ffffff;
+  color: #111827;
+  font-size: 13px;
+  font-weight: 600;
   box-shadow: none;
 }
 
+.products-theme .product-cta i {
+  color: #111827;
+}
+
 .products-theme .product-cta:hover {
-  background-color: #1b5e3c;
+  background-color: #f3f4f6;
+  border-color: #b6c2d1;
 }
 
 .products-theme .product-cta:active {
-  background-color: #174f34;
+  background-color: #e5e7eb;
+  border-color: #a9b6c6;
 }
 
 .products-theme .product-cta:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(31, 107, 69, 0.18);
+  box-shadow: 0 0 0 3px rgba(107, 114, 128, 0.35);
 }
 
 /* ========================================================================
@@ -396,6 +413,13 @@ body {
   background-color: #181d23;
 }
 
+/* 画面上部のAI生成バーもヘッダーと同じ面・同じ罫線にして、
+   1本の帯として自然につながるようにする（余白・高さは変えない）。 */
+.is-test-dark .ai-batch-bar {
+  background-color: #181d23;
+  border-bottom-color: #303841;
+}
+
 /* カード・テーブル・モーダルの白面はすべてカード背景色へ */
 .is-test-dark .bg-white {
   background-color: #20262d;
@@ -527,38 +551,43 @@ body {
   box-shadow: 0 0 0 3px rgba(120, 133, 148, 0.35);
 }
 
-/* 主要CTA（新しい商品を登録）：暗い面でも浮かない低彩度の深緑。
-   主CTAであることは保ちつつ、彩度と塗りの強さを落として
-   ヘッダー・サブボタン・テーブルと並んでも自然に馴染むようにする。
-   ・通常 #24543F / hover #2B6249 / active #1F4937
-   ・薄い境界線で輪郭だけを補い、発光感・影・グラデーションは使わない
-   ・左右パディングはサブボタン（16px）と揃え、横幅が大きく見えないようにする */
+/* 主要CTA（新しい商品を登録）：ダークテーマではチャコール系のアウトライン。
+   サブアクション（#20262D 面＋#343D47 枠）と面の高さは揃えたまま、
+   枠線だけ一段明るい #414A55 にして「主要操作」であることを示す。
+   ・通常 #20262D面 / #414A55枠 / #F3F4F6文字
+   ・hover #303945 / active #39434F
+   ・影・発光・グラデーションは使わない
+   ・左右パディング16pxはライトテーマと揃える */
 .is-test-dark .product-cta {
-  background-color: #24543f;
-  color: #ffffff;
-  padding-left: 15px;
-  padding-right: 15px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background-color: #20262d;
+  border: 1px solid #414a55;
+  color: #f3f4f6;
+  padding-left: 16px;
+  padding-right: 16px;
   box-shadow: none;
 }
 
+/* 先頭の「＋」アイコンは文字と同じ明るさに揃える */
+.is-test-dark .product-cta i {
+  font-size: 16px;
+  color: #f3f4f6;
+  opacity: 1;
+}
+
 .is-test-dark .product-cta:hover {
-  background-color: #2b6249;
+  background-color: #303945;
+  border-color: #4b5563;
+  color: #f3f4f6;
 }
 
 .is-test-dark .product-cta:active {
-  background-color: #1f4937;
-}
-
-/* 先頭の「＋」アイコンは文字より一段控えめにして、アイコンだけが目立たないようにする */
-.is-test-dark .product-cta i {
-  font-size: 16px;
-  opacity: 0.9;
+  background-color: #39434f;
+  border-color: #525d69;
 }
 
 .is-test-dark .product-cta:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(36, 84, 63, 0.55);
+  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.45);
 }
 
 /* 入力欄・選択欄は背景と同じ #20262D、境界線は #343D47 */

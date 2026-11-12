@@ -3,6 +3,7 @@ import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
 import { syncProductToReadDb } from "@/config/productsApi";
 import ProductRow from "./components/ProductRow";
+import ProductSelectionBar from "./components/ProductSelectionBar";
 import {
   ACTION_COLUMN_WIDTH,
   COL_CATEGORY,
@@ -371,6 +372,10 @@ const RESULT_STATUS_ORDER: BulkPublishStatus[] = [
   "failed",
 ];
 
+// 「選択中のみ表示」で選択済み商品をクライアント側でページ分割するときの件数。
+// 一覧APIの page_size と同じ値に揃え、表示の密度感を変えない。
+const SELECTION_VIEW_PAGE_SIZE = 50;
+
 export default function ProductsPage() {
   const [searchParams] = useSearchParams();
   const location = useLocation();
@@ -404,6 +409,7 @@ export default function ProductsPage() {
     setSortKey,
     page,
     setPage,
+    fetchAllMatchingProducts,
   } = useProductList({
     isArchived,
     isTestMode,
@@ -419,11 +425,7 @@ export default function ProductsPage() {
 
   // 仕入照合の状態は一覧APIに含まれないため、表示中のページの商品IDをまとめて1回だけ取得する
   // （商品ごとの追加リクエストは発行しない）。
-  const ledgerProductIds = useMemo(
-    () => products.map((product) => product.product_id),
-    [products]
-  );
-  const ledgerMatch = useProductLedgerMatch(ledgerProductIds);
+  // 取得対象は下の ledgerProductIds（表示中の一覧に合わせる）で決める。
 
   // 復元判定が終わったらフラグを消す（再読み込みや新規アクセスで復元しないようにする）。
   useEffect(() => {
@@ -460,6 +462,20 @@ export default function ProductsPage() {
   );
   const selectAllRef = useRef<HTMLInputElement>(null);
 
+  // 「選択中のみ表示」の切り替えと、その表示内でのページ送り（クライアント側）
+  const [showSelectedOnly, setShowSelectedOnly] = useState(false);
+  const [selectionViewPage, setSelectionViewPage] = useState(1);
+
+  // 「条件に一致する全件を選択」の実行状態（件数確認ダイアログ → 全ページ取得）
+  const [isSelectAllConfirmOpen, setIsSelectAllConfirmOpen] = useState(false);
+  const [isSelectingAllMatching, setIsSelectingAllMatching] = useState(false);
+  const [selectAllMatchingError, setSelectAllMatchingError] = useState<
+    string | null
+  >(null);
+
+  // Shift+クリック範囲選択の基準（直前にクリックした商品）
+  const lastClickedIdRef = useRef<string | null>(null);
+
   // 列見出しの固定表示用の要素。
   // 横スクロールしているのはデータ領域（tableScrollRef）だけなので、
   // その scrollLeft をヘッダーへそのままコピーして列ズレを防ぐ。
@@ -481,9 +497,10 @@ export default function ProductsPage() {
   const [minMarkupPercent, setMinMarkupPercent] = useState("30");
   const aiBatch = useAiBatch();
 
-  // ヘッダーのAI生成入口に添える補助状態。
+  // ヘッダーの「AI生成履歴」ボタンに添える処理中インジケーターの判定材料。
   // 追跡中のジョブ（既存の items）を優先し、追跡していない場合はサーバー保存の直近ジョブ
   // （既存の runs サマリー）の集計だけを使う。固定のダミー件数は使わない。
+  // 失敗件数はヘッダーには出さず、履歴モーダル内の結果として確認する。
   const aiHeaderStatus = useMemo(() => {
     const trackedItems = aiBatch.items;
     if (trackedItems && trackedItems.length > 0 && aiBatch.countsConfirmed) {
@@ -571,12 +588,16 @@ export default function ProductsPage() {
     setFilter(next);
     setPage(1);
     setSelectedMap(new Map());
+    setShowSelectedOnly(false);
+    lastClickedIdRef.current = null;
   };
 
   const handleSortChange = (next: ProductSortKey) => {
     setSortKey(next);
     setPage(1);
     setSelectedMap(new Map());
+    setShowSelectedOnly(false);
+    lastClickedIdRef.current = null;
   };
 
   const handlePageChange = (next: number) => {
@@ -593,12 +614,16 @@ export default function ProductsPage() {
     });
     setPage(1);
     setSelectedMap(new Map());
+    setShowSelectedOnly(false);
+    lastClickedIdRef.current = null;
   };
 
   // タブ（通常／アーカイブ）や動作モード（通常／テスト）を切り替えたら選択状態・編集状態を解除する
   const cancelInlineEdit = inlineEdit.cancelEdit;
   useEffect(() => {
     setSelectedMap(new Map());
+    setShowSelectedOnly(false);
+    lastClickedIdRef.current = null;
     cancelInlineEdit();
   }, [isArchived, isTestMode, cancelInlineEdit]);
 
@@ -667,28 +692,65 @@ export default function ProductsPage() {
     prevAiTerminal.current = terminal;
   }, [aiBatch.batchStatus]);
 
-  // 全選択チェックボックスの indeterminate 表現（表示中のページの商品を基準にする）
-  const pageSelectedCount = useMemo(
-    () => products.filter((p) => selectedIds.has(p.product_id)).length,
-    [products, selectedIds]
-  );
-  // 全選択（チェック済み）と一部選択（indeterminate）を表示用に分ける。
-  // 実際の選択状態は selectedIds と input の indeterminate が保持し、ここでは見た目だけを切り替える。
-  const isAllPageSelected =
-    products.length > 0 && pageSelectedCount === products.length;
-  const isPagePartlySelected =
-    pageSelectedCount > 0 && pageSelectedCount < products.length;
-  useEffect(() => {
-    const el = selectAllRef.current;
-    if (!el) return;
-    el.indeterminate =
-      pageSelectedCount > 0 && pageSelectedCount < products.length;
-  }, [pageSelectedCount, products.length]);
-
   const selectedProducts = useMemo(
     () => Array.from(selectedMap.values()),
     [selectedMap]
   );
+
+  const hasSelection = selectedIds.size > 0;
+
+  // 選択中のみ表示: 選択済み商品（ページを跨いだ全件）をクライアント側でページ分割して表示する。
+  // 選択が0件になったら自動的に通常表示へ戻る。
+  const isSelectionView = showSelectedOnly && hasSelection;
+  const selectionViewTotalPages = Math.max(
+    1,
+    Math.ceil(selectedProducts.length / SELECTION_VIEW_PAGE_SIZE)
+  );
+  const viewProducts = useMemo(() => {
+    if (!isSelectionView) return products;
+    const start = (selectionViewPage - 1) * SELECTION_VIEW_PAGE_SIZE;
+    return selectedProducts.slice(start, start + SELECTION_VIEW_PAGE_SIZE);
+  }, [isSelectionView, products, selectionViewPage, selectedProducts]);
+
+  // 選択件数が減ってページが存在しなくなった場合は、最終ページに収める
+  useEffect(() => {
+    if (!isSelectionView) return;
+    if (selectionViewPage > selectionViewTotalPages) {
+      setSelectionViewPage(selectionViewTotalPages);
+    }
+  }, [isSelectionView, selectionViewPage, selectionViewTotalPages]);
+
+  // 選択が0件になったら「選択中のみ表示」は自動的に解除する
+  useEffect(() => {
+    if (showSelectedOnly && !hasSelection) {
+      setShowSelectedOnly(false);
+    }
+  }, [showSelectedOnly, hasSelection]);
+
+  // 仕入照合の状態は一覧APIに含まれないため、実際に表示している商品IDをまとめて1回だけ取得する。
+  // 「選択中のみ表示」のときも、表示中の行に照合状態が出るように同じ一覧から組み立てる。
+  const ledgerProductIds = useMemo(
+    () => viewProducts.map((product) => product.product_id),
+    [viewProducts]
+  );
+  const ledgerMatch = useProductLedgerMatch(ledgerProductIds);
+
+  // 全選択チェックボックスの indeterminate 表現（表示中の一覧を基準にする）
+  const pageSelectedCount = useMemo(
+    () => viewProducts.filter((p) => selectedIds.has(p.product_id)).length,
+    [viewProducts, selectedIds]
+  );
+  // 全選択（チェック済み）と一部選択（indeterminate）を表示用に分ける。
+  // 実際の選択状態は selectedIds と input の indeterminate が保持し、ここでは見た目だけを切り替える。
+  const isAllPageSelected =
+    viewProducts.length > 0 && pageSelectedCount === viewProducts.length;
+  const isPagePartlySelected =
+    pageSelectedCount > 0 && pageSelectedCount < viewProducts.length;
+  useEffect(() => {
+    const el = selectAllRef.current;
+    if (!el) return;
+    el.indeterminate = isPagePartlySelected;
+  }, [isPagePartlySelected]);
 
   const plan = useMemo(
     () => computePlan(selectedProducts, withPaymentLink),
@@ -699,9 +761,40 @@ export default function ProductsPage() {
     setReloadKey((k) => k + 1);
   };
 
-  const toggleSelect = (productId: string) => {
+  const toggleSelect = (
+    productId: string,
+    options?: { shiftKey?: boolean }
+  ) => {
     if (isAnyBulkBusy) return;
-    const found = products.find((p) => p.product_id === productId);
+    const list = viewProducts;
+    const index = list.findIndex((p) => p.product_id === productId);
+    const anchorId = lastClickedIdRef.current;
+
+    // Shift+クリック: 直前にクリックした行からこの行までの範囲を一括切り替え
+    // （すべて選択済みの範囲なら解除）。対象は表示中のページ内だけに限定する。
+    if (options?.shiftKey && anchorId && index >= 0) {
+      const anchorIndex = list.findIndex((p) => p.product_id === anchorId);
+      if (anchorIndex >= 0) {
+        const start = Math.min(anchorIndex, index);
+        const end = Math.max(anchorIndex, index);
+        const range = list.slice(start, end + 1);
+        setSelectedMap((prev) => {
+          const next = new Map(prev);
+          const allSelected = range.every((p) => next.has(p.product_id));
+          range.forEach((p) => {
+            if (allSelected) {
+              next.delete(p.product_id);
+            } else {
+              next.set(p.product_id, p);
+            }
+          });
+          return next;
+        });
+        return;
+      }
+    }
+
+    const found = list.find((p) => p.product_id === productId);
     setSelectedMap((prev) => {
       const next = new Map(prev);
       if (next.has(productId)) {
@@ -711,26 +804,61 @@ export default function ProductsPage() {
       }
       return next;
     });
+    lastClickedIdRef.current = productId;
   };
 
   const clearSelection = () => {
     setSelectedMap(new Map());
+    lastClickedIdRef.current = null;
   };
 
+  // 表示中の一覧（通常はページ内、選択中のみ表示ではそのページ内）をまとめて選択・解除する
   const toggleSelectAll = () => {
     if (isAnyBulkBusy) return;
     const allSelected =
-      products.length > 0 &&
-      products.every((product) => selectedIds.has(product.product_id));
+      viewProducts.length > 0 &&
+      viewProducts.every((product) => selectedIds.has(product.product_id));
     setSelectedMap((prev) => {
       const next = new Map(prev);
       if (allSelected) {
-        products.forEach((product) => next.delete(product.product_id));
+        viewProducts.forEach((product) => next.delete(product.product_id));
       } else {
-        products.forEach((product) => next.set(product.product_id, product));
+        viewProducts.forEach((product) => next.set(product.product_id, product));
       }
       return next;
     });
+    lastClickedIdRef.current = null;
+  };
+
+  // 絞り込み結果の全件を選択（既存の一覧APIをページ送り。新しいAPIは呼ばない）
+  const runSelectAllMatching = async () => {
+    if (isSelectingAllMatching) return;
+    setIsSelectAllConfirmOpen(false);
+    setIsSelectingAllMatching(true);
+    setSelectAllMatchingError(null);
+    try {
+      const all = await fetchAllMatchingProducts();
+      if (all.length === 0) {
+        setSelectAllMatchingError(
+          "条件に一致する商品が見つかりませんでした。絞り込み条件を確認してください。"
+        );
+        return;
+      }
+      // 既に選択済みの商品は維持しつつ、条件一致の全件を追加する
+      setSelectedMap((prev) => {
+        const next = new Map(prev);
+        all.forEach((product) => next.set(product.product_id, product));
+        return next;
+      });
+      lastClickedIdRef.current = null;
+    } catch (err) {
+      console.error("select all matching failed:", err);
+      setSelectAllMatchingError(
+        "条件に一致する商品の取得に失敗しました。時間をおいてもう一度お試しください。"
+      );
+    } finally {
+      setIsSelectingAllMatching(false);
+    }
   };
 
   const runBulkPublish = async () => {
@@ -834,8 +962,6 @@ export default function ProductsPage() {
     }
   };
 
-  const hasSelection = selectedIds.size > 0;
-
   return (
     <div
       className={`admin-font products-theme ${adminThemeClass(
@@ -843,26 +969,29 @@ export default function ProductsPage() {
       )} min-h-screen bg-background-50`}
     >
       <header className="border-b border-background-200 bg-white">
-        {/* 一覧画面のヘッダーは本文と同じ横幅基準（全幅・左右24〜32px）に揃える。
-            高さを抑えるため、ロゴ＋見出しの間隔と見出しサイズを控えめにする。 */}
-        <div className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-2.5 md:px-6 lg:px-8">
-          <div className="min-w-0">
-            {/* BIS ロゴ（押すと商品一覧の先頭へ）。
-                以前の「Catalog」ラベルの位置に置き、見出し「商品管理」はそのまま残す。 */}
+        {/* ロゴと見出しを1行にまとめ、ヘッダーの高さを抑える。
+            「BIS（ブランド）」→ 区切り線 → 「商品管理（ページ見出し）」の順で
+            情報階層は保ちつつ、余白と行数を減らして業務管理UIらしい密度にする。 */}
+        <div className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 md:px-6 lg:px-8">
+          {/* ブランド → 区切り線 → ページ名 → （テスト環境のみ）TEST を1行に並べる。
+              サブタイトルは持たず、ブランドとページ名は同じ字面サイズ感で高さを揃える。 */}
+          <div className="flex min-w-0 items-center gap-2.5">
+            {/* BIS ロゴ（押すと商品一覧の先頭へ） */}
             <Link
               to="/products"
               aria-label="BIS 商品一覧の先頭へ"
-              className="inline-flex items-baseline gap-1.5 whitespace-nowrap"
+              className="inline-flex items-center whitespace-nowrap"
             >
-              <span className="admin-display block text-[12px] font-semibold leading-none tracking-[0.06em] text-foreground-950">
+              <span className="admin-display block text-[19px] font-semibold leading-none text-foreground-950">
                 BIS
               </span>
-              <span className="admin-eyebrow block text-[10px] leading-none text-foreground-400">
-                Collectibles Catalogue
-              </span>
             </Link>
-            <div className="mt-1 flex items-center gap-2">
-              <h1 className="admin-display text-[22px] font-semibold leading-none text-foreground-950 md:text-[24px]">
+            <span
+              aria-hidden="true"
+              className="h-4 w-px shrink-0 bg-background-300"
+            ></span>
+            <div className="flex min-w-0 items-center gap-2">
+              <h1 className="admin-display whitespace-nowrap text-[17px] font-semibold leading-none text-foreground-950">
                 商品管理
               </h1>
               {/* テスト環境のときだけ、見出しの横に控えめな識別ラベルを出す（操作不可） */}
@@ -885,38 +1014,34 @@ export default function ProductsPage() {
               <i className="ri-file-list-3-line" aria-hidden="true"></i>
               書類管理
             </Link>
-            {/* AI一括生成の進捗・結果・実行履歴への入口。
-                常時表示のコンパクトな副ボタンとし、処理中・失敗があるときだけ
-                小さな件数表示を添える（新しい上部固定バーは追加しない）。 */}
-            <span className="inline-flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => void aiBatch.openRunHistory()}
-                title="AI一括生成の進捗・結果・実行履歴を確認"
-                className="product-header-action"
-              >
-                <i className="ri-list-check-2" aria-hidden="true"></i>
-                AI生成
-              </button>
+            {/* AI一括生成の履歴・進捗・結果への入口。
+                クリックで開くのは履歴モーダルなので、ラベルは付けず履歴アイコンだけの
+                セカンダリなアイコンボタンにする（役割は title / aria-label で伝える）。
+                実行中のときだけ、件数を出さない控えめな点を添える
+                （予約待ち＝開始前は実行中に含めない）。 */}
+            <button
+              type="button"
+              onClick={() => void aiBatch.openRunHistory()}
+              title={
+                aiHeaderStatus.processing > 0
+                  ? "AI生成履歴（実行中）"
+                  : "AI生成履歴"
+              }
+              aria-label={
+                aiHeaderStatus.processing > 0
+                  ? "AI生成履歴（実行中）"
+                  : "AI生成履歴"
+              }
+              className="product-header-icon-btn relative"
+            >
+              <i className="ri-history-line" aria-hidden="true"></i>
               {aiHeaderStatus.processing > 0 && (
                 <span
-                  className="st-badge tone-ai"
-                  title="AI生成の処理中件数"
-                >
-                  <i className="ri-loader-4-line flex h-3 w-3 animate-spin items-center justify-center text-[12px]"></i>
-                  処理中 {aiHeaderStatus.processing}
-                </span>
+                  aria-hidden="true"
+                  className="absolute right-1.5 top-1.5 inline-flex h-1.5 w-1.5 rounded-full bg-primary-500"
+                ></span>
               )}
-              {aiHeaderStatus.processing === 0 && aiHeaderStatus.failed > 0 && (
-                <span
-                  className="st-badge tone-warning"
-                  title="AI生成の失敗件数"
-                >
-                  <i className="ri-error-warning-line flex h-3 w-3 items-center justify-center text-[12px]"></i>
-                  失敗 {aiHeaderStatus.failed}
-                </span>
-              )}
-            </span>
+            </button>
             <Link to="/register" className="product-cta product-header-cta">
               <i className="ri-add-line" aria-hidden="true"></i>
               新しい商品を登録
@@ -930,7 +1055,7 @@ export default function ProductsPage() {
           詳細／登録／画像取込のフォーム系は従来の幅のまま変更しない。 */}
       <main className="page-fade w-full px-4 py-4 md:px-6 md:py-5 lg:px-8">
         {/* 一覧切り替えタブ（左揃え・高さ36px前後。上下余白は詰める）。
-            AI生成の進捗・結果・履歴はヘッダーの「AI生成」から開く。 */}
+            AI生成の履歴・進捗・結果はヘッダーの「AI生成履歴」から開く。 */}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <div className="inline-flex items-center gap-1 rounded-lg bg-background-100 p-1">
             <Link
@@ -970,7 +1095,7 @@ export default function ProductsPage() {
 
         {(loadState === "success" || isRefreshing) && (
           <>
-            {(count > 0 || hasFilter) && (
+            {!isSelectionView && (count > 0 || hasFilter) && (
               <>
                 <ProductFilterBar
                   value={filter}
@@ -1042,15 +1167,31 @@ export default function ProductsPage() {
               </>
             )}
 
-            {/* 一括操作バー。通知ではなく通常の操作領域として扱うため、
-                塗りつぶしの色は使わず「白＋薄いグレー枠線＋ニュートラルなボタン」だけにする。 */}
-            {hasSelection && products.length > 0 && (
-              <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-background-200 bg-white px-3 py-2 md:px-4">
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                  <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-background-100 px-2 py-1 text-[13px] font-semibold leading-none text-foreground-700">
-                    <span className="admin-numeric">{selectedIds.size}</span>
-                    件選択中
-                  </span>
+            {/* 選択操作バー。選択件数を常時表示し、ページ全選択／条件一致の全件選択／
+                選択中のみ表示／一括操作を1行にまとめる（新しい上部固定バーは追加しない）。 */}
+            {(count > 0 || hasSelection || isSelectionView) && (
+              <ProductSelectionBar
+                selectedCount={selectedIds.size}
+                viewCount={viewProducts.length}
+                viewSelectedCount={pageSelectedCount}
+                filteredCount={count}
+                isSelectionView={isSelectionView}
+                disabled={isAnyBulkBusy}
+                isSelectingAll={isSelectingAllMatching}
+                selectAllError={selectAllMatchingError}
+                onSelectPage={toggleSelectAll}
+                onClearPage={toggleSelectAll}
+                onSelectAllMatching={() => {
+                  setSelectAllMatchingError(null);
+                  setIsSelectAllConfirmOpen(true);
+                }}
+                onToggleSelectionView={() => {
+                  setSelectionViewPage(1);
+                  setShowSelectedOnly((prev) => !prev);
+                }}
+                onClearSelection={clearSelection}
+              >
+                <div className="flex flex-wrap items-center gap-2">
                   {isBulkProcessing && (
                     <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[13px] font-medium text-foreground-500">
                       <i className="ri-loader-4-line animate-spin text-base w-4 h-4 flex items-center justify-center"></i>
@@ -1063,8 +1204,6 @@ export default function ProductsPage() {
                       アーカイブ中 {archive.progress.done} / {archive.progress.total}件
                     </span>
                   )}
-                </div>
-                <div className="ml-auto flex flex-wrap items-center gap-2">
                   {!isTestMode && (
                   <button
                     type="button"
@@ -1100,21 +1239,10 @@ export default function ProductsPage() {
                     </button>
                   )}
                 </div>
-                <div className="flex items-center md:ml-1 md:border-l md:border-background-200 md:pl-3">
-                  <button
-                    type="button"
-                    onClick={clearSelection}
-                    disabled={isAnyBulkBusy}
-                    className="inline-flex h-9 cursor-pointer items-center gap-1 whitespace-nowrap rounded-md px-2.5 text-[13px] font-medium text-foreground-500 transition-colors hover:bg-background-100 hover:text-foreground-800 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <i className="ri-close-line text-base w-4 h-4 flex items-center justify-center"></i>
-                    選択解除
-                  </button>
-                </div>
-              </div>
+              </ProductSelectionBar>
             )}
 
-            {products.length === 0 ? (
+            {viewProducts.length === 0 ? (
               !hasFilter && count === 0 ? (
                 isTestMode ? (
                   <div className="ui-card flex flex-col items-center justify-center rounded-lg px-6 py-14 text-center">
@@ -1210,7 +1338,7 @@ export default function ProductsPage() {
                     className="overflow-x-auto"
                   >
                     <div className="min-w-full lg:min-w-[1240px]">
-                    {products.map((product) => (
+                    {viewProducts.map((product) => (
                       <ProductRow
                         key={product.product_id}
                         product={product}
@@ -1243,15 +1371,70 @@ export default function ProductsPage() {
             )}
 
             <ProductPagination
-              page={page}
-              totalPages={totalPages}
-              count={count}
+              page={isSelectionView ? selectionViewPage : page}
+              totalPages={isSelectionView ? selectionViewTotalPages : totalPages}
+              count={isSelectionView ? selectedProducts.length : count}
               disabled={isAnyBulkBusy}
-              onPageChange={handlePageChange}
+              onPageChange={(next) => {
+                if (isSelectionView) {
+                  setSelectionViewPage(next);
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                  return;
+                }
+                handlePageChange(next);
+              }}
             />
           </>
         )}
       </main>
+
+      {/* 条件に一致する全件を選択 確認ダイアログ（誤操作防止のため件数を明示する） */}
+      {isSelectAllConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-lg border border-background-200 bg-white p-5">
+            <div className="flex items-center gap-2">
+              <i className="ri-check-double-line w-5 h-5 flex items-center justify-center text-primary-600"></i>
+              <h3 className="text-[16px] font-semibold leading-[1.4] text-foreground-950">
+                条件に一致する全件を選択
+              </h3>
+            </div>
+            <p className="mt-3 text-sm leading-relaxed text-foreground-700">
+              絞り込み結果の全{" "}
+              <span className="admin-numeric font-bold text-foreground-950">
+                {count}
+              </span>{" "}
+              件を選択します。よろしいですか？
+            </p>
+            <p className="mt-2 text-xs leading-relaxed text-foreground-500">
+              全ページ分の商品が選択され、選択中の件数に反映されます。既に選択済みの商品はそのまま保持されます（AI一括生成の対象件数もこの選択件数と同じになります）。
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsSelectAllConfirmOpen(false)}
+                className="whitespace-nowrap rounded-lg border border-background-300 bg-background-50 px-4 py-2 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={() => void runSelectAllMatching()}
+                disabled={isSelectingAllMatching}
+                className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-bold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isSelectingAllMatching ? (
+                  <>
+                    <i className="ri-loader-4-line animate-spin w-4 h-4 flex items-center justify-center"></i>
+                    選択中...
+                  </>
+                ) : (
+                  "選択する"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 一括公開 確認ダイアログ */}
       {isBulkConfirmOpen && (
