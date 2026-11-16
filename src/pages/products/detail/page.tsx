@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
 import {
   canUseCloudRunDraftUpdate,
@@ -28,6 +28,10 @@ import type {
 } from "../types";
 import { CATEGORY_LABELS, PUBLISH_STATUS_LABELS } from "../types";
 import { peekProductListReturnPending } from "../lib/listViewState";
+import {
+  buildProductOriginTrail,
+  readProductOrigin,
+} from "@/lib/productOrigin";
 import { useOperatingMode } from "@/context/OperatingModeProvider";
 import AdminShell from "@/components/feature/AdminShell";
 import {
@@ -167,6 +171,7 @@ const fileToBase64 = (file: File): Promise<string> =>
 export default function ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const { isTestMode } = useOperatingMode();
 
@@ -177,6 +182,15 @@ export default function ProductDetailPage() {
       ? "/products?record_status=archived"
       : "/products"
   );
+
+  // 実際にどこから開いたか（既存ルーティングの state）。
+  // ポケカページから開いた場合だけ、その階層（Pokémon Card > ストレージ > 旧裏 など）を使う。
+  // 直接アクセスや、遷移元が読み取れない state の場合は null になり、既存の表示にフォールバックする。
+  // 商品のカテゴリから遷移元を推測することはしない。
+  const origin = useMemo(() => readProductOrigin(location.state), [location.state]);
+  const originTrail = useMemo(() => buildProductOriginTrail(origin), [origin]);
+  // パンくずの親階層・「一覧へ戻る」の戻り先（絞り込み条件とページ番号は遷移元のURLで再現する）
+  const returnPath = originTrail?.listPath ?? listPath;
 
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [product, setProduct] = useState<AdminProductDetail | null>(null);
@@ -1074,7 +1088,11 @@ export default function ProductDetailPage() {
   return (
     <AdminShell
       pageTitle="商品詳細"
-      backLink={{ to: listPath, label: "すべての商品" }}
+      breadcrumbs={originTrail?.ancestors}
+      activeNavTo={originTrail?.navActiveTo}
+      backLink={
+        originTrail ? undefined : { to: listPath, label: "すべての商品" }
+      }
       rootClassName="catalogue"
       mainClassName="page-fade mx-auto w-full max-w-5xl px-4 pb-10 pt-4 md:px-6 md:pt-5"
     >
@@ -1087,10 +1105,10 @@ export default function ProductDetailPage() {
               商品情報を取得できませんでした
             </p>
             <Link
-              to={listPath}
+              to={returnPath}
               className="mt-1 inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-background-300 px-4 py-2 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100"
             >
-              商品一覧に戻る
+              {originTrail ? "一覧に戻る" : "商品一覧に戻る"}
             </Link>
           </div>
         )}
@@ -1386,8 +1404,10 @@ export default function ProductDetailPage() {
             {/* 最下部: 前後の商品への移動 */}
             <ProductDetailNav
               productId={product.product_id}
-              listPath={listPath}
+              listPath={returnPath}
               isTest={Boolean(product.is_test)}
+              linkState={location.state}
+              listLabel={originTrail ? "一覧へ戻る" : "商品一覧へ"}
             />
           </>
         )}

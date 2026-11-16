@@ -217,45 +217,41 @@ body {
   padding-right: 0.03em;
 }
 
-/* 商品一覧ヘッダーの主要CTA（新しい商品を登録）
-   「主要操作」であることは塗りで示すが、彩度の高い緑は使わない。
-   全体の落ち着いたトーンに馴染む深いフォレストグリーン＋白文字にし、
-   影はごく浅く1枚だけ重ねる（発光・グラデーションは使わない）。
-   サブアクションとの差は「塗り」と「文字の明るさ」で作り、寸法は共通。
-   products-theme 配下の .product-cta だけに効くため、他の画面・他のボタンには影響しない。 */
-.products-theme .product-cta {
+/* ヘッダーの「商品を追加」ボタン。
+   緑の塗りは廃止し、他のサブアクションと同じアウトライン表現に揃える。
+   ・ライト: #FFFFFF面 / #D6DCE4枠 / #17202C文字 / hover #F4F6F8
+   ・高さ40px・角丸8px・文字14px/600・左右16px・影なし
+   開閉状態はメニュー側の aria-expanded で示すため、塗りは変えない。 */
+.products-theme .product-header-cta {
   gap: 8px;
   height: 40px;
   padding-left: 16px;
   padding-right: 16px;
-  border: 1px solid #14492f;
+  border: 1px solid #d6dce4;
   border-radius: 8px;
-  background-color: #1a5c3f;
-  color: #ffffff;
+  background-color: #ffffff;
+  color: #17202c;
   font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.01em;
-  box-shadow: 0 1px 1px rgba(16, 24, 20, 0.08);
+  box-shadow: none;
 }
 
-.products-theme .product-cta i {
-  color: #ffffff;
-  opacity: 0.92;
+.products-theme .product-header-cta i {
+  color: #17202c;
+  opacity: 0.7;
 }
 
-.products-theme .product-cta:hover {
-  background-color: #1f6b4a;
-  border-color: #17563a;
+.products-theme .product-header-cta:hover,
+.products-theme .product-header-cta.is-open {
+  background-color: #f4f6f8;
+  border-color: #d6dce4;
+  color: #17202c;
 }
 
-.products-theme .product-cta:active {
-  background-color: #16503a;
-  border-color: #123f2c;
-}
-
-.products-theme .product-cta:focus-visible {
+.products-theme .product-header-cta:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(26, 92, 63, 0.35);
+  box-shadow: 0 0 0 3px rgba(23, 32, 44, 0.16);
 }
 
 /* ========================================================================
@@ -583,43 +579,35 @@ body {
   box-shadow: 0 0 0 3px rgba(120, 133, 148, 0.35);
 }
 
-/* 主要CTA（新しい商品を登録）：ダークテーマでも「主操作」は塗りで示す。
-   ただし明るいグリーンは使わず、暗い面（#181D23 / #20262D）に馴染む
-   深くくすんだグリーン（#2A6049）を面にする。
-   ・通常 #2A6049面 / #3C7A5C枠 / #ECF5F0文字
-   ・hover #316B51 / active #38755A
-   ・影・発光・グラデーションは使わない
-   ・寸法・パディングはライトテーマと完全に揃える */
-.is-test-dark .product-cta {
-  background-color: #2a6049;
-  border: 1px solid #3c7a5c;
-  color: #ecf5f0;
+/* 「商品を追加」（ダークテーマ）。グリーンの塗りは使わず、
+   ・通常 #242B34面 / #434C58枠 / #F3F4F6文字
+   ・hover・開閉時 #303945
+   影・発光・グラデーションは使わない。寸法はライトテーマと揃える。 */
+.is-test-dark .product-header-cta {
+  background-color: #242b34;
+  border: 1px solid #434c58;
+  color: #f3f4f6;
   padding-left: 16px;
   padding-right: 16px;
-  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
+  box-shadow: none;
 }
 
-/* 先頭の「＋」アイコンは文字と同じ明るさに揃える */
-.is-test-dark .product-cta i {
+.is-test-dark .product-header-cta i {
   font-size: 17px;
-  color: #ecf5f0;
-  opacity: 0.92;
+  color: #f3f4f6;
+  opacity: 0.7;
 }
 
-.is-test-dark .product-cta:hover {
-  background-color: #316b51;
-  border-color: #478669;
-  color: #f3faf6;
+.is-test-dark .product-header-cta:hover,
+.is-test-dark .product-header-cta.is-open {
+  background-color: #303945;
+  border-color: #434c58;
+  color: #f3f4f6;
 }
 
-.is-test-dark .product-cta:active {
-  background-color: #38755a;
-  border-color: #4f9073;
-}
-
-.is-test-dark .product-cta:focus-visible {
+.is-test-dark .product-header-cta:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.45);
+  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.4);
 }
 
 /* 入力欄・選択欄は背景と同じ #20262D、境界線は #343D47 */

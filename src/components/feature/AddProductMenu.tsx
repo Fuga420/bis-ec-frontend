@@ -1,30 +1,35 @@
-import { useEffect, useId, useRef, useState } from "react";
-import { Link } from "react-router-dom";
-
-const ADD_OPTIONS = [
-  {
-    to: "/register",
-    label: "商品を登録",
-    description: "画像と商品情報から1点ずつ登録します",
-  },
-  {
-    to: "/import",
-    label: "画像だけ取込",
-    description: "画像セットから下書きをまとめて取り込みます",
-  },
-];
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { Link, useLocation } from "react-router-dom";
+import {
+  getAddProductOptions,
+  type AddProductOption,
+} from "./addProductOptions";
 
 /**
  * ヘッダー右側の「商品を追加」メニュー。
  *
- * 以前ヘッダーに並んでいた「新しい商品を登録」と「画像だけ取込」を1つの入口に統合する。
- * 遷移先は既存画面（/register, /import）のままで、新しい登録フローは作らない。
+ * 以前ヘッダーに並んでいた個別ボタンを1つの入口に統合する。
+ * 項目はパス（カテゴリ）に応じて getAddProductOptions が返し、
+ * 遷移先は既存画面（/register, /import など）のまま。新しい登録フローは作らない。
+ *
+ * - 外側クリック・Escape で閉じる
+ * - ↑↓ / Home / End で項目移動、Enter で決定（各項目はリンク）
+ * - 画面端ではみ出さないよう max-width を画面幅に制限する
  */
 export default function AddProductMenu() {
+  const { pathname } = useLocation();
+  const options = getAddProductOptions(pathname);
+
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const itemRefs = useRef<(HTMLAnchorElement | null)[]>([]);
   const menuId = useId();
+
+  // パスが変わったら閉じる（遷移後に開いたままにならないようにする）
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
 
   useEffect(() => {
     if (!open) return;
@@ -49,6 +54,76 @@ export default function AddProductMenu() {
     };
   }, [open]);
 
+  // 開いた直後は最初の項目へフォーカスを移す（キーボードだけでも操作できるように）
+  useEffect(() => {
+    if (!open) return;
+    itemRefs.current[0]?.focus();
+  }, [open]);
+
+  const focusItem = (index: number) => {
+    const items = itemRefs.current.filter(
+      (item): item is HTMLAnchorElement => item !== null
+    );
+    if (items.length === 0) return;
+    const next = (index + items.length) % items.length;
+    items[next]?.focus();
+  };
+
+  const handleMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const items = itemRefs.current.filter(
+      (item): item is HTMLAnchorElement => item !== null
+    );
+    if (items.length === 0) return;
+    const currentIndex = items.findIndex((item) => item === document.activeElement);
+
+    switch (event.key) {
+      case "ArrowDown":
+        event.preventDefault();
+        focusItem(currentIndex + 1);
+        break;
+      case "ArrowUp":
+        event.preventDefault();
+        focusItem(currentIndex <= 0 ? items.length - 1 : currentIndex - 1);
+        break;
+      case "Home":
+        event.preventDefault();
+        focusItem(0);
+        break;
+      case "End":
+        event.preventDefault();
+        focusItem(items.length - 1);
+        break;
+      case "Tab":
+        // Tab はメニューを閉じて自然な順序で抜ける
+        setOpen(false);
+        break;
+      default:
+        break;
+    }
+  };
+
+  const renderItem = (option: AddProductOption, index: number) => (
+    <Link
+      key={option.key}
+      to={option.to}
+      role="menuitem"
+      ref={(el) => {
+        itemRefs.current[index] = el;
+      }}
+      onClick={() => setOpen(false)}
+      className={`flex w-full cursor-pointer flex-col gap-0.5 px-3 py-2.5 outline-none transition-colors hover:bg-background-100 focus-visible:bg-background-100 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-foreground-300 ${
+        index > 0 ? "border-t border-background-200" : ""
+      }`}
+    >
+      <span className="text-[13px] font-semibold leading-tight text-foreground-950">
+        {option.label}
+      </span>
+      <span className="text-[11px] font-normal leading-snug text-foreground-500">
+        {option.description}
+      </span>
+    </Link>
+  );
+
   return (
     <div ref={containerRef} className="relative shrink-0">
       <button
@@ -58,7 +133,7 @@ export default function AddProductMenu() {
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         onClick={() => setOpen((prev) => !prev)}
-        className={`product-cta product-header-cta${open ? " is-open" : ""}`}
+        className={`product-header-cta${open ? " is-open" : ""}`}
       >
         商品を追加
         <i
@@ -74,24 +149,10 @@ export default function AddProductMenu() {
           id={menuId}
           role="menu"
           aria-label="商品を追加"
-          className="absolute right-0 top-full z-40 mt-1.5 w-[272px] max-w-[calc(100vw-2rem)] rounded-lg border border-background-200 bg-white py-1.5"
+          onKeyDown={handleMenuKeyDown}
+          className="absolute right-0 top-full z-40 mt-1.5 w-[272px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-background-200 bg-white py-1.5"
         >
-          {ADD_OPTIONS.map((option) => (
-            <Link
-              key={option.to}
-              to={option.to}
-              role="menuitem"
-              onClick={() => setOpen(false)}
-              className="flex w-full cursor-pointer flex-col gap-0.5 px-3 py-2 transition-colors hover:bg-background-100"
-            >
-              <span className="text-[13px] font-semibold leading-tight text-foreground-950">
-                {option.label}
-              </span>
-              <span className="text-[11px] font-normal leading-snug text-foreground-500">
-                {option.description}
-              </span>
-            </Link>
-          ))}
+          {options.map(renderItem)}
         </div>
       )}
     </div>

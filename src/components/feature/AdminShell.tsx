@@ -5,6 +5,7 @@ import { adminThemeClass } from "@/lib/adminTheme";
 import AdminHeader, {
   type AdminHeaderAiHistory,
   type AdminHeaderBackLink,
+  type AdminHeaderBreadcrumb,
 } from "./AdminHeader";
 import { AdminSidebar, AdminNavDrawer } from "./AdminSidebar";
 
@@ -34,6 +35,13 @@ interface AdminShellProps {
   pageTitle: string;
   /** 一覧へ戻る導線（詳細・下位画面のみ） */
   backLink?: AdminHeaderBackLink;
+  /** 現在地より上の階層（2階層以上のパンくず）。指定時は backLink より優先する */
+  breadcrumbs?: AdminHeaderBreadcrumb[];
+  /**
+   * サイドナビで選択中として扱うパス。
+   * /products/:id のように複数の入口を持つ画面で、実際の遷移元を優先するために使う。
+   */
+  activeNavTo?: string;
   /** 画面固有のテキスト操作（例: ポケカ素地取込） */
   headerExtras?: ReactNode;
   /** AI生成履歴への入口（履歴を持つ画面だけ） */
@@ -58,6 +66,8 @@ interface AdminShellProps {
 export default function AdminShell({
   pageTitle,
   backLink,
+  breadcrumbs,
+  activeNavTo,
   headerExtras,
   aiHistory,
   mainClassName = "",
@@ -91,6 +101,7 @@ export default function AdminShell({
       <AdminHeader
         pageTitle={pageTitle}
         backLink={backLink}
+        breadcrumbs={breadcrumbs}
         extras={headerExtras}
         aiHistory={aiHistory}
         navCollapsed={collapsed}
@@ -98,11 +109,20 @@ export default function AdminShell({
       />
 
       <div className="flex w-full items-start">
-        {!collapsed && <AdminSidebar onToggleCollapse={toggleCollapsed} />}
+        {!collapsed && (
+          <AdminSidebar
+            onToggleCollapse={toggleCollapsed}
+            activeNavTo={activeNavTo}
+          />
+        )}
         <main className={`min-w-0 flex-1 ${mainClassName}`}>{children}</main>
       </div>
 
-      <AdminNavDrawer open={navOpen} onClose={() => setNavOpen(false)} />
+      <AdminNavDrawer
+        open={navOpen}
+        onClose={() => setNavOpen(false)}
+        activeNavTo={activeNavTo}
+      />
     </div>
   );
 }

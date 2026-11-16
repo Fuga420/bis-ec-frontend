@@ -6,7 +6,14 @@ import { ADMIN_NAV_GROUPS, isAdminNavItemActive } from "./adminNav";
  * ナビゲーションの項目一覧（サイドバーとドロワーで共通利用する）。
  * テキストのみで構成し、選択中だけ左側の細いラインと淡い背景で示す。
  */
-function AdminNavList({ onNavigate }: { onNavigate?: () => void }) {
+function AdminNavList({
+  onNavigate,
+  activeNavTo,
+}: {
+  onNavigate?: () => void;
+  /** 遷移元が分かっている画面で、そのカテゴリを選択中にする */
+  activeNavTo?: string;
+}) {
   const { pathname } = useLocation();
 
   return (
@@ -35,7 +42,7 @@ function AdminNavList({ onNavigate }: { onNavigate?: () => void }) {
                 );
               }
 
-              const active = isAdminNavItemActive(item, pathname);
+              const active = isAdminNavItemActive(item, pathname, activeNavTo);
               return (
                 <li key={item.label}>
                   <Link
@@ -62,6 +69,7 @@ function AdminNavList({ onNavigate }: { onNavigate?: () => void }) {
 
 interface AdminSidebarProps {
   onToggleCollapse: () => void;
+  activeNavTo?: string;
 }
 
 /**
@@ -69,11 +77,14 @@ interface AdminSidebarProps {
  * 背景色は付けず、ページ背景に馴染ませる（右側の細い罫線のみ）。
  * ページの縦スクロールに対しては sticky で位置を維持する。
  */
-export function AdminSidebar({ onToggleCollapse }: AdminSidebarProps) {
+export function AdminSidebar({
+  onToggleCollapse,
+  activeNavTo,
+}: AdminSidebarProps) {
   return (
     <aside className="sticky top-0 hidden h-screen w-[216px] shrink-0 flex-col border-r border-background-200 bg-transparent lg:flex">
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4 pt-4">
-        <AdminNavList />
+        <AdminNavList activeNavTo={activeNavTo} />
       </div>
       <div className="shrink-0 border-t border-background-200 px-2 py-2">
         <button
@@ -96,13 +107,18 @@ export function AdminSidebar({ onToggleCollapse }: AdminSidebarProps) {
 interface AdminNavDrawerProps {
   open: boolean;
   onClose: () => void;
+  activeNavTo?: string;
 }
 
 /**
  * 折りたたみ時・タブレット／スマートフォン用のナビゲーション。
  * サイドバーを閉じていても、ここから主要なナビゲーションへアクセスできる。
  */
-export function AdminNavDrawer({ open, onClose }: AdminNavDrawerProps) {
+export function AdminNavDrawer({
+  open,
+  onClose,
+  activeNavTo,
+}: AdminNavDrawerProps) {
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -143,7 +159,7 @@ export function AdminNavDrawer({ open, onClose }: AdminNavDrawerProps) {
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-4">
-          <AdminNavList onNavigate={onClose} />
+          <AdminNavList onNavigate={onClose} activeNavTo={activeNavTo} />
         </div>
       </div>
     </div>

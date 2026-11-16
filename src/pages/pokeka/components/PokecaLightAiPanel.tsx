@@ -32,7 +32,12 @@ interface PokecaLightAiPanelProps {
   canOpenResult: boolean;
 }
 
-function InlineStat({
+function formatNumber(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return value.toLocaleString("ja-JP");
+}
+
+function Stat({
   label,
   value,
   suffix,
@@ -49,7 +54,7 @@ function InlineStat({
         {label}
       </span>
       <span
-        className={`admin-numeric text-[12px] font-semibold leading-none ${
+        className={`admin-numeric text-[12px] font-semibold leading-none tabular-nums ${
           tone === "muted" ? "text-foreground-500" : "text-foreground-950"
         }`}
       >
@@ -64,17 +69,13 @@ function InlineStat({
   );
 }
 
-function formatNumber(value: number | null | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
-  return value.toLocaleString("ja-JP");
-}
-
 /**
  * ストレージタブのライト版AIパネル（コンパクト作業パネル）。
  *
- * 1行目: 名称・短い機能説明・現在の処理状態・実行／結果確認
- * 2行目: 参考価格と作家情報の整備状況
- * 詳細: 長い仕様説明と作家別件数（折りたたみ）
+ * 上段：名称・処理状態・実行／結果確認
+ * 中段「実行状況」：ジョブの処理済み件数 / 対象件数と進捗率（＝ジョブの進み具合）
+ * 中段「整備状況」：参考価格・作家情報の整備割合（＝ジョブ進捗とは別の指標）
+ * 詳細：仕様説明と作家別件数（折りたたみ）
  *
  * 状態と件数は、この画面から開始したかどうかに関係なく
  * GET /pokeca-raw-storage-ai/status の worker_state に追随する。
@@ -96,14 +97,14 @@ export default function PokecaLightAiPanel({
   const storageTotal = products.length;
   const isRunning = status.tone === "running";
 
-  const statusToneClass =
+  const statusDotClass =
     status.tone === "running"
-      ? "text-foreground-800"
+      ? "bg-foreground-800"
       : status.tone === "failed"
-        ? "text-amber-700"
+        ? "bg-amber-600"
         : status.tone === "done"
-          ? "text-primary-700"
-          : "text-foreground-500";
+          ? "bg-foreground-900"
+          : "bg-foreground-300";
 
   const progressRatio =
     isRunning &&
@@ -130,33 +131,29 @@ export default function PokecaLightAiPanel({
 
   return (
     <section className="rounded-lg border border-background-200 bg-white">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3.5 py-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3.5 py-2.5">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <h3 className="admin-title whitespace-nowrap text-[13px] font-semibold text-foreground-950">
             ライト版AI
           </h3>
-          <span className="hidden whitespace-nowrap text-[11px] leading-none text-foreground-400 sm:inline">
+          <span className="hidden whitespace-nowrap text-[11px] leading-none text-foreground-400 md:inline">
             カード情報の抽出・参考価格の補助
           </span>
-          <span className="text-[11px] leading-none text-foreground-300" aria-hidden="true">
+          <span
+            className="hidden text-[11px] leading-none text-foreground-300 md:inline"
+            aria-hidden="true"
+          >
             ·
           </span>
-          <span
-            className={`flex items-center gap-1 whitespace-nowrap text-[11px] font-medium leading-none ${statusToneClass}`}
-          >
-            {isRunning && (
-              <i
-                className="ri-loader-4-line flex h-3 w-3 animate-spin items-center justify-center text-[12px]"
-                aria-hidden="true"
-              ></i>
-            )}
+          <span className="flex items-center gap-1.5 whitespace-nowrap text-[11px] font-medium leading-none text-foreground-700">
+            <span
+              className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClass} ${
+                isRunning ? "animate-pulse" : ""
+              }`}
+              aria-hidden="true"
+            ></span>
             {status.label}
           </span>
-          {progressText && (
-            <span className="admin-numeric whitespace-nowrap text-[11px] leading-none text-foreground-600">
-              {progressText}
-            </span>
-          )}
         </div>
 
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -177,7 +174,12 @@ export default function PokecaLightAiPanel({
             type="button"
             onClick={onRun}
             disabled={selectedCount === 0 || isStarting}
-            className="inline-flex h-8 cursor-pointer items-center gap-1 whitespace-nowrap rounded-md border border-foreground-900 bg-foreground-950 px-3 text-[12px] font-semibold text-background-50 transition-colors hover:bg-foreground-800 disabled:cursor-not-allowed disabled:opacity-40"
+            title={
+              selectedCount === 0
+                ? "一覧で商品を選択してください"
+                : "選択した商品をライト版AIで処理します"
+            }
+            className="inline-flex h-8 cursor-pointer items-center gap-1 whitespace-nowrap rounded-md border border-foreground-950 bg-foreground-950 px-3 text-[12px] font-semibold text-background-50 transition-colors hover:bg-foreground-800 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {isStarting ? (
               <>
@@ -194,14 +196,59 @@ export default function PokecaLightAiPanel({
         </div>
       </div>
 
+      {/* 実行状況：ジョブの進み具合（処理済み / 対象・進捗率） */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-background-200 px-3.5 py-2">
+        <span className="w-[52px] shrink-0 text-[11px] leading-none text-foreground-400">
+          実行状況
+        </span>
+        <span className="admin-numeric whitespace-nowrap text-[12px] leading-none text-foreground-700">
+          {progressText ? (
+            <>
+              処理済み{" "}
+              <span className="font-semibold tabular-nums text-foreground-950">
+                {progressText}
+              </span>
+            </>
+          ) : status.tone === "idle" ? (
+            <span className="text-[11px] text-foreground-500">
+              実行中のジョブはありません
+            </span>
+          ) : (
+            <span className="text-[11px] text-foreground-500">
+              {status.tone === "done"
+                ? "直近の実行は完了しています"
+                : "直近の実行で処理できなかった商品があります"}
+            </span>
+          )}
+        </span>
+        {progressRatio !== null && (
+          <span className="ml-auto flex min-w-[96px] max-w-[220px] flex-1 items-center gap-2">
+            <span className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-background-200">
+              <span
+                className="block h-full rounded-full bg-foreground-900"
+                style={{ width: `${progressRatio}%` }}
+                aria-hidden="true"
+              ></span>
+            </span>
+            <span className="admin-numeric shrink-0 text-[11px] font-medium tabular-nums text-foreground-700">
+              {progressRatio}%
+            </span>
+          </span>
+        )}
+      </div>
+
+      {/* 整備状況：参考価格・作家情報の整備割合（進捗率とは別の指標） */}
       <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1.5 border-t border-background-200 px-3.5 py-2">
+        <span className="w-[52px] shrink-0 text-[11px] leading-none text-foreground-400">
+          整備状況
+        </span>
         {coverage ? (
           <>
-            <span className="whitespace-nowrap text-[11px] leading-none text-foreground-400">
+            <span className="whitespace-nowrap text-[11px] leading-none text-foreground-500">
               {coverage.source === "worker" ? (
                 <>
-                  ライト版AI 処理済み{" "}
-                  <span className="admin-numeric text-foreground-600">
+                  処理済み{" "}
+                  <span className="admin-numeric tabular-nums text-foreground-700">
                     {formatNumber(coverage.known)}
                   </span>
                   件
@@ -213,8 +260,8 @@ export default function PokecaLightAiPanel({
                 </>
               ) : (
                 <>
-                  ライト版AIの直近の結果{" "}
-                  <span className="admin-numeric text-foreground-600">
+                  直近の結果{" "}
+                  <span className="admin-numeric tabular-nums text-foreground-700">
                     {formatNumber(coverage.known)}
                   </span>
                   件
@@ -224,30 +271,34 @@ export default function PokecaLightAiPanel({
                 </>
               )}
             </span>
-            <InlineStat label="価格あり" value={formatNumber(coverage.priced)} />
-            <InlineStat label="価格なし" value={formatNumber(coverage.unpriced)} />
-            <InlineStat
-              label="カバレッジ"
+            <Stat label="価格あり" value={formatNumber(coverage.priced)} />
+            <Stat
+              label="価格なし"
+              value={formatNumber(coverage.unpriced)}
+              tone="muted"
+            />
+            <Stat
+              label="価格カバレッジ"
               value={coverageRate === null ? "—" : `${coverageRate}%`}
             />
-            <span className="hidden h-3 w-px bg-background-200 sm:block" aria-hidden="true"></span>
+            <span
+              className="hidden h-3 w-px bg-background-200 sm:block"
+              aria-hidden="true"
+            ></span>
             {coverage.source === "items" ? (
               <>
-                <InlineStat
+                <Stat
                   label="作家あり"
                   value={formatNumber(coverage.authorKnown)}
                 />
-                <InlineStat
+                <Stat
                   label="作家なし"
                   value={formatNumber(coverage.authorMissing)}
                   tone="muted"
                 />
               </>
             ) : (
-              <InlineStat
-                label="作家"
-                value={`${coverage.authorList.length}名`}
-              />
+              <Stat label="作家" value={`${coverage.authorList.length}名`} />
             )}
           </>
         ) : (
@@ -285,6 +336,14 @@ export default function PokecaLightAiPanel({
             </div>
             <div className="min-w-0">
               <dt className="text-[11px] font-medium leading-none text-foreground-700">
+                進捗率と価格カバレッジの違い
+              </dt>
+              <dd className="mt-1 text-[11px] leading-relaxed text-foreground-500">
+                「実行状況」の進捗率はジョブがどこまで処理したか、「整備状況」の価格カバレッジは処理済みのうち参考価格が入った割合です。別の指標のため一致しません。
+              </dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="text-[11px] font-medium leading-none text-foreground-700">
                 参考価格の扱い
               </dt>
               <dd className="mt-1 text-[11px] leading-relaxed text-foreground-500">
@@ -293,18 +352,10 @@ export default function PokecaLightAiPanel({
             </div>
             <div className="min-w-0">
               <dt className="text-[11px] font-medium leading-none text-foreground-700">
-                価格を変更しません
-              </dt>
-              <dd className="mt-1 text-[11px] leading-relaxed text-foreground-500">
-                商品の価格（仕入価格・販売価格）はライト版では変更しません。既存の仕様どおりです。
-              </dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="text-[11px] font-medium leading-none text-foreground-700">
                 実行対象・条件
               </dt>
               <dd className="mt-1 text-[11px] leading-relaxed text-foreground-500">
-                対象はチェックした商品のみ（未選択では実行できません）。対象IDの判定・実行条件は従来と同じで、一覧の絞り込みとは連動しません。
+                対象はチェックした商品のみ（未選択では実行できません）。対象IDの判定・実行条件は従来と同じで、一覧の絞り込みとは連動しません。商品の価格は変更しません。
               </dd>
             </div>
           </dl>
@@ -316,7 +367,8 @@ export default function PokecaLightAiPanel({
           {coverage && coverage.authorList.length > 0 && (
             <div className="border-t border-background-200 pt-2">
               <p className="text-[11px] leading-none text-foreground-500">
-                作家別件数（{coverage.source === "worker" ? "API集計値" : "直近の結果"}）
+                作家別件数（
+                {coverage.source === "worker" ? "API集計値" : "直近の結果"}）
                 <span className="ml-1 text-foreground-400">
                   {coverage.authorList.length}名
                 </span>
@@ -330,7 +382,7 @@ export default function PokecaLightAiPanel({
                     <span className="max-w-[140px] truncate">
                       {author.illustrator}
                     </span>
-                    <span className="admin-numeric text-foreground-500">
+                    <span className="admin-numeric tabular-nums text-foreground-500">
                       {author.count}
                     </span>
                   </span>

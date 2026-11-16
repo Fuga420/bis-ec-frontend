@@ -17,13 +17,16 @@ interface StorageFilterBarProps {
   onClear: () => void;
 }
 
-// 高さは全項目36pxで統一する。
+// 高さは検索・絞り込み・クリアで揃える（36px）。
 const CONTROL_HEIGHT = "h-9";
 
-const SELECT_CLASS = `${CONTROL_HEIGHT} w-full min-w-0 rounded-lg border border-background-300 bg-white px-2.5 text-xs text-foreground-900 transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto`;
+// 入力欄・セレクトの共通見た目。幅は各項目で指定する。
+const FIELD_CLASS = `${CONTROL_HEIGHT} min-w-0 rounded-md border border-background-300 bg-white px-2.5 text-xs text-foreground-900 transition-colors focus:border-foreground-500 focus:outline-none focus:ring-2 focus:ring-foreground-200 disabled:cursor-not-allowed disabled:opacity-60`;
 
 const LABEL_CLASS =
   "shrink-0 whitespace-nowrap text-[11px] leading-none text-foreground-500";
+
+const GROUP_CLASS = "flex min-w-0 shrink-0 items-center gap-1.5";
 
 const PRICE_OPTIONS: Array<{ value: PriceFilterValue; label: string }> = [
   { value: "all", label: "すべて" },
@@ -38,6 +41,9 @@ const PRICE_OPTIONS: Array<{ value: PriceFilterValue; label: string }> = [
  * 商品名と商品IDに一致するものを表示する。新しい検索APIは呼ばない。
  * 箱番は storage_location の1階層目、作家と参考価格はライト版AIの商品別情報がある
  * 場合のみ有効。いずれも表示対象の絞り込みだけで、商品データは更新しない。
+ *
+ * レイアウトは「検索（可変幅・最優先）＋ 3つの絞り込み（内容に応じた固定幅）」を
+ * 1行に並べ、条件クリアだけを右端に控えめに置く。狭い画面では自然に折り返す。
  */
 export default function StorageFilterBar({
   searchValue,
@@ -63,9 +69,9 @@ export default function StorageFilterBar({
     priceValue !== "all";
 
   return (
-    <div className="mb-2 space-y-1">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative w-full min-w-0 sm:w-[240px] lg:w-[300px]">
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center gap-2.5">
+        <div className="relative w-full min-w-0 sm:w-auto sm:min-w-[220px] sm:flex-1 sm:max-w-[420px]">
           <i
             className="ri-search-line pointer-events-none absolute left-2.5 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center text-[14px] text-foreground-400"
             aria-hidden="true"
@@ -77,7 +83,7 @@ export default function StorageFilterBar({
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder="カード名・商品IDで検索"
             aria-label="カード名・商品IDで検索"
-            className={`${CONTROL_HEIGHT} w-full rounded-lg border border-background-300 bg-white pl-8 pr-8 text-xs text-foreground-900 transition-colors placeholder:text-foreground-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-60`}
+            className={`${FIELD_CLASS} w-full pl-8 pr-8 placeholder:text-foreground-400`}
           />
           {searchValue !== "" && (
             <button
@@ -95,7 +101,7 @@ export default function StorageFilterBar({
           )}
         </div>
 
-        <div className="flex min-w-0 items-center gap-1.5">
+        <div className={GROUP_CLASS}>
           <label htmlFor="pokeka-box-filter" className={LABEL_CLASS}>
             箱番
           </label>
@@ -104,7 +110,7 @@ export default function StorageFilterBar({
             value={boxValue}
             disabled={disabled || boxOptions.length === 0}
             onChange={(e) => onBoxChange(e.target.value)}
-            className={`${SELECT_CLASS} sm:w-[128px]`}
+            className={`${FIELD_CLASS} w-[92px] cursor-pointer`}
           >
             <option value="">すべて</option>
             {boxOptions.map((box) => (
@@ -115,7 +121,7 @@ export default function StorageFilterBar({
           </select>
         </div>
 
-        <div className="flex min-w-0 items-center gap-1.5">
+        <div className={GROUP_CLASS}>
           <label htmlFor="pokeka-author-filter" className={LABEL_CLASS}>
             作家
           </label>
@@ -124,7 +130,7 @@ export default function StorageFilterBar({
             value={authorValue}
             disabled={authorDisabled}
             onChange={(e) => onAuthorChange(e.target.value)}
-            className={`${SELECT_CLASS} sm:w-[140px]`}
+            className={`${FIELD_CLASS} w-[136px] cursor-pointer`}
           >
             <option value="">すべて</option>
             {authorOptions.map((author) => (
@@ -135,7 +141,7 @@ export default function StorageFilterBar({
           </select>
         </div>
 
-        <div className="flex min-w-0 items-center gap-1.5">
+        <div className={GROUP_CLASS}>
           <label htmlFor="pokeka-price-filter" className={LABEL_CLASS}>
             参考価格
           </label>
@@ -144,7 +150,7 @@ export default function StorageFilterBar({
             value={priceValue}
             disabled={priceDisabled}
             onChange={(e) => onPriceChange(e.target.value as PriceFilterValue)}
-            className={`${SELECT_CLASS} sm:w-[112px]`}
+            className={`${FIELD_CLASS} w-[100px] cursor-pointer`}
           >
             {PRICE_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -159,19 +165,15 @@ export default function StorageFilterBar({
             type="button"
             onClick={onClear}
             disabled={disabled}
-            className={`${CONTROL_HEIGHT} ml-auto inline-flex cursor-pointer items-center gap-1 whitespace-nowrap rounded-lg border border-background-300 bg-white px-2.5 text-[12px] font-medium text-foreground-700 transition-colors hover:bg-background-100 disabled:cursor-not-allowed disabled:opacity-50`}
+            className={`${CONTROL_HEIGHT} ml-auto inline-flex cursor-pointer items-center whitespace-nowrap rounded-md px-2 text-[12px] font-medium text-foreground-500 transition-colors hover:bg-background-100 hover:text-foreground-900 disabled:cursor-not-allowed disabled:opacity-50`}
           >
-            <i
-              className="ri-close-line flex h-3.5 w-3.5 items-center justify-center text-[13px]"
-              aria-hidden="true"
-            ></i>
             条件をクリア
           </button>
         )}
       </div>
 
       {(authorOptions.length === 0 || !priceFilterAvailable) && (
-        <p className="text-[11px] leading-relaxed text-foreground-400">
+        <p className="max-w-3xl text-[11px] leading-relaxed text-foreground-400">
           {authorOptions.length === 0 && priceFilterAvailable
             ? "作家情報は未取得です。ライト版AIの実行結果があると選べます。"
             : authorOptions.length === 0 && !priceFilterAvailable

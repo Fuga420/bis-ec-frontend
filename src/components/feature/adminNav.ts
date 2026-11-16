@@ -52,12 +52,17 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
 /**
  * 現在のパスがそのナビ項目を選択中かどうか。
  * 前方一致（/products/:id や /documents/:id も親項目を選択中にする）。
+ *
+ * overrideTo（遷移元のカテゴリ）が指定された場合は、その項目だけを選択中にする。
+ * 商品のカテゴリから推測せず、詳細画面を開いた実際の入口を優先するため。
  */
 export function isAdminNavItemActive(
   item: AdminNavItem,
-  pathname: string
+  pathname: string,
+  overrideTo?: string
 ): boolean {
   if (!item.to) return false;
+  if (overrideTo) return item.to === overrideTo;
   if (pathname === item.to) return true;
   if (pathname.startsWith(`${item.to}/`)) return true;
   return (item.alsoActiveFor ?? []).some(

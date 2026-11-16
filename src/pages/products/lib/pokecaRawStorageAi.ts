@@ -130,6 +130,17 @@ function pickFirstString(obj: Record<string, unknown>, keys: string[]): string |
   return null;
 }
 
+function pickFirstStringWithFallback(
+  sources: Record<string, unknown>[],
+  keys: string[]
+): string | null {
+  for (const source of sources) {
+    const value = pickFirstString(source, keys);
+    if (value) return value;
+  }
+  return null;
+}
+
 function pickBoolean(obj: Record<string, unknown>, keys: string[]): boolean | null {
   for (const key of keys) {
     const value = obj[key];
@@ -282,8 +293,14 @@ function normalizeProductInfos(
 
 function resolveStatus(
   obj: Record<string, unknown>,
-  counts: { total: number; processed: number; failed: number },
-  isActive: boolean
+  counts: {
+    total: number;
+    processed: number;
+    failed: number;
+    attempted: number | null;
+  },
+  isActive: boolean,
+  finishedAt: string | null
 ): PokecaLightJobStatus {
   const raw = (
     pickFirstString(obj, ["status", "worker_status", "state", "phase"]) ?? ""
@@ -291,14 +308,30 @@ function resolveStatus(
   const isRunning = pickBoolean(obj, ["is_running", "running"]);
   const isFinished = pickBoolean(obj, ["is_finished", "finished"]);
 
-  // worker_state.active が唯一の実行中シグナルの応答があるため最優先で扱う
+  const settled: PokecaLightJobStatus =
+    counts.failed > 0 ? "failed" : "completed";
+
+  // 1) worker_state.active が唯一の実行中シグナルの応答があるため最優先で扱う
   if (isActive) return "running";
+
+  // 2) ジョブ生命周期の完了合図を、件数推定より先に判定する。
+  //    processed_count は「下書きができた商品数」で、スキップされた商品が
+  //    常に target との差として残るため、件数比較では完了にならない。
+  //    - active が false かつ finished_at が設定済み → 終了
+  //    - attempted_count が target_count に到達 → 全件試行済み（終了）
+  if (finishedAt) return settled;
+  if (isFinished === true) return settled;
+  if (
+    counts.total > 0 &&
+    counts.attempted !== null &&
+    counts.attempted >= counts.total
+  ) {
+    return settled;
+  }
+
   if (isRunning === true) return "running";
   if (raw === "running" || raw === "processing" || raw === "in_progress") {
     return "running";
-  }
-  if (isFinished === true) {
-    return counts.failed > 0 ? "failed" : "completed";
   }
   if (raw === "failed" || raw === "error") return "failed";
   if (
@@ -308,11 +341,11 @@ function resolveStatus(
     raw === "success" ||
     raw === "succeeded"
   ) {
-    return counts.failed > 0 ? "failed" : "completed";
+    return settled;
   }
-  // ステータス文字列が無い場合は件数から推定する
+  // 3) 生命周期の合図が無い応答向けのフォールバック（件数から推定）
   if (counts.total > 0 && counts.processed >= counts.total) {
-    return counts.failed > 0 ? "failed" : "completed";
+    return settled;
   }
   if (counts.total > 0) return "running";
   return "idle";
@@ -427,6 +460,19 @@ export function normalizePokecaLightWorkerState(
   const skipped =
     pickCount(obj, ["skipped_count", "skipped", "skip_count"]) ?? 0;
 
+  // 生命周期の合図（未試行のまま残っている商品を件数差として扱わないために使う）
+  const attempted =
+    pickCountWithFallback([
+      "attempted_count",
+      "attempted",
+      "tried_count",
+      "processed_target_count",
+    ]) ?? null;
+  const finishedAt = pickFirstStringWithFallback(
+    [obj, ...fallbackSources],
+    ["finished_at", "completed_at", "end_at"]
+  );
+
   const failures = normalizeFailures(obj);
   const resolvedProcessed =
     processed ?? Math.min(total, success + failed + skipped);
@@ -459,8 +505,10 @@ export function normalizePokecaLightWorkerState(
       total,
       processed: resolvedProcessed,
       failed,
+      attempted,
     },
-    isActive
+    isActive,
+    finishedAt
   );
 
   // 実行予定も結果も無い空の状態は「ジョブなし」として扱う
@@ -474,6 +522,8 @@ export function normalizePokecaLightWorkerState(
     failures.length > 0 ||
     priceFoundCount !== null ||
     illustratorCounts.length > 0 ||
+    attempted !== null ||
+    finishedAt !== null ||
     pickFirstString(obj, ["job_id", "run_id", "worker_id", "id"]) !== null ||
     status !== "idle";
   if (!hasAnySignal) return null;
@@ -502,7 +552,7 @@ export function normalizePokecaLightWorkerState(
     illustratorCounts,
     jobId: pickFirstString(obj, ["job_id", "run_id", "worker_id", "id"]),
     startedAt: pickFirstString(obj, ["started_at", "start_at"]),
-    finishedAt: pickFirstString(obj, ["finished_at", "completed_at", "end_at"]),
+    finishedAt,
     updatedAt: pickFirstString(obj, ["updated_at", "last_updated_at"]),
   };
 }

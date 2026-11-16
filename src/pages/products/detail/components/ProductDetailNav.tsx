@@ -6,6 +6,10 @@ interface ProductDetailNavProps {
   // 「一覧へ戻る」の遷移先（既存の戻り先と同じ）
   listPath: string;
   isTest?: boolean;
+  // 前後の商品へ移動するときも遷移元（パンくず・戻り先）を引き継ぐための state
+  linkState?: unknown;
+  // 「一覧へ戻る」のラベル（遷移元によって呼び方を変える）
+  listLabel?: string;
 }
 
 const LINK_BASE =
@@ -28,6 +32,8 @@ export default function ProductDetailNav({
   productId,
   listPath,
   isTest = false,
+  linkState,
+  listLabel = "商品一覧へ",
 }: ProductDetailNavProps) {
   const { prev, next } = useCatalogNeighbors(productId, isTest);
 
@@ -39,6 +45,7 @@ export default function ProductDetailNav({
           {prev ? (
             <Link
               to={`/products/${prev.id}`}
+              state={linkState}
               className={`${LINK_BASE} items-start text-left`}
               rel="prev"
             >
@@ -70,7 +77,7 @@ export default function ProductDetailNav({
             className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border border-background-300 bg-white px-3 py-1.5 text-[12px] font-medium text-foreground-700 transition-colors hover:bg-background-100"
           >
             <i className="ri-list-check w-3.5 h-3.5 flex items-center justify-center"></i>
-            商品一覧へ
+            {listLabel}
           </Link>
         </div>
 
@@ -79,6 +86,7 @@ export default function ProductDetailNav({
           {next ? (
             <Link
               to={`/products/${next.id}`}
+              state={linkState}
               className={`${LINK_BASE} items-end text-right`}
               rel="next"
             >

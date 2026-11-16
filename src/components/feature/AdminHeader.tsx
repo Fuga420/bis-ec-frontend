@@ -10,6 +10,11 @@ export interface AdminHeaderBackLink {
   label: string;
 }
 
+export interface AdminHeaderBreadcrumb {
+  label: string;
+  to: string;
+}
+
 export interface AdminHeaderAiHistory {
   onOpen: () => void;
   /** 生成を追跡中か（実行中だけ、件数を出さない控えめな点を添える） */
@@ -20,6 +25,11 @@ interface AdminHeaderProps {
   pageTitle: string;
   /** 一覧などへ戻る導線（パンくずとして表示する） */
   backLink?: AdminHeaderBackLink;
+  /**
+   * 現在地より上の階層（2階層以上のパンくず）。
+   * 指定した場合は backLink より優先し、現在地（pageTitle）を自動で末尾に足す。
+   */
+  breadcrumbs?: AdminHeaderBreadcrumb[];
   /** 画面固有の操作（例: ポケカ素地取込）。テキストのみで並べる */
   extras?: ReactNode;
   /** AI生成履歴への入口（履歴を持つ画面だけで表示する） */
@@ -41,12 +51,21 @@ interface AdminHeaderProps {
 export default function AdminHeader({
   pageTitle,
   backLink,
+  breadcrumbs,
   extras,
   aiHistory,
   navCollapsed,
   onOpenNav,
 }: AdminHeaderProps) {
   const { isTestMode } = useOperatingMode();
+
+  // 表示するパンくずの階層（現在地は to を持たず、末尾に置く）。
+  // 階層が深い場合は現在地だけを強調し、親階層は控えめな文字色にする。
+  const ancestors: AdminHeaderBreadcrumb[] = breadcrumbs?.length
+    ? breadcrumbs
+    : backLink
+      ? [{ label: backLink.label, to: backLink.to }]
+      : [];
 
   return (
     <header className="border-b border-background-200 bg-white">
@@ -81,27 +100,44 @@ export default function AdminHeader({
           ></span>
 
           <div className="flex min-w-0 items-baseline gap-2">
-            {backLink ? (
+            {ancestors.length > 0 ? (
               <nav
                 aria-label="パンくずリスト"
-                className="flex min-w-0 items-center gap-1"
+                className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
               >
-                <Link
-                  to={backLink.to}
-                  className="cursor-pointer whitespace-nowrap text-[13px] font-medium text-foreground-500 transition-colors hover:text-foreground-900"
-                >
-                  {backLink.label}
-                </Link>
-                <i
+                {ancestors.map((crumb, index) => (
+                  <span
+                    key={`${crumb.to}-${index}`}
+                    className="flex min-w-0 shrink-0 items-center gap-1"
+                  >
+                    {index > 0 && (
+                      <span
+                        aria-hidden="true"
+                        className="shrink-0 text-[12px] leading-none text-foreground-300"
+                      >
+                        ›
+                      </span>
+                    )}
+                    <Link
+                      to={crumb.to}
+                      className="cursor-pointer whitespace-nowrap text-[13px] font-medium text-foreground-500 transition-colors hover:text-foreground-900"
+                    >
+                      {crumb.label}
+                    </Link>
+                  </span>
+                ))}
+                <span
                   aria-hidden="true"
-                  className="ri-arrow-right-s-line flex h-3.5 w-3.5 items-center justify-center text-[14px] text-foreground-300"
-                ></i>
-                <h1 className="admin-display truncate whitespace-nowrap text-[16px] font-semibold leading-none tracking-[-0.01em] text-foreground-800">
+                  className="shrink-0 text-[12px] leading-none text-foreground-300"
+                >
+                  ›
+                </span>
+                <h1 className="admin-display shrink-0 truncate whitespace-nowrap text-[15px] font-semibold leading-none tracking-[-0.01em] text-foreground-900">
                   {pageTitle}
                 </h1>
               </nav>
             ) : (
-              <h1 className="admin-display whitespace-nowrap text-[17px] font-semibold leading-none tracking-[-0.01em] text-foreground-800">
+              <h1 className="admin-display whitespace-nowrap text-[18px] font-semibold leading-none tracking-[-0.01em] text-foreground-800">
                 {pageTitle}
               </h1>
             )}

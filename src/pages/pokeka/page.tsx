@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import AdminShell from "@/components/feature/AdminShell";
 import { useOperatingMode } from "@/context/OperatingModeProvider";
 import ProductPagination from "@/pages/products/components/ProductPagination";
@@ -23,6 +23,12 @@ import StorageSubTabs from "./components/StorageSubTabs";
 import StorageScopePending from "./components/StorageScopePending";
 import { usePokekaRawStorageList } from "./hooks/usePokekaRawStorageList";
 import {
+  buildPokekaOrigin,
+  buildPokekaQueryString,
+  buildProductDetailLinkState,
+  readPokekaQuery,
+} from "@/lib/productOrigin";
+import {
   buildLightCoverage,
   buildLightInfoMap,
   collectBoxOptions,
@@ -31,7 +37,6 @@ import {
   resolveReferencePrice,
 } from "./lib/rawStorage";
 import {
-  DEFAULT_STORAGE_SCOPE,
   filterProductsByScope,
   getStorageScope,
   type StorageScopeKey,
@@ -91,10 +96,17 @@ function describeLightStatus(
 
 export default function PokekaPage() {
   const { isTestMode } = useOperatingMode();
-  const [tab, setTab] = useState<PokekaTabKey>("storage");
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // 商品詳細のパンくずから戻ってきたときなど、URLに一覧の状態が入っている場合は
+  // その条件（タブ・区分・絞り込み・ページ番号）で開く。
+  // 直接アクセス（パラメータなし）は従来どおりの初期表示になる。
+  const [initialQuery] = useState(() => readPokekaQuery(searchParams));
+
+  const [tab, setTab] = useState<PokekaTabKey>(initialQuery.tab);
   // ストレージ内の区分。初期表示は既存の旧裏ストレージ一覧（「旧裏」）。
   const [storageScope, setStorageScope] =
-    useState<StorageScopeKey>(DEFAULT_STORAGE_SCOPE);
+    useState<StorageScopeKey>(initialQuery.scope);
   const [reloadKey, setReloadKey] = useState(0);
 
   // 旧裏ストレージ商品（storage_location が「旧裏ストレージ/」で始まる商品）を全件取得し、
@@ -140,11 +152,15 @@ export default function PokekaPage() {
 
   // 検索は取得済みの商品（この区分の全件）に対する画面側の絞り込み。
   // 新しい検索APIは呼ばず、商品名と商品IDの部分一致で判定する。
-  const [searchQuery, setSearchQuery] = useState("");
-  const [boxFilter, setBoxFilter] = useState("");
-  const [illustratorFilter, setIllustratorFilter] = useState("");
-  const [priceFilter, setPriceFilter] = useState<PriceFilterValue>("all");
-  const [page, setPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState(initialQuery.search);
+  const [boxFilter, setBoxFilter] = useState(initialQuery.box);
+  const [illustratorFilter, setIllustratorFilter] = useState(
+    initialQuery.author
+  );
+  const [priceFilter, setPriceFilter] = useState<PriceFilterValue>(
+    initialQuery.price
+  );
+  const [page, setPage] = useState(initialQuery.page);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [isRunDialogOpen, setIsRunDialogOpen] = useState(false);
   const [isResultOpen, setIsResultOpen] = useState(false);
@@ -235,9 +251,12 @@ export default function PokekaPage() {
   }, [filtered, page]);
 
   // 表示中のページが範囲外になったら最終ページへ収める。
+  // 読み込み中は件数がまだ0件（totalPages=1）なので、URLから復元したページ番号を
+  // 消してしまわないよう、取得完了後にだけ補正する。
   useEffect(() => {
+    if (loadState !== "success") return;
     if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
+  }, [loadState, page, totalPages]);
 
   // モード切替などで表示できる結果が無くなったら、結果ビューは閉じる。
   useEffect(() => {
@@ -253,14 +272,33 @@ export default function PokekaPage() {
     setPage(1);
   }, []);
 
-  useEffect(() => {
+  // タブを切り替えたら1ページ目に戻し、絞り込みと選択を解除する。
+  // 初回表示（商品詳細のパンくずからURLの条件で戻ってきた直後）は、
+  // その条件をそのまま使う。
+  const handleTabChange = (next: PokekaTabKey) => {
+    if (next === tab) return;
+    setTab(next);
     setPage(1);
     setSelectedIds(new Set());
     setSearchQuery("");
     setBoxFilter("");
     setIllustratorFilter("");
     setPriceFilter("all");
-  }, [isTestMode, tab]);
+  };
+
+  // 通常モード／テストモードが切り替わったときだけ同じリセットを行う。
+  // 直前のモードを覚えて比べることで、初回表示ではリセットしない。
+  const prevTestModeRef = useRef(isTestMode);
+  useEffect(() => {
+    if (prevTestModeRef.current === isTestMode) return;
+    prevTestModeRef.current = isTestMode;
+    setPage(1);
+    setSelectedIds(new Set());
+    setSearchQuery("");
+    setBoxFilter("");
+    setIllustratorFilter("");
+    setPriceFilter("all");
+  }, [isTestMode]);
 
   // 区分を切り替えたら先頭ページに戻し、選択（＝ライト版AIの実行対象）を解除する。
   // 検索・絞り込み条件は同一の商品集合に対する条件のため、そのまま維持する。
@@ -294,6 +332,59 @@ export default function PokekaPage() {
     setPage(1);
     setSelectedIds(new Set());
   };
+
+  // 表示中の条件（タブ・区分・絞り込み・ページ）をURLに反映する。
+  // ブラウザの戻る操作や再読み込みでも同じ一覧に戻れるようにするための表示状態の保存で、
+  // 商品の取得・検索・絞り込みの処理自体は変更しない（履歴を増やさないよう replace を使う）。
+  useEffect(() => {
+    const next = buildPokekaQueryString({
+      tab,
+      scope: storageScope,
+      search: searchQuery,
+      box: boxFilter,
+      author: illustratorFilter,
+      price: priceFilter,
+      page,
+    });
+    if (next === searchParams.toString()) return;
+    setSearchParams(next, { replace: true });
+  }, [
+    tab,
+    storageScope,
+    searchQuery,
+    boxFilter,
+    illustratorFilter,
+    priceFilter,
+    page,
+    searchParams,
+    setSearchParams,
+  ]);
+
+  // 商品詳細へ渡す遷移元（パンくずと戻り先の復元に使う）。
+  // 一覧の条件が変わったときだけ作り直す。
+  const detailLinkState = useMemo(
+    () =>
+      buildProductDetailLinkState(
+        buildPokekaOrigin({
+          tab,
+          scope: storageScope,
+          search: searchQuery,
+          box: boxFilter,
+          author: illustratorFilter,
+          price: priceFilter,
+          page,
+        })
+      ),
+    [
+      tab,
+      storageScope,
+      searchQuery,
+      boxFilter,
+      illustratorFilter,
+      priceFilter,
+      page,
+    ]
+  );
 
   const pageSelectedCount = useMemo(
     () => pageItems.filter((product) => selectedIds.has(product.product_id)).length,
@@ -396,20 +487,12 @@ export default function PokekaPage() {
 
   return (
     <AdminShell
-      pageTitle="ポケカ"
-      headerExtras={
-        <Link
-          to="/import?mode=pokeca_raw_storage"
-          className="product-header-action"
-        >
-          ポケカ素地取込
-        </Link>
-      }
+      pageTitle="Pokémon Card"
       mainClassName="page-fade px-4 py-4 md:px-6 md:py-5 lg:px-8"
     >
-      <div className="mb-2 flex flex-wrap items-end gap-x-3 gap-y-1">
+      <div className="mb-2.5 flex flex-wrap items-end gap-x-3 gap-y-1">
         <div className="min-w-0 flex-1">
-          <PokekaTabs value={tab} onChange={setTab} />
+          <PokekaTabs value={tab} onChange={handleTabChange} />
         </div>
         <p className="shrink-0 pb-2 text-[11px] leading-none text-foreground-400">
           {isTestMode ? "テスト商品を表示中" : "実商品を表示中"}
@@ -417,7 +500,7 @@ export default function PokekaPage() {
       </div>
 
       {isStorage && (
-        <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <div className="mb-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <StorageSubTabs value={storageScope} onChange={handleScopeChange} />
           <p className="min-w-0 text-[11px] leading-relaxed text-foreground-400">
             {scope.hint}
@@ -442,9 +525,9 @@ export default function PokekaPage() {
       )}
 
       {showsStorageList && (
-        <div className="tab-fade space-y-2">
+        <div className="tab-fade space-y-3">
           {isAllScope && (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border border-background-200 bg-background-50 px-3 py-2">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border border-background-200 bg-white px-3 py-2">
               <p className="min-w-0 flex-1 text-[11px] leading-relaxed text-foreground-500">
                 旧裏以外の商品はまだ分類できないため、この区分には表示していません。現行ストレージの判定条件が決まり次第、ここに統合します。ライト版AIは旧裏ストレージ向けのため「旧裏」で実行できます。
               </p>
@@ -568,9 +651,8 @@ export default function PokekaPage() {
                 <button
                   type="button"
                   onClick={clearFilters}
-                  className="mt-3 inline-flex h-9 cursor-pointer items-center gap-1 whitespace-nowrap rounded-md border border-background-300 bg-white px-3 text-[12px] font-medium text-foreground-700 transition-colors hover:bg-background-100"
+                  className="mt-3 inline-flex h-9 cursor-pointer items-center whitespace-nowrap rounded-md border border-background-300 bg-white px-3 text-[12px] font-medium text-foreground-700 transition-colors hover:bg-background-100"
                 >
-                  <i className="ri-close-line flex h-3.5 w-3.5 items-center justify-center text-[13px]"></i>
                   条件をクリア
                 </button>
               )}
@@ -585,6 +667,7 @@ export default function PokekaPage() {
               allSelected={isAllPageSelected}
               partlySelected={isPagePartlySelected}
               disabled={pokecaLight.isStarting}
+              detailLinkState={detailLinkState}
               onToggle={toggleSelect}
               onToggleAll={toggleSelectAll}
               selectAllRef={selectAllRef}
