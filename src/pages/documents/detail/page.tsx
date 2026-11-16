@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
+import AdminShell from "@/components/feature/AdminShell";
 import DocumentStatusBadge from "@/pages/documents/components/DocumentStatusBadge";
 import DocumentTotals from "@/pages/documents/components/DocumentTotals";
 import DocumentLineEditor from "@/pages/documents/components/DocumentLineEditor";
@@ -261,23 +262,11 @@ export default function DocumentDetailPage() {
   };
 
   return (
-    <div className="admin-font products-theme min-h-screen bg-background-50">
-      <header className="border-b border-background-200 bg-white">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-3 md:px-6">
-          <Link
-            to="/documents"
-            className="flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-foreground-600 transition-colors hover:text-primary-600"
-          >
-            <i className="ri-arrow-left-line w-4 h-4 flex items-center justify-center"></i>
-            書類一覧
-          </Link>
-          <span className="admin-eyebrow text-[10px] font-semibold text-foreground-400">
-            Document Detail
-          </span>
-        </div>
-      </header>
-
-      <main className="page-fade mx-auto w-full max-w-5xl px-4 py-4 md:px-6">
+    <AdminShell
+      pageTitle="書類詳細"
+      backLink={{ to: "/documents", label: "書類管理" }}
+      mainClassName="page-fade mx-auto w-full max-w-5xl px-4 py-4 md:px-6"
+    >
         {loadState === "loading" && (
           <div className="flex flex-col items-center justify-center gap-3 py-24">
             <i className="ri-loader-4-line animate-spin text-2xl text-foreground-400"></i>
@@ -483,7 +472,6 @@ export default function DocumentDetailPage() {
             </section>
           </div>
         )}
-      </main>
-    </div>
+    </AdminShell>
   );
 }

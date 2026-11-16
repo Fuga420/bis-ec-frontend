@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import AdminShell from "@/components/feature/AdminShell";
 import DocumentUploadField from "./components/DocumentUploadField";
 import DocumentListRow from "./components/DocumentListRow";
 import DriveInboxImportSection from "./components/DriveInboxImportSection";
@@ -42,30 +42,10 @@ export default function DocumentsPage() {
     "h-9 w-full rounded-lg border border-background-300 bg-white px-3 text-sm text-foreground-900 transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 sm:w-44";
 
   return (
-    <div className="admin-font products-theme min-h-screen bg-background-50">
-      <header className="border-b border-background-200 bg-white">
-        <div className="mx-auto flex w-full max-w-[1560px] flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 md:px-6 lg:px-8">
-          <div className="min-w-0">
-            {/* 一覧画面の見出しは商品一覧と同じ型（小さなラベル＋ディスプレイ書体）に揃える。 */}
-            <p className="admin-eyebrow text-[10px] text-foreground-400">
-              Documents
-            </p>
-            <h1 className="admin-display mt-1 text-[22px] font-semibold leading-[1.2] text-foreground-950 md:text-[24px]">
-              書類管理
-            </h1>
-          </div>
-          <Link
-            to="/products"
-            className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-background-300 bg-white px-4 py-2 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100"
-          >
-            <i className="ri-archive-2-line w-4 h-4 flex items-center justify-center"></i>
-            商品一覧
-          </Link>
-        </div>
-      </header>
-
-      {/* 一覧系の画面はワイド幅（最大1560px・左右32px）。書類詳細などのフォーム系は従来の幅のまま。 */}
-      <main className="page-fade mx-auto w-full max-w-[1560px] px-4 py-4 md:px-6 lg:px-8">
+    <AdminShell
+      pageTitle="書類管理"
+      mainClassName="page-fade mx-auto w-full max-w-[1560px] px-4 py-4 md:px-6 lg:px-8"
+    >
         {/* 画面の主役: 仕入明細を探す（受付番号・ことば） */}
         <SupplyLineSearch />
 
@@ -300,7 +280,6 @@ export default function DocumentsPage() {
             </div>
           )}
         </section>
-      </main>
-    </div>
+    </AdminShell>
   );
 }

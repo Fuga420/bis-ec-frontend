@@ -137,7 +137,10 @@ export default function AiBatchConfirmModal({
   if (!open) return null;
 
   const isLightMode = generationMode === "light";
-  const tooMany = count > MAX_AI_BATCH_SIZE;
+  // 件数上限（MAX_AI_BATCH_SIZE）は通常版（/ai-batches）の制約。
+  // ライト版（/pokeca-raw-storage-ai/run）は件数上限を設けていないため、
+  // ライト版選択時は上限の検証も警告表示も行わない。
+  const tooMany = !isLightMode && count > MAX_AI_BATCH_SIZE;
   const markupPercent = parseMinMarkupPercent(minMarkupPercent);
   // ライト版は原価・最低上乗せ率の入力を求めないため、検証もしない。
   const markupError = isLightMode

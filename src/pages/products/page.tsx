@@ -18,6 +18,7 @@ import ProductFilterBar, {
   type ProductFilterValue,
 } from "./components/ProductFilterBar";
 import ProductPagination from "./components/ProductPagination";
+import PokecaRawStorageToggle from "./components/PokecaRawStorageToggle";
 import ProductListSkeleton from "./components/ProductListSkeleton";
 import ProductEmptyState from "./components/ProductEmptyState";
 import ProductFilterEmptyState from "./components/ProductFilterEmptyState";
@@ -28,10 +29,10 @@ import AiBatchConfirmModal, {
   type AiBatchLightVersionInfo,
 } from "./components/AiBatchConfirmModal";
 import PokecaLightProgressBar from "./components/PokecaLightProgressBar";
+import PokecaLightResultModal from "./components/PokecaLightResultModal";
 import BulkArchiveConfirmModal from "./components/BulkArchiveConfirmModal";
 import BulkArchiveResultModal from "./components/BulkArchiveResultModal";
-import OperatingModeMenu from "@/components/feature/OperatingModeMenu";
-import { adminThemeClass } from "@/lib/adminTheme";
+import AdminShell from "@/components/feature/AdminShell";
 import { useAiBatch } from "./context/AiBatchProvider";
 import {
   useOperatingMode,
@@ -414,6 +415,9 @@ export default function ProductsPage() {
     setSortKey,
     page,
     setPage,
+    hidePokecaRawStorage,
+    setHidePokecaRawStorage,
+    hiddenCount,
     fetchAllMatchingProducts,
   } = useProductList({
     isArchived,
@@ -446,9 +450,10 @@ export default function ProductsPage() {
       scrollY: window.scrollY,
       archived: isArchived,
       isTestMode,
+      hidePokecaRawStorage,
     });
     markProductListReturnPending(isArchived, isTestMode);
-  }, [filter, sortKey, page, isArchived, isTestMode]);
+  }, [filter, sortKey, page, isArchived, isTestMode, hidePokecaRawStorage]);
 
   // 一括選択・一括公開の状態（ページ移動しても選択を保持し、検索・並び替え・タブ切替で解除する）
   const [selectedMap, setSelectedMap] = useState<Map<string, AdminProduct>>(
@@ -498,6 +503,8 @@ export default function ProductsPage() {
   // 一括AI生成の状態（バッチ受付＋進捗ポーリング。一括公開・決済リンク処理とは別操作）
   // 状態は管理画面共通のプロバイダーが保持する。ここで独自にポーリングしない。
   const [isAiConfirmOpen, setIsAiConfirmOpen] = useState(false);
+  // ライト版の結果ビュー（商品別の成功・失敗を確認する）
+  const [isLightResultOpen, setIsLightResultOpen] = useState(false);
   // 概算原価への最低上乗せ率（％表記の入力値）。送信時に小数（0.3 = 30％）へ変換する。
   const [minMarkupPercent, setMinMarkupPercent] = useState("30");
   // 生成方式（通常版／ライト版）。選択商品の内訳に応じて初期値を決め、実行前に選び直せる。
@@ -597,6 +604,11 @@ export default function ProductsPage() {
     filter.inventoryStatus !== "" ||
     filter.importMode !== "";
 
+  // 旧裏ストレージを隠した結果、表示できる商品が0件になった状態。
+  // 「商品がまだ登録されていない」空状態とは区別する。
+  const isHiddenOnlyEmpty =
+    hidePokecaRawStorage && hiddenCount > 0 && count === 0;
+
   // 条件変更時は1ページ目に戻し、選択済みの商品を解除する。
   // ページ切替時は選択を維持し、50件超（複数ページ横断）の一括AI生成にも対応できるようにする。
   const handleFilterChange = (next: ProductFilterValue) => {
@@ -632,6 +644,21 @@ export default function ProductsPage() {
     setSelectedMap(new Map());
     setShowSelectedOnly(false);
     lastClickedIdRef.current = null;
+  };
+
+  // 「旧裏ストレージを隠す」の切り替え。条件変更と同じ扱いで1ページ目に戻し、選択を解除する。
+  const handleToggleHidePokeca = (next: boolean) => {
+    setHidePokecaRawStorage(next);
+    setPage(1);
+    setSelectedMap(new Map());
+    setShowSelectedOnly(false);
+    lastClickedIdRef.current = null;
+  };
+
+  // 旧裏ストレージを隠した結果0件になった場合の復帰操作（非表示を解除して条件もクリアする）
+  const handleRevealHiddenProducts = () => {
+    handleClearFilter();
+    setHidePokecaRawStorage(false);
   };
 
   // タブ（通常／アーカイブ）や動作モード（通常／テスト）を切り替えたら選択状態・編集状態を解除する
@@ -714,6 +741,24 @@ export default function ProductsPage() {
   );
 
   const hasSelection = selectedIds.size > 0;
+
+  // ライト版の結果モーダル用サムネイル（表示中＋選択済みの商品から作る。未取得は空欄）
+  const lightResultImageMap = useMemo(() => {
+    const map = new Map<string, string>();
+    [...products, ...selectedProducts].forEach((product) => {
+      if (product.main_image_display_url) {
+        map.set(product.product_id, product.main_image_display_url);
+      }
+    });
+    return map;
+  }, [products, selectedProducts]);
+
+  // ライト版の失敗商品だけを再実行する（既存の開始処理を product_ids 指定で呼ぶ）。
+  // 実行中ジョブがある場合は既存フックが新規開始せず、その旨を noticeMessage に出す。
+  const retryPokecaLightFailed = async (productIds: string[]) => {
+    if (productIds.length === 0) return;
+    await pokecaLight.start(productIds);
+  };
 
   // 選択中のみ表示: 選択済み商品（ページを跨いだ全件）をクライアント側でページ分割して表示する。
   // 選択が0件になったら自動的に通常表示へ戻る。
@@ -983,8 +1028,7 @@ export default function ProductsPage() {
   };
 
   // ライト版の開始（即時・バックグラウンド実行のみ）。混在時は実行しない。
-  const startPokecaLight = async () => {
-    if (pokecaLight.isStarting || aiConfirmTargets.length === 0) return;
+  const startPokecaLight = async () => {    if (pokecaLight.isStarting || aiConfirmTargets.length === 0) return;
     const summary = summarizePokecaSelection(selectedProducts);
     if (!summary.allPokeca) return;
     const result = await pokecaLight.start(
@@ -1016,112 +1060,14 @@ export default function ProductsPage() {
   };
 
   return (
-    <div
-      className={`admin-font products-theme ${adminThemeClass(
-        isTestMode
-      )} min-h-screen bg-background-50`}
+    <AdminShell
+      pageTitle="商品管理"
+      aiHistory={{
+        onOpen: () => void aiBatch.openRunHistory(),
+        processing: aiHeaderStatus.processing > 0,
+      }}
+      mainClassName="page-fade w-full px-4 py-4 md:px-6 md:py-5 lg:px-8"
     >
-      <header className="border-b border-background-200 bg-white">
-        {/* ロゴと見出しを1行にまとめ、ヘッダーの高さを抑える。
-            「BIS（ブランド）」→ 区切り線 → 「商品管理（ページ見出し）」の順で
-            情報階層は保ちつつ、余白と行数を減らして業務管理UIらしい密度にする。 */}
-        <div className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 md:px-6 lg:px-8">
-          {/* ブランド → 区切り線 → ページ名 → （テスト環境のみ）TEST を1行に並べる。
-              ブランドとページ名は役割が違うため、同じ字面にはしない。
-              「BIS」はロゴとして大きく・強く組み、「商品管理」はページ見出しとして
-              読みやすさを優先し、ウェイトとサイズを一段落として従属させる。 */}
-          <div className="flex min-w-0 items-center gap-4">
-            {/* BIS ロゴ（押すと商品一覧の先頭へ） */}
-            <Link
-              to="/products"
-              aria-label="BIS 商品一覧の先頭へ"
-              className="inline-flex shrink-0 items-center whitespace-nowrap"
-            >
-              <span className="products-header-brand block text-foreground-950">
-                BIS
-              </span>
-            </Link>
-            <span
-              aria-hidden="true"
-              className="h-7 w-px shrink-0 bg-background-300"
-            ></span>
-            <div className="flex min-w-0 items-baseline gap-2">
-              <h1 className="admin-display whitespace-nowrap text-[20px] font-medium leading-none tracking-[-0.01em] text-foreground-600">
-                商品管理
-              </h1>
-              {/* テスト環境のときだけ、見出しの横に控えめな識別ラベルを出す（操作不可） */}
-              {isTestMode && (
-                <span
-                  aria-label="テスト環境"
-                  className="inline-flex h-[18px] select-none items-center rounded border border-amber-300/70 bg-amber-50 px-1.5 text-[10px] font-medium leading-none tracking-[0.08em] text-amber-800"
-                >
-                  TEST
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Link to="/import" className="product-header-action">
-              <i className="ri-image-add-line" aria-hidden="true"></i>
-              画像だけ取込
-            </Link>
-            {/* 既存の画像セット一括取込画面をポケカ素地モードで開く（画面は複製しない）。 */}
-            <Link
-              to="/import?mode=pokeca_raw_storage"
-              className="product-header-action"
-            >
-              <i className="ri-scan-line" aria-hidden="true"></i>
-              ポケカ素地取込
-            </Link>
-            {/* Driveのフォルダを指定してまとめて商品登録する操作画面（ポケカ素地取込と同列） */}
-            <Link to="/drive-bulk-import" className="product-header-action">
-              <i className="ri-folder-download-line" aria-hidden="true"></i>
-              Drive一括取込
-            </Link>
-            <Link to="/documents" className="product-header-action">
-              <i className="ri-file-text-line" aria-hidden="true"></i>
-              書類管理
-            </Link>
-            {/* AI一括生成の履歴・進捗・結果への入口。
-                クリックで開くのは履歴モーダルなので、ラベルは付けず履歴アイコンだけの
-                セカンダリなアイコンボタンにする（役割は title / aria-label で伝える）。
-                実行中のときだけ、件数を出さない控えめな点を添える
-                （予約待ち＝開始前は実行中に含めない）。 */}
-            <button
-              type="button"
-              onClick={() => void aiBatch.openRunHistory()}
-              title={
-                aiHeaderStatus.processing > 0
-                  ? "AI生成履歴（実行中）"
-                  : "AI生成履歴"
-              }
-              aria-label={
-                aiHeaderStatus.processing > 0
-                  ? "AI生成履歴（実行中）"
-                  : "AI生成履歴"
-              }
-              className="product-header-icon-btn relative"
-            >
-              <i className="ri-history-line" aria-hidden="true"></i>
-              {aiHeaderStatus.processing > 0 && (
-                <span
-                  aria-hidden="true"
-                  className="absolute right-1.5 top-1.5 inline-flex h-1.5 w-1.5 rounded-full bg-primary-500"
-                ></span>
-              )}
-            </button>
-            <Link to="/register" className="product-cta product-header-cta">
-              <i className="ri-add-line" aria-hidden="true"></i>
-              新しい商品を登録
-            </Link>
-            <OperatingModeMenu />
-          </div>
-        </div>
-      </header>
-
-      {/* 一覧系の画面は横幅を最大限使うフルワイド（最大幅の制限なし・左右24〜32px）。
-          詳細／登録／画像取込のフォーム系は従来の幅のまま変更しない。 */}
-      <main className="page-fade w-full px-4 py-4 md:px-6 md:py-5 lg:px-8">
         {/* ライト版の進捗（サーバー上の進行中ジョブを表示。別デバイスでも同じ表示になる） */}
         {!pokecaLight.isHidden && pokecaLight.worker && (
           <PokecaLightProgressBar
@@ -1129,6 +1075,7 @@ export default function ProductsPage() {
             isRefreshing={pokecaLight.isRefreshing}
             noticeMessage={pokecaLight.noticeMessage}
             onRefresh={() => void pokecaLight.refresh()}
+            onOpenResult={() => setIsLightResultOpen(true)}
             onClose={pokecaLight.dismiss}
           />
         )}
@@ -1174,13 +1121,28 @@ export default function ProductsPage() {
 
         {(loadState === "success" || isRefreshing) && (
           <>
-            {!isSelectionView && (count > 0 || hasFilter) && (
+            {!isSelectionView &&
+              (count > 0 || hasFilter || hidePokecaRawStorage) && (
               <>
                 <ProductFilterBar
                   value={filter}
                   onChange={handleFilterChange}
                   disabled={isAnyBulkBusy}
                 />
+
+                {/* 取込モードが「旧裏ストレージ」のときだけ、ポケカ専用ページへの文脈導線を出す。
+                    それ以外の絞り込みでは表示しない（この一覧の絞り込み状態は変えない）。 */}
+                {filter.importMode === "pokeca_raw_storage" && (
+                  <div className="mb-3">
+                    <Link
+                      to="/pokeka"
+                      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-background-300 bg-white px-3 py-2 text-[13px] font-medium text-foreground-700 transition-colors hover:bg-background-100 hover:text-foreground-950"
+                    >
+                      ポケカ専用ページで見る
+                      <i className="ri-arrow-right-line w-4 h-4 flex items-center justify-center text-foreground-400"></i>
+                    </Link>
+                  </div>
+                )}
 
                 {/* 件数表示と並び替えをテーブル直上のツールバー1行にまとめる
                     （検索・フィルターとの間に余計な空白を作らない） */}
@@ -1209,6 +1171,13 @@ export default function ProductsPage() {
                           （{page} / {totalPages} ページ）
                         </span>
                       )}
+                      {hidePokecaRawStorage && hiddenCount > 0 && (
+                        <span className="ml-1 text-foreground-400">
+                          ／ 旧裏ストレージ{" "}
+                          <span className="admin-numeric">{hiddenCount}</span>{" "}
+                          件を非表示
+                        </span>
+                      )}
                     </p>
                     {isRefreshing && (
                       <span className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-foreground-400">
@@ -1217,7 +1186,12 @@ export default function ProductsPage() {
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <PokecaRawStorageToggle
+                      checked={hidePokecaRawStorage}
+                      onChange={handleToggleHidePokeca}
+                      disabled={isAnyBulkBusy}
+                    />
                     <label
                       htmlFor="product-sort"
                       className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-foreground-500"
@@ -1319,7 +1293,7 @@ export default function ProductsPage() {
             )}
 
             {viewProducts.length === 0 ? (
-              !hasFilter && count === 0 ? (
+              !hasFilter && count === 0 && !isHiddenOnlyEmpty ? (
                 isTestMode ? (
                   <div className="ui-card flex flex-col items-center justify-center rounded-lg px-6 py-14 text-center">
                     <i className="ri-flask-line mb-2 flex h-8 w-8 items-center justify-center text-xl text-foreground-400"></i>
@@ -1336,7 +1310,18 @@ export default function ProductsPage() {
                   <ProductEmptyState isArchived={isArchived} />
                 )
               ) : (
-                <ProductFilterEmptyState onClear={handleClearFilter} />
+                <ProductFilterEmptyState
+                  onClear={
+                    isHiddenOnlyEmpty
+                      ? handleRevealHiddenProducts
+                      : handleClearFilter
+                  }
+                  note={
+                    isHiddenOnlyEmpty
+                      ? "「旧裏ストレージを隠す」がONのため、表示できる商品がありません。「条件をクリア」で全件表示に戻せます。"
+                      : undefined
+                  }
+                />
               )
             ) : (
               <div
@@ -1462,8 +1447,6 @@ export default function ProductsPage() {
             />
           </>
         )}
-      </main>
-
       {/* 条件に一致する全件を選択 確認ダイアログ（誤操作防止のため件数を明示する） */}
       {isSelectAllConfirmOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -1694,6 +1677,21 @@ export default function ProductsPage() {
         </div>
       )}
 
+      {/* ライト版AI生成の結果（商品別の成功・失敗・価格有無） */}
+      <PokecaLightResultModal
+        open={isLightResultOpen && Boolean(pokecaLight.worker)}
+        worker={pokecaLight.worker}
+        imageMap={lightResultImageMap}
+        isRefreshing={pokecaLight.isRefreshing}
+        isStarting={pokecaLight.isStarting}
+        isAutoRefreshing={pokecaLight.isRunning}
+        errorMessage={pokecaLight.errorMessage}
+        noticeMessage={pokecaLight.noticeMessage}
+        onRefresh={() => void pokecaLight.refresh()}
+        onRetryFailed={(productIds) => void retryPokecaLightFailed(productIds)}
+        onClose={() => setIsLightResultOpen(false)}
+      />
+
       {/* 一括AI生成 確認ダイアログ（今すぐ実行／日時を指定して予約） */}
       <AiBatchConfirmModal
         open={isAiConfirmOpen}
@@ -1737,6 +1735,6 @@ export default function ProductsPage() {
         onReverifyUnknown={archive.reverifyUnknown}
         onClose={closeArchiveResult}
       />
-    </div>
+    </AdminShell>
   );
 }

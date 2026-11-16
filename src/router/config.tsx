@@ -4,10 +4,10 @@ import RegisterPage from "@/pages/register/page";
 import ImportPage from "@/pages/import/page";
 import ProductsPage from "@/pages/products/page";
 import ProductDetailPage from "@/pages/products/detail/page";
+import PokekaPage from "@/pages/pokeka/page";
 import DocumentsPage from "@/pages/documents/page";
 import DocumentDetailPage from "@/pages/documents/detail/page";
 import RelayCheckPage from "@/pages/dev/relay-check/page";
-import DriveBulkImportPage from "@/pages/drive-bulk-import/page";
 
 const routes: RouteObject[] = [
   {
@@ -32,9 +32,9 @@ const routes: RouteObject[] = [
     element: <ProductDetailPage />,
   },
   {
-    // Drive一括取込の操作画面（ドライラン→実行→進捗）。
-    path: "/drive-bulk-import",
-    element: <DriveBulkImportPage />,
+    // ポケカ専用の商品管理画面（ストレージ（旧裏）／VSS／PSA／その他鑑定）
+    path: "/pokeka",
+    element: <PokekaPage />,
   },
   {
     path: "/documents",

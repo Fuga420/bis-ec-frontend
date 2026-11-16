@@ -14,6 +14,12 @@ interface UsePokecaLightOptions {
   isTestMode: boolean;
   /** 実行が完了（または失敗で終了）したときに商品一覧を再読み込みする */
   onFinished?: () => void;
+  /**
+   * 実行中ジョブが無いときにも GET status を追従する間隔（ミリ秒）。
+   * 0 または未指定なら追従しない（従来の挙動）。
+   * 別画面（/products など）で開始された実行を同じ表示に反映するために使う。
+   */
+  idleFollowMs?: number;
 }
 
 /**
@@ -26,6 +32,7 @@ interface UsePokecaLightOptions {
 export function usePokecaRawStorageAi({
   isTestMode,
   onFinished,
+  idleFollowMs = 0,
 }: UsePokecaLightOptions) {
   const [worker, setWorker] = useState<PokecaLightWorkerState | null>(null);
   const [isStarting, setIsStarting] = useState(false);
@@ -94,6 +101,24 @@ export function usePokecaRawStorageAi({
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [isRunning, refresh]);
+
+  // 実行中ジョブが無いときも、指定があれば控えめに追従する。
+  // 別画面で開始された実行をこの画面の状態表示・結果確認に反映するため。
+  useEffect(() => {
+    if (isRunning || idleFollowMs <= 0) return undefined;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void refresh();
+    }, idleFollowMs);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [isRunning, idleFollowMs, refresh]);
 
   // 実行中→完了に変わったタイミングで商品一覧を再読み込みし、生成された商品名を反映する
   useEffect(() => {

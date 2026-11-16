@@ -25,6 +25,8 @@ export interface ProductListViewState {
   scrollY: number;
   archived: boolean;
   isTestMode?: boolean;
+  // 「旧裏ストレージを隠す」トグル（未保存の古いデータはONとして扱う）
+  hidePokecaRawStorage?: boolean;
 }
 
 interface ReturnFlag {
@@ -86,6 +88,7 @@ function normalizeState(raw: unknown): ProductListViewState | null {
     scrollY,
     archived: source.archived,
     isTestMode: source.isTestMode === true,
+    hidePokecaRawStorage: source.hidePokecaRawStorage !== false,
   };
 }
 

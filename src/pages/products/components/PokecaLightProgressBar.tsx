@@ -6,6 +6,8 @@ interface PokecaLightProgressBarProps {
   isRefreshing: boolean;
   noticeMessage: string;
   onRefresh: () => void;
+  /** 商品別の結果ビューを開く（未指定の場合はボタンを表示しない） */
+  onOpenResult?: () => void;
   onClose: () => void;
 }
 
@@ -49,6 +51,7 @@ export default function PokecaLightProgressBar({
   isRefreshing,
   noticeMessage,
   onRefresh,
+  onOpenResult,
   onClose,
 }: PokecaLightProgressBarProps) {
   const [isFailureOpen, setIsFailureOpen] = useState(false);
@@ -58,22 +61,6 @@ export default function PokecaLightProgressBar({
   const ratio = total > 0 ? Math.min(1, processed / total) : 0;
   const isRunning = worker.status === "running";
   const isFailed = worker.status === "failed";
-
-  // 価格付け結果はバックエンドが返す場合だけ表示する（旧バックエンドでは null）。
-  const hasPriceFound = worker.priceFoundCount != null;
-  const hasPriceNotFound = worker.priceNotFoundCount != null;
-  const hasPriceStats = hasPriceFound || hasPriceNotFound;
-  const hasCardTypeStats =
-    worker.priceFoundCardTypesCount != null ||
-    worker.priceNotFoundCardTypesCount != null;
-
-  // 作家別件数はバックエンドが返す場合だけ表示する（旧バックエンドでは null）。
-  // 件数の多い順に並べ、多い場合は先頭のみ表示して残りは件数だけ示す。
-  const illustratorCounts = worker.illustratorCounts ?? [];
-  const hasIllustratorCounts = illustratorCounts.length > 0;
-  const visibleIllustrators = illustratorCounts.slice(0, 10);
-  const hiddenIllustratorCount =
-    illustratorCounts.length - visibleIllustrators.length;
 
   const stateLabel = useMemo(() => {
     if (isRunning) return "実行中";
@@ -152,56 +139,20 @@ export default function PokecaLightProgressBar({
           <Stat label="スキップ" value={worker.skippedCount} />
         </span>
 
-        {hasPriceStats && (
-          <span className="admin-numeric flex flex-wrap items-center gap-x-3 gap-y-1 border-l border-background-200 pl-3">
-            {hasPriceFound && (
-              <Stat
-                label="価格あり"
-                value={worker.priceFoundCount ?? 0}
-                tone="success"
-              />
-            )}
-            {hasPriceNotFound && (
-              <Stat label="価格なし" value={worker.priceNotFoundCount ?? 0} />
-            )}
-            {hasCardTypeStats && (
-              <span className="whitespace-nowrap text-[11px] leading-none text-foreground-400">
-                {`種類数 あり${worker.priceFoundCardTypesCount ?? 0} / なし${
-                  worker.priceNotFoundCardTypesCount ?? 0
-                }`}
-              </span>
-            )}
-          </span>
-        )}
-
-        {hasIllustratorCounts && (
-          <span className="admin-numeric flex w-full flex-wrap items-center gap-x-2 gap-y-1 basis-full border-t border-background-200 pt-1.5">
-            <span className="whitespace-nowrap text-[11px] leading-none text-foreground-500">
-              作家別
-            </span>
-            {visibleIllustrators.map((entry) => (
-              <span
-                key={entry.illustrator}
-                className="inline-flex items-baseline gap-1 whitespace-nowrap rounded-full border border-background-200 bg-background-50 px-2 py-0.5"
-                title={`${entry.illustrator}：${entry.count}件`}
-              >
-                <span className="max-w-[160px] truncate text-[11px] leading-none text-foreground-700">
-                  {entry.illustrator}
-                </span>
-                <span className="text-[11px] font-semibold leading-none text-foreground-900">
-                  {entry.count}
-                </span>
-              </span>
-            ))}
-            {hiddenIllustratorCount > 0 && (
-              <span className="whitespace-nowrap text-[11px] leading-none text-foreground-400">
-                他{hiddenIllustratorCount}名
-              </span>
-            )}
-          </span>
-        )}
-
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
+          {onOpenResult && (
+            <button
+              type="button"
+              onClick={onOpenResult}
+              className="inline-flex h-7 cursor-pointer items-center gap-1 whitespace-nowrap rounded-md border border-background-300 bg-white px-2.5 text-[12px] font-medium text-foreground-700 transition-colors hover:bg-background-100"
+            >
+              <i
+                className="ri-list-check-2 flex h-3.5 w-3.5 items-center justify-center text-[13px]"
+                aria-hidden="true"
+              ></i>
+              結果を見る
+            </button>
+          )}
           {worker.failures.length > 0 && (
             <button
               type="button"

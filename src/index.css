@@ -1189,3 +1189,120 @@ button:disabled.bg-accent-500:hover {
   font-feature-settings: 'tnum' 1, 'lnum' 1;
   letter-spacing: 0;
 }
+
+/* ========================================================================
+   管理画面の共通ヘッダー：ブランドロゴ
+   ------------------------------------------------------------------------
+   ロゴのセリフ体（Playfair Display）と字間は維持したまま、
+   幅の狭い画面ではボタン群と競合しないサイズに落とす。
+   ======================================================================== */
+.products-header-brand.admin-shell-brand {
+  font-size: 26px;
+}
+
+/* ========================================================================
+   管理画面ログイン（ロック画面）
+   ------------------------------------------------------------------------
+   左：ダークネイビーのブランド面 / 右：認証フォーム。
+   装飾アイコン・イラスト・グラデーション・強い影は使わず、
+   余白とタイポグラフィだけで階層を作る。
+   色はこの画面専用のトークン（--lock-*）に閉じ込め、
+   テストモード（.is-test-dark）では同じ変数だけを差し替える。
+   ======================================================================== */
+.admin-lock {
+  --lock-brand-bg: #111827;
+  --lock-on-brand: #f8f9fb;
+  --lock-on-brand-muted: rgba(248, 249, 251, 0.6);
+  --lock-brand-rule: rgba(248, 249, 251, 0.16);
+  --lock-submit-bg: #15181e;
+  --lock-submit-bg-hover: #24282f;
+  --lock-submit-fg: #ffffff;
+  --lock-field-bg: #ffffff;
+  --lock-field-border: #d7dae0;
+  --lock-field-border-focus: #15181e;
+  --lock-focus-ring: rgba(21, 24, 30, 0.14);
+}
+
+.is-test-dark .admin-lock {
+  --lock-brand-bg: #171d25;
+  --lock-on-brand: #f3f4f6;
+  --lock-on-brand-muted: rgba(243, 244, 246, 0.56);
+  --lock-brand-rule: rgba(243, 244, 246, 0.14);
+  --lock-submit-bg: #eef0f3;
+  --lock-submit-bg-hover: #ffffff;
+  --lock-submit-fg: #111418;
+  --lock-field-bg: #20262d;
+  --lock-field-border: #343d47;
+  --lock-field-border-focus: #9ba6b4;
+  --lock-focus-ring: rgba(155, 166, 180, 0.26);
+}
+
+.admin-lock-brand {
+  background-color: var(--lock-brand-bg);
+  color: var(--lock-on-brand);
+}
+
+.admin-lock-brand-muted {
+  color: var(--lock-on-brand-muted);
+}
+
+.admin-lock-brand-rule {
+  background-color: var(--lock-brand-rule);
+}
+
+/* ブランドロゴ：既存のセリフ体（Playfair Display）をそのまま使い、
+   この画面だけ字面を大きくして「BIS」を主役にする。 */
+.products-header-brand.admin-lock-logo {
+  font-size: 42px;
+  letter-spacing: -0.03em;
+}
+
+@media (min-width: 1280px) {
+  .products-header-brand.admin-lock-logo {
+    font-size: 54px;
+  }
+}
+
+.products-header-brand.admin-lock-logo-small {
+  font-size: 30px;
+}
+
+/* 入力欄：高さ48px・角丸8px。フォーカスは枠線の濃さと浅いリングで示す。 */
+.admin-lock-field {
+  background-color: var(--lock-field-bg);
+  border-color: var(--lock-field-border);
+}
+
+.admin-lock-field:focus {
+  outline: none;
+  border-color: var(--lock-field-border-focus);
+  box-shadow: 0 0 0 3px var(--lock-focus-ring);
+}
+
+/* 送信ボタン：ライトはほぼ黒、ダークは明るいニュートラル。
+   緑の塗り・グラデーション・強い影は使わない。 */
+.admin-lock-submit {
+  background-color: var(--lock-submit-bg);
+  color: var(--lock-submit-fg);
+  transition: background-color 160ms ease, opacity 160ms ease;
+}
+
+.admin-lock-submit:hover:not(:disabled) {
+  background-color: var(--lock-submit-bg-hover);
+}
+
+.admin-lock-submit:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.admin-lock-submit:focus-visible {
+  outline: 2px solid var(--lock-field-border-focus);
+  outline-offset: 2px;
+}
+
+@media (min-width: 768px) {
+  .products-header-brand.admin-shell-brand {
+    font-size: 30px;
+  }
+}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
 import { fetchProductsReadApi } from "@/config/productsApi";
 import type { ProductFilterValue } from "@/pages/products/components/ProductFilterBar";
+import { isPokecaRawStorageProduct } from "@/pages/products/lib/pokecaRawStorage";
 import type { ProductSortKey } from "@/pages/products/lib/sort";
 import type {
   AdminProduct,
@@ -11,12 +12,14 @@ import type {
 // MVP既定の1ページあたり件数（契約の既定値・上限値に合わせる）。
 export const PRODUCT_LIST_PAGE_SIZE = 50;
 
-// 「条件に一致する全件を選択」でページ送りする上限（50件 × 60ページ = 3,000件）。
-// 無限にAPIを叩き続けないための安全弁で、通常運用では到達しない。
-const SELECT_ALL_MAX_PAGES = 60;
-
 // 連続入力による通信を防ぐ検索のデバウンス時間。
 const SEARCH_DEBOUNCE_MS = 400;
+
+// 「旧裏ストレージを隠す」ONのとき、条件に一致する全件を集めるための取得件数と上限ページ。
+// 一覧APIの page_size 上限（100）を使い、通信回数を減らす。
+// 上限は無限ループ防止の安全弁で、通常運用（数千件規模）では到達しない。
+const HIDDEN_ALL_FETCH_PAGE_SIZE = 100;
+const HIDDEN_ALL_MAX_PAGES = 100;
 
 export type ProductListLoadState = "loading" | "success" | "error";
 
@@ -42,6 +45,7 @@ interface UseProductListParams {
     filter: ProductFilterValue;
     sortKey: ProductSortKey;
     page: number;
+    hidePokecaRawStorage?: boolean;
   } | null;
 }
 
@@ -80,6 +84,22 @@ export function useProductList({
   );
   const [page, setPage] = useState(initialState?.page ?? 1);
 
+  // 「旧裏ストレージを隠す」トグル。既定はON（隠す）。
+  // ONのときは条件一致の全件を取得して非表示対象を除き、50件ずつページ分割して表示する
+  // （サーバー側のページ切り出しをそのまま使うと1ページの件数がまばらになるため）。
+  const [hidePokecaRawStorage, setHidePokecaRawStorage] = useState(
+    initialState?.hidePokecaRawStorage ?? true
+  );
+  // ONのときに隠している件数（一覧の補足表示用。OFFのときは0）。
+  const [hiddenCount, setHiddenCount] = useState(0);
+
+  // 全件取得の結果キャッシュ（条件・モードが変わらないページ移動では再取得しない）。
+  const hideCacheRef = useRef<{
+    key: string;
+    items: AdminProduct[];
+    hidden: number;
+  } | null>(null);
+
   // 検索入力のデバウンス値。入力中の連続通信を防ぐ。
   // 復元時は入力済みの検索文字列から始め、余分な取得を発生させない。
   const [debouncedSearch, setDebouncedSearch] = useState(
@@ -103,12 +123,12 @@ export function useProductList({
   // 一覧APIの取得条件（既存パラメータの範囲内）を1か所で組み立てる。
   // 通常のページ取得と「条件に一致する全件を選択」のページ送りで同じ条件を使う。
   const buildListParams = useCallback(
-    (pageNumber: number) => {
+    (pageNumber: number, pageSize = PRODUCT_LIST_PAGE_SIZE) => {
       const params = new URLSearchParams();
       // 必ずページ分割モードで呼ぶ（page の送信を省略しない）。
       params.set("mode", "admin");
       params.set("page", String(pageNumber));
-      params.set("page_size", String(PRODUCT_LIST_PAGE_SIZE));
+      params.set("page_size", String(pageSize));
       params.set("search", debouncedSearch);
       params.set("category", filter.category || "all");
       params.set("publish_status", filter.publishStatus || "all");
@@ -136,18 +156,17 @@ export function useProductList({
   );
 
   /**
-   * 現在の絞り込み条件（検索・カテゴリ・公開状態・在庫状態・記録状態・通常/テスト）の
-   * 全件を既存の一覧APIでページ送りして集める（新しいAPIは使わない）。
-   * product_id の重複は Map で排除し、取得順は一覧APIの並び順のまま保つ。
+   * 現在の絞り込み条件（検索・カテゴリ・公開状態・在庫状態・記録状態・通常/テスト）に
+   * 一致する商品を、既存の一覧APIをページ送りして全件集める（新しいAPIは使わない）。
+   *
+   * 1ページ目で総ページ数を確認したあと、残りのページを少数並列で取得する
+   * （直列だと数千件規模で待ち時間が長くなるため）。並び順が崩れないよう、
+   * 取得結果はページ番号順に結合し、product_id の重複は除外する。
    */
-  const fetchAllMatchingProducts = useCallback(async () => {
-    const collected = new Map<string, AdminProduct>();
-    let pageNumber = 1;
-    let lastPage = 1;
-
-    while (pageNumber <= lastPage && pageNumber <= SELECT_ALL_MAX_PAGES) {
+  const fetchAllFilteredProducts = useCallback(async () => {
+    const fetchPage = async (pageNumber: number) => {
       const response = await fetchProductsReadApi(
-        buildListParams(pageNumber).toString()
+        buildListParams(pageNumber, HIDDEN_ALL_FETCH_PAGE_SIZE).toString()
       );
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
@@ -156,21 +175,57 @@ export function useProductList({
       if (!data || data.success !== true) {
         throw new Error("Invalid response");
       }
-      const list = data.products ?? [];
-      list.forEach((product) => {
+      return data;
+    };
+
+    const first = await fetchPage(1);
+    const pageLists: AdminProduct[][] = [first.products ?? []];
+
+    // ページ分割非対応（旧v2）の応答では total_pages が無いため、その1回で打ち切る。
+    const lastPage =
+      typeof first.total_pages === "number"
+        ? Math.min(first.total_pages, HIDDEN_ALL_MAX_PAGES)
+        : 1;
+
+    if (lastPage > 1) {
+      const remaining: number[] = [];
+      for (let p = 2; p <= lastPage; p += 1) remaining.push(p);
+
+      let cursor = 0;
+      const worker = async () => {
+        while (cursor < remaining.length) {
+          const targetPage = remaining[cursor];
+          cursor += 1;
+          const data = await fetchPage(targetPage);
+          pageLists[targetPage - 1] = data.products ?? [];
+        }
+      };
+      const concurrency = Math.min(6, remaining.length);
+      await Promise.all(
+        Array.from({ length: concurrency }, () => worker())
+      );
+    }
+
+    const collected = new Map<string, AdminProduct>();
+    pageLists.forEach((list) => {
+      (list ?? []).forEach((product) => {
         if (product && product.product_id && !collected.has(product.product_id)) {
           collected.set(product.product_id, product);
         }
       });
-
-      // ページ分割非対応（旧v2）の応答では total_pages が無いため、その1回で打ち切る。
-      lastPage = typeof data.total_pages === "number" ? data.total_pages : 1;
-      if (list.length === 0) break;
-      pageNumber += 1;
-    }
-
+    });
     return Array.from(collected.values());
   }, [buildListParams]);
+
+  /**
+   * 「条件に一致する全件を選択」用。表示中の一覧と同じ範囲を返す
+   * （旧裏ストレージを隠しているときは、隠れている商品を選択対象に含めない）。
+   */
+  const fetchAllMatchingProducts = useCallback(async () => {
+    const all = await fetchAllFilteredProducts();
+    if (!hidePokecaRawStorage) return all;
+    return all.filter((product) => !isPokecaRawStorageProduct(product));
+  }, [fetchAllFilteredProducts, hidePokecaRawStorage]);
 
   useEffect(() => {
     const scopeChanged =
@@ -178,6 +233,7 @@ export function useProductList({
       prevScopeRef.current.isTestMode !== isTestMode;
     if (scopeChanged) {
       prevScopeRef.current = { isArchived, isTestMode };
+      hideCacheRef.current = null;
       setProducts([]);
       setCount(0);
       setTotalPages(0);
@@ -195,6 +251,39 @@ export function useProductList({
 
     const load = async () => {
       try {
+        // 「旧裏ストレージを隠す」ON:
+        // 条件に一致する全件を取得し、保管場所が「旧裏ストレージ/」の商品を除いてから
+        // 50件ずつページ分割する。1ページあたりの件数がまばらにならない。
+        if (hidePokecaRawStorage) {
+          const cacheKey = `${buildListParams(1).toString()}|reload:${reloadKey}`;
+          const cached =
+            hideCacheRef.current?.key === cacheKey
+              ? hideCacheRef.current
+              : null;
+          let items = cached ? cached.items : null;
+          let hidden = cached ? cached.hidden : 0;
+
+          if (!items) {
+            const all = await fetchAllFilteredProducts();
+            if (cancelled || seq !== requestSeqRef.current) return;
+            items = all.filter(
+              (product) => !isPokecaRawStorageProduct(product)
+            );
+            hidden = all.length - items.length;
+            hideCacheRef.current = { key: cacheKey, items, hidden };
+          }
+          if (cancelled || seq !== requestSeqRef.current) return;
+
+          const start = (page - 1) * PRODUCT_LIST_PAGE_SIZE;
+          setProducts(items.slice(start, start + PRODUCT_LIST_PAGE_SIZE));
+          setCount(items.length);
+          setTotalPages(Math.ceil(items.length / PRODUCT_LIST_PAGE_SIZE));
+          setHiddenCount(hidden);
+          setLoadState("success");
+          return;
+        }
+
+        setHiddenCount(0);
         const response = await fetchProductsReadApi(
           buildListParams(page).toString()
         );
@@ -271,7 +360,13 @@ export function useProductList({
     return () => {
       cancelled = true;
     };
-  }, [buildListParams, page, reloadKey]);
+  }, [
+    buildListParams,
+    page,
+    reloadKey,
+    hidePokecaRawStorage,
+    fetchAllFilteredProducts,
+  ]);
 
   const resetFilter = useCallback(() => {
     setFilter(EMPTY_PRODUCT_FILTER);
@@ -290,6 +385,10 @@ export function useProductList({
     page,
     setPage,
     resetFilter,
+    // 「旧裏ストレージを隠す」トグル（既定ON）と、その状態
+    hidePokecaRawStorage,
+    setHidePokecaRawStorage,
+    hiddenCount,
     // 現在の絞り込み条件で全ページ分の商品を取得する（「全件を選択」用）。
     fetchAllMatchingProducts,
   };

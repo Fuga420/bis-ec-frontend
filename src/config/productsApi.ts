@@ -1,5 +1,6 @@
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "./googleSheets";
 import { getBackendWriteAuthHeaders } from "@/lib/supabaseClient";
+import { getAdminReadHeaders, notifyAdminUnauthorized } from "@/lib/adminAuth";
 
 /**
  * 商品マスターAPI（Cloud Run + Supabase）のエンドポイント。
@@ -192,9 +193,18 @@ export async function fetchProductsReadApi(queryString: string): Promise<Respons
 
   if (PRODUCTS_READ_API_URL) {
     try {
+      // 管理画面の共有パスワードは、保持していればヘッダでそのまま送る。
+      // 判定はしない（正誤はAPIが401で返す）。
       const response = await fetch(`${PRODUCTS_READ_API_URL}/?${cleanQuery}`, {
         method: "GET",
+        headers: getAdminReadHeaders(),
       });
+      // 401 = パスワード不一致・期限切れ。保持を消してロック画面へ戻す。
+      // ここで GAS フォールバックへ流すと認証をすり抜けてしまうため、必ず返す。
+      if (response.status === 401) {
+        notifyAdminUnauthorized();
+        return response;
+      }
       if (response.ok) {
         return response;
       }

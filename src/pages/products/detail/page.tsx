@@ -29,10 +29,9 @@ import type {
 import { CATEGORY_LABELS, PUBLISH_STATUS_LABELS } from "../types";
 import { peekProductListReturnPending } from "../lib/listViewState";
 import { useOperatingMode } from "@/context/OperatingModeProvider";
-import { adminThemeClass } from "@/lib/adminTheme";
+import AdminShell from "@/components/feature/AdminShell";
 import {
   extractAiDraftPrice,
-  extractAiDraftPriceBasis,
   getAiProductDraft,
 } from "@/pages/register/lib/aiProduct";
 import {
@@ -53,7 +52,6 @@ import ProductLedgerSection, {
 import { autoLinkProductByItemNumber } from "@/pages/documents/lib/productAutoLink";
 import { useProductCostDetail } from "./hooks/useProductCostDetail";
 import { deriveProductCost } from "./lib/productCost";
-import ProductDetailHeader from "./components/ProductDetailHeader";
 import ProductDetailNav from "./components/ProductDetailNav";
 import ProductProfilePanel from "./components/ProductProfilePanel";
 import ProductDescriptionSection from "./components/ProductDescriptionSection";
@@ -91,7 +89,6 @@ function mapListProductToDetail(product: AdminProduct): AdminProductDetail {
     purchase_price: product.purchase_price ?? null,
     planned_sale_price: product.planned_sale_price ?? 0,
     storage_location: product.storage_location ?? "",
-    illustrator: product.illustrator ?? "",
     sneaker_sku: product.sneaker_sku ?? "",
     sneaker_size: product.sneaker_size ?? null,
     publish_status: product.publish_status ?? "draft",
@@ -197,10 +194,6 @@ export default function ProductDetailPage() {
   // AIドラフト（get_ai_product_draft）の candidate.price。
   // 本票(planned_sale_price)が未設定のときの編集初期値としてのみ使う。
   const [aiDraftPrice, setAiDraftPrice] = useState<number | null>(null);
-  // AI下書きの価格根拠（candidate_price_basis）。無ければ null（表示しない）。
-  const [aiDraftPriceBasis, setAiDraftPriceBasis] = useState<string | null>(
-    null
-  );
   const [selectedStatus, setSelectedStatus] = useState<string>("");
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(
@@ -349,24 +342,15 @@ export default function ProductDetailPage() {
     const productId = product.product_id;
     let cancelled = false;
     setAiDraftPrice(null);
-    setAiDraftPriceBasis(null);
     getAiProductDraft(productId)
       .then((lookup) => {
         if (cancelled) return;
         setAiDraftPrice(
           lookup.status === "found" ? extractAiDraftPrice(lookup.draft) : null
         );
-        setAiDraftPriceBasis(
-          lookup.status === "found"
-            ? extractAiDraftPriceBasis(lookup.draft)
-            : null
-        );
       })
       .catch(() => {
-        if (!cancelled) {
-          setAiDraftPrice(null);
-          setAiDraftPriceBasis(null);
-        }
+        if (!cancelled) setAiDraftPrice(null);
       });
     return () => {
       cancelled = true;
@@ -1088,14 +1072,12 @@ export default function ProductDetailPage() {
   );
 
   return (
-    <div
-      className={`catalogue products-theme admin-font ${adminThemeClass(
-        isTestMode
-      )} min-h-screen`}
+    <AdminShell
+      pageTitle="商品詳細"
+      backLink={{ to: listPath, label: "すべての商品" }}
+      rootClassName="catalogue"
+      mainClassName="page-fade mx-auto w-full max-w-5xl px-4 pb-10 pt-4 md:px-6 md:pt-5"
     >
-      <ProductDetailHeader listPath={listPath} />
-
-      <main className="page-fade mx-auto w-full max-w-5xl px-4 pb-10 pt-4 md:px-6 md:pt-5">
         {loadState === "loading" && <ProductDetailSkeleton />}
 
         {loadState === "error" && (
@@ -1195,7 +1177,6 @@ export default function ProductDetailPage() {
                     saving={editSaveState === "saving"}
                     error={editMessage?.type === "error" ? editMessage.text : ""}
                     aiPriceSuggestion={aiDraftPrice}
-                    aiPriceBasis={aiDraftPriceBasis}
                     ledgerCost={ledgerCostForForm}
                     onCancel={handleCancelEdit}
                     onSave={handleSaveEdit}
@@ -1206,11 +1187,7 @@ export default function ProductDetailPage() {
                     categoryLabel={categoryLabel}
                     statusLabel={statusLabel}
                     inventoryLabel={inventoryLabel}
-                    aiPriceHint={{
-                      show: showAiPriceHint,
-                      price: aiDraftPrice,
-                      basis: aiDraftPriceBasis,
-                    }}
+                    aiPriceHint={{ show: showAiPriceHint, price: aiDraftPrice }}
                     editMessage={editMessage}
                     cost={{
                       loadState: productCost.loadState,
@@ -1414,8 +1391,7 @@ export default function ProductDetailPage() {
             />
           </>
         )}
-      </main>
-    </div>
+    </AdminShell>
   );
 }
 

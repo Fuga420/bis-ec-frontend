@@ -10,8 +10,7 @@ interface ProductProfilePanelProps {
   statusLabel: string;
   inventoryLabel: string;
   // AIの価格案（販売予定価格が未設定のときだけ表示する）
-  // basis は価格の根拠テキスト（candidate_price_basis）。無ければ表示しない。
-  aiPriceHint: { show: boolean; price: number | null; basis?: string | null };
+  aiPriceHint: { show: boolean; price: number | null };
   editMessage: { type: "success" | "error" | "warning"; text: string } | null;
   cost?: ProductCostSpecInput;
   onStartEdit: () => void;
@@ -45,8 +44,6 @@ export default function ProductProfilePanel({
   onStartEdit,
 }: ProductProfilePanelProps) {
   const japaneseTitle = (product.product_name ?? "").trim();
-  // 作家（イラストレーター）は設定されている場合だけ表示する（編集は対象外）。
-  const illustrator = (product.illustrator ?? "").trim();
   const hasPrice = Boolean(
     product.planned_sale_price && product.planned_sale_price > 0
   );
@@ -93,14 +90,6 @@ export default function ProductProfilePanel({
             {categoryLabel}
           </dd>
         </div>
-        {illustrator && (
-          <div className="flex min-w-0 items-center gap-1.5">
-            <dt className="shrink-0">作家</dt>
-            <dd className="min-w-0 break-words font-medium text-foreground-800">
-              {illustrator}
-            </dd>
-          </div>
-        )}
       </dl>
 
       {/* 4. 販売予定価格 */}
@@ -115,19 +104,12 @@ export default function ProductProfilePanel({
         )}
 
         {aiPriceHint.show && aiPriceHint.price != null && (
-          <div className="mt-1">
-            <p className="text-[11px] leading-relaxed text-foreground-500">
-              AI価格案{" "}
-              <span className="admin-numeric font-medium text-primary-700">
-                ¥{aiPriceHint.price.toLocaleString("ja-JP")}
-              </span>
-            </p>
-            {aiPriceHint.basis && (
-              <p className="mt-0.5 break-words text-[11px] leading-relaxed text-foreground-400">
-                根拠: {aiPriceHint.basis}
-              </p>
-            )}
-          </div>
+          <p className="mt-1 text-[11px] leading-relaxed text-foreground-500">
+            AI価格案{" "}
+            <span className="admin-numeric font-medium text-primary-700">
+              ¥{aiPriceHint.price.toLocaleString("ja-JP")}
+            </span>
+          </p>
         )}
       </div>
 

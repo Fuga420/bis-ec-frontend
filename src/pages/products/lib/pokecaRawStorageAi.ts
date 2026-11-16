@@ -22,10 +22,19 @@ export interface PokecaLightFailure {
   error_message: string;
 }
 
-// ステータス集計の作家別件数（件数の多い順に並べる）
-export interface PokecaLightIllustratorCount {
+export interface PokecaLightProductInfo {
+  product_id: string;
+  product_name?: string;
+  status: string;
+  /** 読み取ったカード名（取得できない場合は空文字） */
+  cardName: string;
+  /** 読み取ったカード番号（取得できない場合は空文字） */
+  cardNumber: string;
+  /** 読み取ったイラストレーター（取得できない場合は空文字） */
   illustrator: string;
-  count: number;
+  /** 参考価格（取得できない場合は null） */
+  candidatePrice: number | null;
+  errorMessage?: string;
 }
 
 export interface PokecaLightWorkerState {
@@ -39,21 +48,10 @@ export interface PokecaLightWorkerState {
   successCount: number;
   failedCount: number;
   skippedCount: number;
-  /**
-   * 価格付け結果の集計（ライト版AIが参考価格を付けるようになった後に追加された項目）。
-   * 旧バックエンドでは返らないため null のまま保持し、表示側で省略する。
-   */
-  priceFoundCount: number | null;
-  priceNotFoundCount: number | null;
-  priceFoundCardTypesCount: number | null;
-  priceNotFoundCardTypesCount: number | null;
-  /**
-   * 作家別件数（illustrator_counts）。件数の多い順。
-   * 旧バックエンドでは返らないため null（表示しない）。
-   */
-  illustratorCounts: PokecaLightIllustratorCount[] | null;
   productIds: string[];
   failures: PokecaLightFailure[];
+  /** 商品別の読み取り結果（card_name / card_number / illustrator / candidate_price） */
+  items: PokecaLightProductInfo[];
   jobId: string | null;
   startedAt: string | null;
   finishedAt: string | null;
@@ -86,6 +84,22 @@ function pickCount(obj: Record<string, unknown>, keys: string[]): number | null 
   return null;
 }
 
+/** 小数点を含む数値（参考価格など）を取り出す。 */
+function pickNumberValue(
+  obj: Record<string, unknown>,
+  keys: string[]
+): number | null {
+  for (const key of keys) {
+    const value = obj[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim() !== "") {
+      const parsed = Number(value.replace(/[^0-9.\-]/g, ""));
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return null;
+}
+
 function pickFirstString(obj: Record<string, unknown>, keys: string[]): string | null {
   for (const key of keys) {
     const value = asString(obj[key]).trim();
@@ -102,62 +116,6 @@ function pickBoolean(obj: Record<string, unknown>, keys: string[]): boolean | nu
     if (value === "false") return false;
   }
   return null;
-}
-
-/**
- * 作家別件数（illustrator_counts）を読み取る。
- * - オブジェクト形式 { "作家名": 件数 }
- * - 配列形式 [{ illustrator, count }]
- * のどちらでも受け、件数の多い順に並べて返す。形式が読めない場合は null。
- */
-function normalizeIllustratorCounts(
-  value: unknown
-): PokecaLightIllustratorCount[] | null {
-  if (!value) return null;
-
-  const entries: PokecaLightIllustratorCount[] = [];
-  const push = (name: unknown, rawCount: unknown) => {
-    const label = asString(name).trim();
-    if (!label) return;
-    let count: number | null = null;
-    if (typeof rawCount === "number" && Number.isFinite(rawCount)) {
-      count = Math.max(0, Math.trunc(rawCount));
-    } else if (typeof rawCount === "string" && rawCount.trim() !== "") {
-      const parsed = Number(rawCount);
-      if (Number.isFinite(parsed)) count = Math.max(0, Math.trunc(parsed));
-    }
-    if (count == null) return;
-    entries.push({ illustrator: label, count });
-  };
-
-  if (Array.isArray(value)) {
-    value.forEach((entry) => {
-      const obj = asObject(entry);
-      if (!obj) return;
-      const name = pickFirstString(obj, [
-        "illustrator",
-        "illustrator_name",
-        "name",
-        "key",
-      ]);
-      if (!name) return;
-      push(
-        name,
-        obj.count ?? obj.total_count ?? obj.total ?? obj.value ?? obj.product_count
-      );
-    });
-  } else {
-    const obj = asObject(value);
-    if (obj) {
-      Object.keys(obj).forEach((key) => push(key, obj[key]));
-    }
-  }
-
-  if (entries.length === 0) return null;
-  return entries.sort(
-    (a, b) =>
-      b.count - a.count || a.illustrator.localeCompare(b.illustrator, "ja")
-  );
 }
 
 const FAILURE_ARRAY_KEYS = ["failed_items", "failures", "errors", "failed_products"];
@@ -219,6 +177,87 @@ function normalizeFailures(obj: Record<string, unknown>): PokecaLightFailure[] {
   });
 }
 
+const ITEM_ARRAY_KEYS = ["items", "products", "results", "targets"];
+
+function normalizeProductInfo(entry: unknown): PokecaLightProductInfo | null {
+  const obj = asObject(entry);
+  if (!obj) return null;
+  const productId =
+    pickFirstString(obj, ["product_id", "productId", "id"]) ?? "";
+  if (!productId) return null;
+
+  // カード情報が入れ子（card / ai / result）で返る場合にも対応する
+  const nestedKeys = ["card", "ai", "result", "generated", "draft"];
+  const nested: Record<string, unknown>[] = [obj];
+  nestedKeys.forEach((key) => {
+    const child = asObject(obj[key]);
+    if (child) nested.push(child);
+  });
+
+  const readString = (keys: string[]): string => {
+    for (const source of nested) {
+      const value = pickFirstString(source, keys);
+      if (value) return value;
+    }
+    return "";
+  };
+  const readNumber = (keys: string[]): number | null => {
+    for (const source of nested) {
+      const value = pickNumberValue(source, keys);
+      if (value !== null) return value;
+    }
+    return null;
+  };
+
+  return {
+    product_id: productId,
+    product_name:
+      pickFirstString(obj, ["product_name", "name", "title"]) ?? undefined,
+    status: asString(obj.status ?? obj.state).trim().toLowerCase(),
+    cardName: readString(["card_name", "cardName", "card"]),
+    cardNumber: readString([
+      "card_number",
+      "cardNumber",
+      "collector_number",
+      "number",
+    ]),
+    illustrator: readString([
+      "illustrator",
+      "illustrator_name",
+      "artist",
+      "illustratorName",
+    ]),
+    candidatePrice: readNumber([
+      "candidate_price",
+      "candidatePrice",
+      "proposed_price",
+      "suggested_price",
+      "price",
+    ]),
+    errorMessage:
+      pickFirstString(obj, ["error_message", "message", "error", "reason"]) ??
+      undefined,
+  };
+}
+
+function normalizeProductInfos(
+  obj: Record<string, unknown>
+): PokecaLightProductInfo[] {
+  const result: PokecaLightProductInfo[] = [];
+  const seen = new Set<string>();
+  ITEM_ARRAY_KEYS.forEach((key) => {
+    const list = obj[key];
+    if (!Array.isArray(list)) return;
+    list.forEach((entry) => {
+      const info = normalizeProductInfo(entry);
+      if (!info || seen.has(info.product_id)) return;
+      seen.add(info.product_id);
+      result.push(info);
+    });
+  });
+  return result;
+}
+
 function resolveStatus(
   obj: Record<string, unknown>,
   counts: { total: number; processed: number; failed: number }
@@ -256,14 +295,10 @@ function resolveStatus(
 
 /** worker_state を画面表示用に正規化する（ジョブが無い場合は null）。 */
 export function normalizePokecaLightWorkerState(
-  value: unknown,
-  fallback?: unknown
+  value: unknown
 ): PokecaLightWorkerState | null {
   const obj = asObject(value);
   if (!obj) return null;
-  // 価格集計は worker_state 直下だけでなく、応答のトップレベルに返る場合もあるため
-  // どちらからでも読めるようにする（無い場合は null のまま）。
-  const statsSource = asObject(fallback) ?? obj;
 
   const total =
     pickCount(obj, ["total_count", "total", "target_count", "product_count"]) ?? 0;
@@ -286,24 +321,6 @@ export function normalizePokecaLightWorkerState(
   const resolvedProcessed =
     processed ?? Math.min(total, success + failed + skipped);
 
-  const pickStat = (keys: string[]): number | null =>
-    pickCount(obj, keys) ?? pickCount(statsSource, keys);
-
-  const priceFoundCount = pickStat(["price_found_count"]);
-  const priceNotFoundCount = pickStat(["price_not_found_count"]);
-  const priceFoundCardTypesCount = pickStat(["price_found_card_types_count"]);
-  const priceNotFoundCardTypesCount = pickStat([
-    "price_not_found_card_types_count",
-  ]);
-
-  // 作家別件数は worker_state 直下・トップレベル・stats/summary 配下のどこでも読めるようにする。
-  // どこにも無ければ null（表示しない）。
-  const illustratorCounts =
-    normalizeIllustratorCounts(obj.illustrator_counts) ??
-    normalizeIllustratorCounts(statsSource.illustrator_counts) ??
-    normalizeIllustratorCounts(asObject(obj.stats)?.illustrator_counts) ??
-    normalizeIllustratorCounts(asObject(statsSource.stats)?.illustrator_counts);
-
   const status = resolveStatus(obj, {
     total,
     processed: resolvedProcessed,
@@ -318,7 +335,6 @@ export function normalizePokecaLightWorkerState(
     failed > 0 ||
     skipped > 0 ||
     failures.length > 0 ||
-    (illustratorCounts?.length ?? 0) > 0 ||
     pickFirstString(obj, ["job_id", "run_id", "worker_id", "id"]) !== null ||
     status !== "idle";
   if (!hasAnySignal) return null;
@@ -341,15 +357,11 @@ export function normalizePokecaLightWorkerState(
     skippedCount: skipped,
     productIds,
     failures,
+    items: normalizeProductInfos(obj),
     jobId: pickFirstString(obj, ["job_id", "run_id", "worker_id", "id"]),
     startedAt: pickFirstString(obj, ["started_at", "start_at"]),
     finishedAt: pickFirstString(obj, ["finished_at", "completed_at", "end_at"]),
     updatedAt: pickFirstString(obj, ["updated_at", "last_updated_at"]),
-    priceFoundCount,
-    priceNotFoundCount,
-    priceFoundCardTypesCount,
-    priceNotFoundCardTypesCount,
-    illustratorCounts,
   };
 }
 
@@ -419,8 +431,7 @@ export async function runPokecaLight(params: {
   return {
     alreadyRunning: data.already_running === true,
     workerState: normalizePokecaLightWorkerState(
-      data.worker_state ?? data.worker ?? null,
-      data
+      data.worker_state ?? data.worker ?? null
     ),
     message,
   };
@@ -459,8 +470,7 @@ export async function fetchPokecaLightStatus(): Promise<PokecaLightStatusResult>
 
   return {
     workerState: normalizePokecaLightWorkerState(
-      data?.worker_state ?? data?.worker ?? data ?? null,
-      data
+      data?.worker_state ?? data?.worker ?? data ?? null
     ),
     message,
   };

@@ -1,0 +1,607 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import AdminShell from "@/components/feature/AdminShell";
+import { useOperatingMode } from "@/context/OperatingModeProvider";
+import ProductPagination from "@/pages/products/components/ProductPagination";
+import ProductLoadErrorState from "@/pages/products/components/ProductLoadErrorState";
+import PokecaLightProgressBar from "@/pages/products/components/PokecaLightProgressBar";
+import PokecaLightResultModal from "@/pages/products/components/PokecaLightResultModal";
+import { usePokecaRawStorageAi } from "@/pages/products/hooks/usePokecaRawStorageAi";
+import type { PokecaLightWorkerState } from "@/pages/products/lib/pokecaRawStorageAi";
+import type { AdminProduct } from "@/pages/products/types";
+import PokekaTabs, { type PokekaTabKey } from "./components/PokekaTabs";
+import PokecaLightAiPanel, {
+  type PokecaLightStatusView,
+} from "./components/PokecaLightAiPanel";
+import StorageFilterBar, {
+  type PriceFilterValue,
+} from "./components/StorageFilterBar";
+import StorageProductTable from "./components/StorageProductTable";
+import PokecaComingSoon from "./components/PokecaComingSoon";
+import PokecaLightRunDialog from "./components/PokecaLightRunDialog";
+import StorageSubTabs from "./components/StorageSubTabs";
+import StorageScopePending from "./components/StorageScopePending";
+import { usePokekaRawStorageList } from "./hooks/usePokekaRawStorageList";
+import {
+  buildLightInfoMap,
+  collectBoxOptions,
+  collectIllustratorOptions,
+  parseStoragePosition,
+} from "./lib/rawStorage";
+import {
+  DEFAULT_STORAGE_SCOPE,
+  filterProductsByScope,
+  getStorageScope,
+  type StorageScopeKey,
+} from "./lib/storageScopes";
+
+// 一覧の1ページあたり件数（商品一覧と同じ密度に揃える）。
+const PAGE_SIZE = 50;
+
+const COMING_SOON: Record<
+  Exclude<PokekaTabKey, "storage">,
+  { label: string; description: string; icon: string }
+> = {
+  vss: {
+    label: "VSS",
+    description:
+      "VSS鑑定品の該当判定方法が決まっていないため、一覧は表示していません。判定条件が決まり次第、このタブで一覧・絞り込み・AI生成を利用できるようにします。",
+    icon: "ri-shield-star-line",
+  },
+  psa: {
+    label: "PSA",
+    description:
+      "PSA鑑定品の該当判定方法が決まっていないため、一覧は表示していません。判定条件が決まり次第、このタブで一覧・絞り込み・AI生成を利用できるようにします。",
+    icon: "ri-award-line",
+  },
+  other: {
+    label: "その他鑑定",
+    description:
+      "その他鑑定品の該当判定方法が決まっていないため、一覧は表示していません。判定条件が決まり次第、このタブで一覧・絞り込み・AI生成を利用できるようにします。",
+    icon: "ri-file-shield-2-line",
+  },
+};
+
+// ライト版AIパネルに出す「現在の処理状態」。
+// 表示は既存のジョブ状態（idle / running / completed / failed）だけに対応させ、
+// 進捗件数は実行中のみ実データから渡す。
+function describeLightStatus(
+  worker: PokecaLightWorkerState | null | undefined
+): PokecaLightStatusView {
+  if (!worker) return { label: "待機中", tone: "idle" };
+  if (worker.status === "running") {
+    return {
+      label: "処理中",
+      tone: "running",
+      processed: worker.processedCount,
+      total: worker.totalCount,
+    };
+  }
+  if (worker.status === "failed") {
+    return {
+      label: worker.successCount > 0 ? "一部失敗" : "失敗",
+      tone: "failed",
+    };
+  }
+  if (worker.status === "completed") return { label: "完了", tone: "done" };
+  return { label: "待機中", tone: "idle" };
+}
+
+export default function PokekaPage() {
+  const { isTestMode } = useOperatingMode();
+  const [tab, setTab] = useState<PokekaTabKey>("storage");
+  // ストレージ内の区分。初期表示は既存の旧裏ストレージ一覧（「旧裏」）。
+  const [storageScope, setStorageScope] =
+    useState<StorageScopeKey>(DEFAULT_STORAGE_SCOPE);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  // 旧裏ストレージ商品（storage_location が「旧裏ストレージ/」で始まる商品）を全件取得し、
+  // 画面側で50件ずつページ表示する（「旧裏ストレージを隠す」トグルと同じ方式）。
+  const { loadState, items, errorMessage } = usePokekaRawStorageList({
+    isTestMode,
+    reloadKey,
+  });
+
+  // ライト版AIの開始・進捗（画面を開き直しても、別デバイスで開いても進行中ジョブを表示する）
+  const pokecaLight = usePokecaRawStorageAi({
+    isTestMode,
+    onFinished: () => setReloadKey((k) => k + 1),
+    // 実行中ジョブが無いときも GET status を追従し、/products 等で開始された実行も
+    // このパネルの状態表示・結果確認に反映する（20秒間隔・表示中のみ）。
+    idleFollowMs: 20000,
+  });
+
+  const scope = useMemo(() => getStorageScope(storageScope), [storageScope]);
+
+  // 区分ごとの表示対象。判定は storageScopes.ts に集約している。
+  // 「すべて」は現時点で判定できる旧裏ストレージ商品のみ（現行は未分類のため空）。
+  const scopeItems = useMemo(
+    () => filterProductsByScope(items, storageScope),
+    [items, storageScope]
+  );
+
+  const lightItems = pokecaLight.worker?.items;
+  const infoMap = useMemo(() => buildLightInfoMap(lightItems), [lightItems]);
+  const lightStatus = describeLightStatus(pokecaLight.worker);
+
+  // 表示できる実行結果が本当にあるか（商品別の明細・失敗内容・対象件数のいずれか）。
+  // 無いときに「結果を見る」を有効のまま無反応にしない。
+  const rawLightWorker = pokecaLight.worker;
+  const hasLightResult = Boolean(
+    rawLightWorker &&
+      (rawLightWorker.items.length > 0 ||
+        rawLightWorker.failures.length > 0 ||
+        rawLightWorker.totalCount > 0)
+  );
+
+  // 検索は取得済みの商品（この区分の全件）に対する画面側の絞り込み。
+  // 新しい検索APIは呼ばず、商品名と商品IDの部分一致で判定する。
+  const [searchQuery, setSearchQuery] = useState("");
+  const [boxFilter, setBoxFilter] = useState("");
+  const [illustratorFilter, setIllustratorFilter] = useState("");
+  const [priceFilter, setPriceFilter] = useState<PriceFilterValue>("all");
+  const [page, setPage] = useState(1);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [isRunDialogOpen, setIsRunDialogOpen] = useState(false);
+  const [isResultOpen, setIsResultOpen] = useState(false);
+  const selectAllRef = useRef<HTMLInputElement>(null);
+
+  const boxOptions = useMemo(() => collectBoxOptions(scopeItems), [scopeItems]);
+  const illustratorOptions = useMemo(
+    () => collectIllustratorOptions(infoMap),
+    [infoMap]
+  );
+
+  const filtered = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    const box = boxFilter.trim();
+    const illustrator = illustratorFilter.trim();
+    return scopeItems.filter((product) => {
+      if (query) {
+        const name = (product.product_name || "").toLowerCase();
+        const id = (product.product_id || "").toLowerCase();
+        if (!name.includes(query) && !id.includes(query)) return false;
+      }
+      if (box && parseStoragePosition(product.storage_location).box !== box) {
+        return false;
+      }
+      if (illustrator) {
+        const info = infoMap.get(product.product_id);
+        if (!info || info.illustrator !== illustrator) return false;
+      }
+      if (priceFilter !== "all") {
+        const info = infoMap.get(product.product_id);
+        // 実行結果に含まれない商品は「価格なし」ではなく「未取得」のため対象外
+        if (!info) return false;
+        const hasPrice =
+          info.candidatePrice !== null && Number.isFinite(info.candidatePrice);
+        if (priceFilter === "priced" && !hasPrice) return false;
+        if (priceFilter === "unpriced" && hasPrice) return false;
+      }
+      return true;
+    });
+  }, [
+    scopeItems,
+    searchQuery,
+    boxFilter,
+    illustratorFilter,
+    priceFilter,
+    infoMap,
+  ]);
+
+  const hasFilter =
+    searchQuery !== "" ||
+    boxFilter !== "" ||
+    illustratorFilter !== "" ||
+    priceFilter !== "all";
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageItems = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filtered.slice(start, start + PAGE_SIZE);
+  }, [filtered, page]);
+
+  // 表示中のページが範囲外になったら最終ページへ収める。
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  // モード切替などで表示できる結果が無くなったら、結果ビューは閉じる。
+  useEffect(() => {
+    if (isResultOpen && !hasLightResult) setIsResultOpen(false);
+  }, [isResultOpen, hasLightResult]);
+
+  // タブ・モード・絞り込みを変えたら1ページ目に戻し、選択を解除する。
+  const clearFilters = useCallback(() => {
+    setSearchQuery("");
+    setBoxFilter("");
+    setIllustratorFilter("");
+    setPriceFilter("all");
+    setPage(1);
+  }, []);
+
+  useEffect(() => {
+    setPage(1);
+    setSelectedIds(new Set());
+    setSearchQuery("");
+    setBoxFilter("");
+    setIllustratorFilter("");
+    setPriceFilter("all");
+  }, [isTestMode, tab]);
+
+  // 区分を切り替えたら先頭ページに戻し、選択（＝ライト版AIの実行対象）を解除する。
+  // 検索・絞り込み条件は同一の商品集合に対する条件のため、そのまま維持する。
+  const handleScopeChange = (next: StorageScopeKey) => {
+    if (next === storageScope) return;
+    setStorageScope(next);
+    setPage(1);
+    setSelectedIds(new Set());
+  };
+
+  const handleSearchChange = (next: string) => {
+    setSearchQuery(next);
+    setPage(1);
+    setSelectedIds(new Set());
+  };
+
+  const handleBoxChange = (next: string) => {
+    setBoxFilter(next);
+    setPage(1);
+    setSelectedIds(new Set());
+  };
+
+  const handleIllustratorChange = (next: string) => {
+    setIllustratorFilter(next);
+    setPage(1);
+    setSelectedIds(new Set());
+  };
+
+  const handlePriceChange = (next: PriceFilterValue) => {
+    setPriceFilter(next);
+    setPage(1);
+    setSelectedIds(new Set());
+  };
+
+  const pageSelectedCount = useMemo(
+    () => pageItems.filter((product) => selectedIds.has(product.product_id)).length,
+    [pageItems, selectedIds]
+  );
+  const isAllPageSelected =
+    pageItems.length > 0 && pageSelectedCount === pageItems.length;
+  const isPagePartlySelected =
+    pageSelectedCount > 0 && pageSelectedCount < pageItems.length;
+
+  useEffect(() => {
+    const el = selectAllRef.current;
+    if (!el) return;
+    el.indeterminate = isPagePartlySelected;
+  }, [isPagePartlySelected]);
+
+  const toggleSelect = (productId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(productId)) next.delete(productId);
+      else next.add(productId);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    const allSelected =
+      pageItems.length > 0 &&
+      pageItems.every((product) => selectedIds.has(product.product_id));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) {
+        pageItems.forEach((product) => next.delete(product.product_id));
+      } else {
+        pageItems.forEach((product) => next.add(product.product_id));
+      }
+      return next;
+    });
+  };
+
+  // 選択済み商品（ページを跨いだ全件）。表示対象は旧裏ストレージ商品のみ。
+  const selectedProducts = useMemo<AdminProduct[]>(
+    () => scopeItems.filter((product) => selectedIds.has(product.product_id)),
+    [scopeItems, selectedIds]
+  );
+
+  // 結果モーダルのサムネイル用。取得済みの一覧から商品ID→画像URLのマップを作る。
+  const imageMap = useMemo(() => {
+    const map = new Map<string, string>();
+    scopeItems.forEach((product) => {
+      if (product.main_image_display_url) {
+        map.set(product.product_id, product.main_image_display_url);
+      }
+    });
+    return map;
+  }, [scopeItems]);
+
+  // 失敗した商品だけをライト版で再実行する（既存の開始処理を product_ids 指定で呼ぶ）。
+  const handleRetryFailedLight = async (productIds: string[]) => {
+    if (productIds.length === 0) return;
+    await pokecaLight.start(productIds);
+  };
+
+  const handleRun = async () => {
+    if (selectedProducts.length === 0) return;
+    const result = await pokecaLight.start(
+      selectedProducts.map((product) => product.product_id)
+    );
+    if (result === "failed") return;
+    setIsRunDialogOpen(false);
+    if (result === "started") setSelectedIds(new Set());
+  };
+
+  const retry = () => setReloadKey((k) => k + 1);
+
+  const isStorage = tab === "storage";
+  const comingSoon = isStorage ? null : COMING_SOON[tab];
+
+  // 「すべて」は現時点で分類できる商品だけを対象にしていることを明示する。
+  const isAllScope = storageScope === "all";
+  const isOldScope = storageScope === "old";
+  const isCurrentScope = storageScope === "current";
+  const showsStorageList = isStorage && !isCurrentScope;
+
+  const emptyTitle = hasFilter
+    ? isAllScope
+      ? "条件に一致する商品がありません"
+      : "条件に一致する旧裏ストレージ商品がありません"
+    : isTestMode
+      ? isAllScope
+        ? "テスト商品に、現在分類できる商品はありません"
+        : "テスト商品の旧裏ストレージ在庫はありません"
+      : isAllScope
+        ? "現在分類できる商品が見つかりません"
+        : "旧裏ストレージ商品が見つかりません";
+
+  const emptyDescription = isAllScope
+    ? "現在分類できるのは、保管場所が「旧裏ストレージ/」で始まる商品のみです。現行ストレージの分類条件が決まり次第、この区分に統合します。"
+    : "保管場所（storage_location）が「旧裏ストレージ/」で始まる商品だけを表示します。環境切り替えでテストモード／通常モードを切り替えると、表示対象も切り替わります。";
+
+  return (
+    <AdminShell
+      pageTitle="ポケカ"
+      headerExtras={
+        <Link
+          to="/import?mode=pokeca_raw_storage"
+          className="product-header-action"
+        >
+          ポケカ素地取込
+        </Link>
+      }
+      mainClassName="page-fade px-4 py-4 md:px-6 md:py-5 lg:px-8"
+    >
+      <div className="mb-2 flex flex-wrap items-end gap-x-3 gap-y-1">
+        <div className="min-w-0 flex-1">
+          <PokekaTabs value={tab} onChange={setTab} />
+        </div>
+        <p className="shrink-0 pb-2 text-[11px] leading-none text-foreground-400">
+          {isTestMode ? "テスト商品を表示中" : "実商品を表示中"}
+        </p>
+      </div>
+
+      {isStorage && (
+        <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <StorageSubTabs value={storageScope} onChange={handleScopeChange} />
+          <p className="min-w-0 text-[11px] leading-relaxed text-foreground-400">
+            {scope.hint}
+          </p>
+        </div>
+      )}
+
+      {!isStorage && comingSoon && (
+        <div className="tab-fade">
+          <PokecaComingSoon
+            label={comingSoon.label}
+            description={comingSoon.description}
+            icon={comingSoon.icon}
+          />
+        </div>
+      )}
+
+      {isStorage && isCurrentScope && (
+        <div className="tab-fade">
+          <StorageScopePending />
+        </div>
+      )}
+
+      {showsStorageList && (
+        <div className="tab-fade space-y-2">
+          {isAllScope && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border border-background-200 bg-background-50 px-3 py-2">
+              <p className="min-w-0 flex-1 text-[11px] leading-relaxed text-foreground-500">
+                旧裏以外の商品はまだ分類できないため、この区分には表示していません。現行ストレージの判定条件が決まり次第、ここに統合します。ライト版AIは旧裏ストレージ向けのため「旧裏」で実行できます。
+              </p>
+              <button
+                type="button"
+                onClick={() => handleScopeChange("old")}
+                className="inline-flex h-7 shrink-0 cursor-pointer items-center whitespace-nowrap rounded-md border border-background-300 bg-white px-2.5 text-[12px] font-medium text-foreground-700 transition-colors hover:bg-background-100"
+              >
+                旧裏を開く
+              </button>
+            </div>
+          )}
+
+          {/* ライト版の進捗（実行中のみ・失敗内容や通知があるときだけ詳細バーを出す） */}
+          {isOldScope &&
+            !pokecaLight.isHidden &&
+            pokecaLight.worker &&
+            (pokecaLight.isRunning ||
+              pokecaLight.worker.failures.length > 0 ||
+              Boolean(pokecaLight.noticeMessage)) && (
+              <PokecaLightProgressBar
+                worker={pokecaLight.worker}
+                isRefreshing={pokecaLight.isRefreshing}
+                noticeMessage={pokecaLight.noticeMessage}
+                onRefresh={() => void pokecaLight.refresh()}
+                onClose={pokecaLight.dismiss}
+              />
+            )}
+
+          {isOldScope && (
+            <PokecaLightAiPanel
+              products={scopeItems}
+              infoMap={infoMap}
+              selectedCount={selectedProducts.length}
+              isStarting={pokecaLight.isStarting}
+              status={lightStatus}
+              onRun={() => setIsRunDialogOpen(true)}
+              onOpenResult={() => setIsResultOpen(true)}
+              canOpenResult={hasLightResult}
+            />
+          )}
+
+          <StorageFilterBar
+            searchValue={searchQuery}
+            onSearchChange={handleSearchChange}
+            boxValue={boxFilter}
+            boxOptions={boxOptions}
+            onBoxChange={handleBoxChange}
+            authorValue={illustratorFilter}
+            authorOptions={illustratorOptions}
+            onAuthorChange={handleIllustratorChange}
+            priceValue={priceFilter}
+            onPriceChange={handlePriceChange}
+            priceFilterAvailable={infoMap.size > 0}
+            disabled={loadState === "loading"}
+            onClear={clearFilters}
+          />
+
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="admin-meta text-foreground-500">
+              {isAllScope ? "表示対象 " : "該当 "}
+              <span className="admin-numeric font-semibold text-foreground-950">
+                {filtered.length.toLocaleString("ja-JP")}
+              </span>{" "}
+              件
+              {totalPages > 1 && (
+                <span className="ml-1 text-foreground-400">
+                  （{page} / {totalPages} ページ）
+                </span>
+              )}
+            </p>
+            {selectedProducts.length > 0 && (
+              <p className="admin-meta text-foreground-500">
+                ／ 選択中{" "}
+                <span className="admin-numeric font-semibold text-foreground-950">
+                  {selectedProducts.length}
+                </span>{" "}
+                件
+                <button
+                  type="button"
+                  onClick={() => setSelectedIds(new Set())}
+                  className="ml-2 cursor-pointer whitespace-nowrap text-[12px] text-foreground-500 underline-offset-2 transition-colors hover:text-foreground-800 hover:underline"
+                >
+                  選択を解除
+                </button>
+              </p>
+            )}
+            {loadState === "loading" && (
+              <span className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-foreground-400">
+                <i className="ri-loader-4-line flex h-3.5 w-3.5 animate-spin items-center justify-center"></i>
+                読み込み中
+              </span>
+            )}
+          </div>
+
+          {loadState === "error" && <ProductLoadErrorState onRetry={retry} />}
+
+          {loadState === "loading" && scopeItems.length === 0 && (
+            <div className="ui-card space-y-2 rounded-lg p-4">
+              {Array.from({ length: 8 }, (_, index) => (
+                <div
+                  key={index}
+                  className="product-skeleton-block h-16 w-full rounded-md"
+                ></div>
+              ))}
+            </div>
+          )}
+
+          {loadState === "success" && filtered.length === 0 && (
+            <div className="ui-card flex flex-col items-center justify-center rounded-lg px-6 py-14 text-center">
+              <i className="ri-archive-2-line mb-2 flex h-8 w-8 items-center justify-center text-[22px] text-foreground-400"></i>
+              <p className="text-sm font-medium text-foreground-700">
+                {emptyTitle}
+              </p>
+              <p className="mt-1 max-w-xl text-xs leading-relaxed text-foreground-500">
+                {hasFilter
+                  ? "検索語や絞り込み条件を変更するか、「条件をクリア」で全件表示に戻してください。"
+                  : emptyDescription}
+              </p>
+              {hasFilter && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="mt-3 inline-flex h-9 cursor-pointer items-center gap-1 whitespace-nowrap rounded-md border border-background-300 bg-white px-3 text-[12px] font-medium text-foreground-700 transition-colors hover:bg-background-100"
+                >
+                  <i className="ri-close-line flex h-3.5 w-3.5 items-center justify-center text-[13px]"></i>
+                  条件をクリア
+                </button>
+              )}
+            </div>
+          )}
+
+          {filtered.length > 0 && (
+            <StorageProductTable
+              products={pageItems}
+              infoMap={infoMap}
+              selectedIds={selectedIds}
+              allSelected={isAllPageSelected}
+              partlySelected={isPagePartlySelected}
+              disabled={pokecaLight.isStarting}
+              onToggle={toggleSelect}
+              onToggleAll={toggleSelectAll}
+              selectAllRef={selectAllRef}
+            />
+          )}
+
+          {filtered.length > 0 && (
+            <ProductPagination
+              page={page}
+              totalPages={totalPages}
+              count={filtered.length}
+              disabled={pokecaLight.isStarting}
+              onPageChange={(next) => {
+                setPage(next);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+            />
+          )}
+
+          {errorMessage && loadState === "error" && (
+            <p className="text-[11px] leading-relaxed text-foreground-500">
+              {errorMessage}
+            </p>
+          )}
+        </div>
+      )}
+
+      <PokecaLightRunDialog
+        open={isRunDialogOpen}
+        count={selectedProducts.length}
+        isTestMode={isTestMode}
+        isStarting={pokecaLight.isStarting}
+        errorMessage={pokecaLight.errorMessage}
+        onCancel={() => setIsRunDialogOpen(false)}
+        onConfirm={() => void handleRun()}
+      />
+
+      <PokecaLightResultModal
+        open={isResultOpen && hasLightResult}
+        worker={pokecaLight.worker}
+        imageMap={imageMap}
+        isRefreshing={pokecaLight.isRefreshing}
+        isStarting={pokecaLight.isStarting}
+        isAutoRefreshing={pokecaLight.isRunning}
+        errorMessage={pokecaLight.errorMessage}
+        noticeMessage={pokecaLight.noticeMessage}
+        onRefresh={() => void pokecaLight.refresh()}
+        onRetryFailed={(productIds) => void handleRetryFailedLight(productIds)}
+        onClose={() => setIsResultOpen(false)}
+      />
+    </AdminShell>
+  );
+}

@@ -44,8 +44,6 @@ interface EditFormProps {
   // AIドラフト（get_ai_product_draft）の candidate.price。
   // 本票の販売予定価格が未設定のときだけ編集可能な初期値として提示する。
   aiPriceSuggestion?: number | null;
-  // AI価格案の根拠テキスト（candidate_price_basis）。無ければ行を表示しない。
-  aiPriceBasis?: string | null;
   // 仕入台帳（来歴）で確定済みの仕入原価。手入力の「仕入価格」が未設定のときの
   // 参考表示にだけ使い、欄の値・保存内容には反映しない。
   ledgerCost?: number | null;
@@ -95,7 +93,6 @@ export default function EditForm({
   saving,
   error,
   aiPriceSuggestion = null,
-  aiPriceBasis = null,
   ledgerCost = null,
   onCancel,
   onSave,
@@ -468,11 +465,6 @@ export default function EditForm({
               <p className="mt-0.5 text-[12px] leading-relaxed text-foreground-500">
                 本票の販売予定価格は未設定のため、上の欄にAI価格案を初期値として表示しています。必要に応じて修正してから保存してください（表示しただけでは保存されません）。
               </p>
-              {aiPriceBasis && (
-                <p className="mt-1 break-words text-[11px] leading-relaxed text-foreground-400">
-                  根拠: {aiPriceBasis}
-                </p>
-              )}
             </div>
           </div>
           <button

@@ -1,4 +1,4 @@
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import IndeterminateProgressBar from "@/components/base/IndeterminateProgressBar";
 import ImportSetCard from "@/pages/import/components/ImportSetCard";
 import ImportBatchSection from "@/pages/import/components/ImportBatchSection";
@@ -7,9 +7,8 @@ import {
   parseImportMode,
   sameFiles,
 } from "@/pages/import/lib/multiImport";
-import { adminThemeClass } from "@/lib/adminTheme";
-import { useMultiSetImport } from "@/pages/import/hooks/useMultiSetImport";
-import {
+import AdminShell from "@/components/feature/AdminShell";
+import { useMultiSetImport } from "@/pages/import/hooks/useMultiSetImport";import {
   useOperatingMode,
   useOperatingModeLock,
 } from "@/context/OperatingModeProvider";
@@ -64,27 +63,11 @@ export default function ImportPage() {
   );
 
   return (
-    <div
-      className={`admin-font products-theme ${adminThemeClass(
-        isTestMode
-      )} min-h-screen bg-background-50`}
+    <AdminShell
+      pageTitle={isPokeca ? "ポケカ素地取込" : "画像だけ取込"}
+      backLink={{ to: "/products", label: "すべての商品" }}
+      mainClassName="page-fade mx-auto w-full max-w-5xl px-4 py-4 md:px-6"
     >
-      <header className="border-b border-background-200 bg-white">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-3 md:px-6">
-          <Link
-            to="/products"
-            className="flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-foreground-600 transition-colors hover:text-primary-600"
-          >
-            <i className="ri-arrow-left-line w-4 h-4 flex items-center justify-center"></i>
-            商品一覧
-          </Link>
-          <span className="admin-eyebrow text-[10px] font-semibold text-foreground-400">
-            {isPokeca ? "Pokeca Raw Storage" : "Bulk Import"}
-          </span>
-        </div>
-      </header>
-
-      <main className="page-fade mx-auto w-full max-w-5xl px-4 py-4 md:px-6">
         {/* 左：作業（説明・セット一覧）／右：固定サマリーの2カラム。
             右カラムは追従し、実行ボタンを常に押せる位置に置く。 */}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
@@ -378,7 +361,6 @@ export default function ImportPage() {
           blockedAiSelectionCount={aiSelectionBlockedCount}
           testOnly={isTestMode}
         />
-      </main>
-    </div>
+    </AdminShell>
   );
 }

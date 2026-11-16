@@ -28,7 +28,7 @@ import {
 import PublishSquareOptions from "./components/PublishSquareOptions";
 import RegisterProgress from "./components/RegisterProgress";
 import SaveStatusMessage from "@/components/base/SaveStatusMessage";
-import { adminThemeClass } from "@/lib/adminTheme";
+import AdminShell from "@/components/feature/AdminShell";
 import {
   runSquareProductionSync,
   type SquareProductionStep,
@@ -831,26 +831,11 @@ export default function RegisterPage() {
   };
 
   return (
-    <div
-      className={`admin-font products-theme ${adminThemeClass(
-        isTestMode
-      )} min-h-screen bg-background-50`}
+    <AdminShell
+      pageTitle="商品を登録"
+      backLink={{ to: "/products", label: "すべての商品" }}
+      mainClassName="page-fade mx-auto w-full max-w-5xl px-4 py-4 md:px-6"
     >
-      <header className="border-b border-background-200 bg-white">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-3 md:px-6">
-          <Link
-            to="/products"
-            className="flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-foreground-600 transition-colors hover:text-primary-600"
-          >
-            <i className="ri-arrow-left-line w-4 h-4 flex items-center justify-center"></i>
-            商品一覧
-          </Link>
-          <span className="admin-eyebrow text-[10px] font-semibold text-foreground-400">
-            New Product
-          </span>
-        </div>
-      </header>
-      <main className="page-fade mx-auto w-full max-w-5xl px-4 py-4 md:px-6">
         {/* 商品画像 */}
         <FormSection
           title="商品画像"
@@ -1232,8 +1217,6 @@ export default function RegisterPage() {
             入力内容を確認してから登録してください
           </p>
         </div>
-      </main>
-
       {/* AI候補の上書き確認モーダル */}
       {isApplyConfirmOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -1409,6 +1392,6 @@ export default function RegisterPage() {
           </div>
         </div>
       )}
-    </div>
+    </AdminShell>
   );
 }

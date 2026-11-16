@@ -1,11 +1,14 @@
 interface ProductFilterEmptyStateProps {
   onClear: () => void;
+  // 空になった理由の補足（任意）。例: 旧裏ストレージを隠しているため0件。
+  note?: string;
 }
 
 // 検索・フィルターの結果が0件の場合の空状態。
 // 「データが本当に0件」の空状態とは文言・操作を分ける（こちらは条件を変えれば復帰できる）。
 export default function ProductFilterEmptyState({
   onClear,
+  note,
 }: ProductFilterEmptyStateProps) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 py-24 text-center">
@@ -16,6 +19,11 @@ export default function ProductFilterEmptyState({
       <p className="text-sm text-foreground-500">
         検索条件やフィルターを変更してください
       </p>
+      {note && (
+        <p className="max-w-md text-xs leading-relaxed text-foreground-500">
+          {note}
+        </p>
+      )}
       <button
         type="button"
         onClick={onClear}
