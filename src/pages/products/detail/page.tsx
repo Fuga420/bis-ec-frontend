@@ -32,6 +32,7 @@ import { useOperatingMode } from "@/context/OperatingModeProvider";
 import { adminThemeClass } from "@/lib/adminTheme";
 import {
   extractAiDraftPrice,
+  extractAiDraftPriceBasis,
   getAiProductDraft,
 } from "@/pages/register/lib/aiProduct";
 import {
@@ -195,6 +196,10 @@ export default function ProductDetailPage() {
   // AIドラフト（get_ai_product_draft）の candidate.price。
   // 本票(planned_sale_price)が未設定のときの編集初期値としてのみ使う。
   const [aiDraftPrice, setAiDraftPrice] = useState<number | null>(null);
+  // AI下書きの価格根拠（candidate_price_basis）。無ければ null（表示しない）。
+  const [aiDraftPriceBasis, setAiDraftPriceBasis] = useState<string | null>(
+    null
+  );
   const [selectedStatus, setSelectedStatus] = useState<string>("");
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(
@@ -343,15 +348,24 @@ export default function ProductDetailPage() {
     const productId = product.product_id;
     let cancelled = false;
     setAiDraftPrice(null);
+    setAiDraftPriceBasis(null);
     getAiProductDraft(productId)
       .then((lookup) => {
         if (cancelled) return;
         setAiDraftPrice(
           lookup.status === "found" ? extractAiDraftPrice(lookup.draft) : null
         );
+        setAiDraftPriceBasis(
+          lookup.status === "found"
+            ? extractAiDraftPriceBasis(lookup.draft)
+            : null
+        );
       })
       .catch(() => {
-        if (!cancelled) setAiDraftPrice(null);
+        if (!cancelled) {
+          setAiDraftPrice(null);
+          setAiDraftPriceBasis(null);
+        }
       });
     return () => {
       cancelled = true;
@@ -1180,6 +1194,7 @@ export default function ProductDetailPage() {
                     saving={editSaveState === "saving"}
                     error={editMessage?.type === "error" ? editMessage.text : ""}
                     aiPriceSuggestion={aiDraftPrice}
+                    aiPriceBasis={aiDraftPriceBasis}
                     ledgerCost={ledgerCostForForm}
                     onCancel={handleCancelEdit}
                     onSave={handleSaveEdit}
@@ -1190,7 +1205,11 @@ export default function ProductDetailPage() {
                     categoryLabel={categoryLabel}
                     statusLabel={statusLabel}
                     inventoryLabel={inventoryLabel}
-                    aiPriceHint={{ show: showAiPriceHint, price: aiDraftPrice }}
+                    aiPriceHint={{
+                      show: showAiPriceHint,
+                      price: aiDraftPrice,
+                      basis: aiDraftPriceBasis,
+                    }}
                     editMessage={editMessage}
                     cost={{
                       loadState: productCost.loadState,

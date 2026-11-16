@@ -1073,6 +1073,11 @@ export default function ProductsPage() {
               <i className="ri-scan-line" aria-hidden="true"></i>
               ポケカ素地取込
             </Link>
+            {/* Driveのフォルダを指定してまとめて商品登録する操作画面（ポケカ素地取込と同列） */}
+            <Link to="/drive-bulk-import" className="product-header-action">
+              <i className="ri-folder-download-line" aria-hidden="true"></i>
+              Drive一括取込
+            </Link>
             <Link to="/documents" className="product-header-action">
               <i className="ri-file-text-line" aria-hidden="true"></i>
               書類管理

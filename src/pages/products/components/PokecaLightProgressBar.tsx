@@ -59,6 +59,14 @@ export default function PokecaLightProgressBar({
   const isRunning = worker.status === "running";
   const isFailed = worker.status === "failed";
 
+  // 価格付け結果はバックエンドが返す場合だけ表示する（旧バックエンドでは null）。
+  const hasPriceFound = worker.priceFoundCount != null;
+  const hasPriceNotFound = worker.priceNotFoundCount != null;
+  const hasPriceStats = hasPriceFound || hasPriceNotFound;
+  const hasCardTypeStats =
+    worker.priceFoundCardTypesCount != null ||
+    worker.priceNotFoundCardTypesCount != null;
+
   const stateLabel = useMemo(() => {
     if (isRunning) return "実行中";
     if (isFailed) return worker.successCount > 0 ? "一部失敗" : "失敗";
@@ -135,6 +143,28 @@ export default function PokecaLightProgressBar({
           />
           <Stat label="スキップ" value={worker.skippedCount} />
         </span>
+
+        {hasPriceStats && (
+          <span className="admin-numeric flex flex-wrap items-center gap-x-3 gap-y-1 border-l border-background-200 pl-3">
+            {hasPriceFound && (
+              <Stat
+                label="価格あり"
+                value={worker.priceFoundCount ?? 0}
+                tone="success"
+              />
+            )}
+            {hasPriceNotFound && (
+              <Stat label="価格なし" value={worker.priceNotFoundCount ?? 0} />
+            )}
+            {hasCardTypeStats && (
+              <span className="whitespace-nowrap text-[11px] leading-none text-foreground-400">
+                {`種類数 あり${worker.priceFoundCardTypesCount ?? 0} / なし${
+                  worker.priceNotFoundCardTypesCount ?? 0
+                }`}
+              </span>
+            )}
+          </span>
+        )}
 
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
           {worker.failures.length > 0 && (

@@ -33,6 +33,14 @@ export interface PokecaLightWorkerState {
   successCount: number;
   failedCount: number;
   skippedCount: number;
+  /**
+   * 価格付け結果の集計（ライト版AIが参考価格を付けるようになった後に追加された項目）。
+   * 旧バックエンドでは返らないため null のまま保持し、表示側で省略する。
+   */
+  priceFoundCount: number | null;
+  priceNotFoundCount: number | null;
+  priceFoundCardTypesCount: number | null;
+  priceNotFoundCardTypesCount: number | null;
   productIds: string[];
   failures: PokecaLightFailure[];
   jobId: string | null;
@@ -181,10 +189,14 @@ function resolveStatus(
 
 /** worker_state を画面表示用に正規化する（ジョブが無い場合は null）。 */
 export function normalizePokecaLightWorkerState(
-  value: unknown
+  value: unknown,
+  fallback?: unknown
 ): PokecaLightWorkerState | null {
   const obj = asObject(value);
   if (!obj) return null;
+  // 価格集計は worker_state 直下だけでなく、応答のトップレベルに返る場合もあるため
+  // どちらからでも読めるようにする（無い場合は null のまま）。
+  const statsSource = asObject(fallback) ?? obj;
 
   const total =
     pickCount(obj, ["total_count", "total", "target_count", "product_count"]) ?? 0;
@@ -206,6 +218,16 @@ export function normalizePokecaLightWorkerState(
   const failures = normalizeFailures(obj);
   const resolvedProcessed =
     processed ?? Math.min(total, success + failed + skipped);
+
+  const pickStat = (keys: string[]): number | null =>
+    pickCount(obj, keys) ?? pickCount(statsSource, keys);
+
+  const priceFoundCount = pickStat(["price_found_count"]);
+  const priceNotFoundCount = pickStat(["price_not_found_count"]);
+  const priceFoundCardTypesCount = pickStat(["price_found_card_types_count"]);
+  const priceNotFoundCardTypesCount = pickStat([
+    "price_not_found_card_types_count",
+  ]);
 
   const status = resolveStatus(obj, {
     total,
@@ -247,6 +269,10 @@ export function normalizePokecaLightWorkerState(
     startedAt: pickFirstString(obj, ["started_at", "start_at"]),
     finishedAt: pickFirstString(obj, ["finished_at", "completed_at", "end_at"]),
     updatedAt: pickFirstString(obj, ["updated_at", "last_updated_at"]),
+    priceFoundCount,
+    priceNotFoundCount,
+    priceFoundCardTypesCount,
+    priceNotFoundCardTypesCount,
   };
 }
 
@@ -316,7 +342,8 @@ export async function runPokecaLight(params: {
   return {
     alreadyRunning: data.already_running === true,
     workerState: normalizePokecaLightWorkerState(
-      data.worker_state ?? data.worker ?? null
+      data.worker_state ?? data.worker ?? null,
+      data
     ),
     message,
   };
@@ -355,7 +382,8 @@ export async function fetchPokecaLightStatus(): Promise<PokecaLightStatusResult>
 
   return {
     workerState: normalizePokecaLightWorkerState(
-      data?.worker_state ?? data?.worker ?? data ?? null
+      data?.worker_state ?? data?.worker ?? data ?? null,
+      data
     ),
     message,
   };

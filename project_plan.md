@@ -294,3 +294,35 @@
   - 実行中→完了（または失敗）に変わった時点で商品一覧を再読み込みし、生成された商品名を反映する。
 - 変更範囲：商品一覧画面・確認ダイアログ・上記 lib/hook/component のみ。通常版（`/ai-batches`）の既存処理、商品登録、公開・Square連携、バックエンド・DB・GAS は無変更。
 - 状態：ビルド成功。少数件での実行確認はスタッフが実画面で実施する（大量実行は行わない）。
+
+### フェーズ6追加：Drive一括取込の操作画面（/drive-bulk-import）2026-11-14 実装・フロントのみ
+- 目的：gcloud コマンドでしか起動できなかった Drive 一括取込バッチを、管理画面からプロファイル選択・ドライラン・実行・進捗確認できるようにする。
+- 接続先（Part A で products-api に追加される契約。バックエンド／DB／ジョブは本実装では変更しない）
+  - `GET /drive-bulk-imports/profiles`
+  - `POST /drive-bulk-imports/dry-runs`（`{ profile_id, folder_id?, is_test, include_archived?, subfolder? }`）
+  - `POST /drive-bulk-imports`（同Body。同一プロファイル実行中は 409）
+  - `GET /drive-bulk-imports/:runId`（ステータス・進捗カウンタ・終了時サマリ）
+  - 認証は既存の書き込み系と同じ `getBackendWriteAuthHeaders`。応答項目名の揺れは `lib/driveBulkImportApi.ts` で吸収する。
+- 画面（`src/pages/drive-bulk-import/*`）
+  - 商品一覧ヘッダーに「Drive一括取込」リンクを追加（ポケカ素地取込と同列）。
+  - 条件：プロファイル選択（初期値 `pokeca_raw`）、フォルダID上書き（空なら既定フォルダ）、アーカイブ済みをスキップ、対象を絞るフィルタ。
+  - テスト／本番は既存の「環境切り替え（OperatingModeProvider）」にのみ連動し、この画面に独自の切替は持たない。
+  - ドライラン：開始後に run_id を約5秒間隔で取得し、検出総数・登録済み（active/archived内訳）・登録対象件数・失敗件数を表示。
+  - 本実行：ドライラン成功後にのみ有効化。確認ダイアログで登録対象件数とテスト／本番を明示（本番は強い注意表示）。実行中は条件変更・再実行を無効化。
+  - 完了：成功／スキップ／失敗の件数、失敗一覧（対象キーと理由）、商品一覧へのリンクを表示。
+  - エラーは画面内に表示して再試行可能にする（白画面にしない）。409 は「既に実行中です」と表示し、進行中ジョブは約5秒間隔の取得で継続表示する。
+- 変更範囲：上記新規ページとルーティング、商品一覧ヘッダーのリンクのみ。商品登録・画像取込・書類管理・AI生成・公開／Square連携、既存API・DB・GAS は無変更。
+- 状態：ビルド成功。実API（Cloud Run Job）の起動・進捗・完了は、Part A の products-api 反映後に少数件（テストモード）でスタッフが確認する。
+
+### フェーズ6追加：ライト版AIの価格付け結果表示 2026-11-16 実装・フロントのみ
+- 背景：バックエンド（bis-ec-products-api）のライト版AIが商品ごとに参考価格を付けるようになり、`run` / `status` の応答に価格集計と商品ごとの候補価格が追加された。
+- 型（`src/pages/products/lib/pokecaRawStorageAi.ts`）
+  - `PokecaLightWorkerState` に `priceFoundCount` / `priceNotFoundCount` / `priceFoundCardTypesCount` / `priceNotFoundCardTypesCount` を追加（すべて `number | null`）。
+  - `worker_state` 直下と応答トップレベルのどちらでも読み取れるようにし、**返らない場合は null のまま**保持して表示を省略する（旧バックエンドでもエラーにしない）。
+- 進捗表示（`src/pages/products/components/PokecaLightProgressBar.tsx`）
+  - 既存の「処理済み／成功／失敗／スキップ」の並びに「価格あり X件／価格なし Y件」を追加。種類数が取得できるときだけ「種類数 ありX / なしY」を併記。
+  - いずれも値が存在する項目だけを描画する（推定値・0での補完はしない）。
+- 商品詳細のAI下書き表示（`src/pages/register/lib/aiProduct.ts` / `detail/page.tsx` / `ProductProfilePanel.tsx` / `EditForm.tsx`）
+  - 価格案の取得を `candidate.price` → `candidate_price` の順で参照するよう拡張。`candidate_price_basis`（価格の根拠テキスト）も取得し、価格案の表示箇所（商品情報パネル・編集フォーム）に「根拠: ...」として表示する。未設定なら行を出さない。
+- 変更範囲：上記4ファイルのみ。新しいAPI呼び出し・エンドポイント追加はなく、既存の `run` / `status` / `get_ai_product_draft` の応答範囲で実装。通常版AI生成・商品一覧レイアウト・価格の販売予定価格への反映処理は無変更。
+- 状態：ビルド成功。価格系フィールドが無い状態（デプロイ前のバックエンド）でも表示されないだけで画面は壊れない。公開（Publish）は指示があるまで行わない。

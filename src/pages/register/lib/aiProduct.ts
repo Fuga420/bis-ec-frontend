@@ -359,20 +359,50 @@ export function normalizeCandidate(
 }
 
 /**
- * get_ai_product_draft で取得した draft から AI価格案（candidate.price）を取り出す。
- * draft は candidate 配下に候補を持つ場合と、トップレベルに展開されている場合の
- * どちらでも扱えるようにする。正の整数のみ採用し、それ以外は null を返す（0で補わない）。
+ * draft の候補項目を、candidate 配下 → トップレベルの順で参照するための一覧を返す。
+ * APIは候補を candidate 配下に返す場合と、トップレベルに展開する場合の両方がある。
+ */
+function draftCandidateSources(
+  draft: Record<string, unknown> | null | undefined
+): Record<string, unknown>[] {
+  if (!draft || typeof draft !== "object") return [];
+  const sources: Record<string, unknown>[] = [];
+  const nested = draft.candidate;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+    sources.push(nested as Record<string, unknown>);
+  }
+  sources.push(draft);
+  return sources;
+}
+
+/**
+ * get_ai_product_draft で取得した draft から AI価格案を取り出す。
+ * 通常版の candidate.price に加え、ライト版AIが付ける candidate_price も参照する。
+ * 正の整数のみ採用し、それ以外は null を返す（0で補わない）。
  */
 export function extractAiDraftPrice(
   draft: Record<string, unknown> | null | undefined
 ): number | null {
-  if (!draft || typeof draft !== "object") return null;
-  const nested = draft.candidate;
-  const source =
-    nested && typeof nested === "object" && !Array.isArray(nested)
-      ? (nested as Record<string, unknown>)
-      : draft;
-  return normalizeAiPrice(source.price);
+  for (const source of draftCandidateSources(draft)) {
+    const price =
+      normalizeAiPrice(source.price) ?? normalizeAiPrice(source.candidate_price);
+    if (price != null) return price;
+  }
+  return null;
+}
+
+/**
+ * get_ai_product_draft で取得した draft から価格の根拠テキスト（candidate_price_basis）を取り出す。
+ * 未設定・空文字は null を返す（表示側は null のとき根拠行を出さない）。
+ */
+export function extractAiDraftPriceBasis(
+  draft: Record<string, unknown> | null | undefined
+): string | null {
+  for (const source of draftCandidateSources(draft)) {
+    const basis = asString(source.candidate_price_basis).trim();
+    if (basis) return basis;
+  }
+  return null;
 }
 
 // ポケモンカードの場合に confirmed_data へ含めるカード属性（既存フォームの項目）

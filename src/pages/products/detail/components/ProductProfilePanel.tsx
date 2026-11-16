@@ -10,7 +10,8 @@ interface ProductProfilePanelProps {
   statusLabel: string;
   inventoryLabel: string;
   // AIの価格案（販売予定価格が未設定のときだけ表示する）
-  aiPriceHint: { show: boolean; price: number | null };
+  // basis は価格の根拠テキスト（candidate_price_basis）。無ければ表示しない。
+  aiPriceHint: { show: boolean; price: number | null; basis?: string | null };
   editMessage: { type: "success" | "error" | "warning"; text: string } | null;
   cost?: ProductCostSpecInput;
   onStartEdit: () => void;
@@ -104,12 +105,19 @@ export default function ProductProfilePanel({
         )}
 
         {aiPriceHint.show && aiPriceHint.price != null && (
-          <p className="mt-1 text-[11px] leading-relaxed text-foreground-500">
-            AI価格案{" "}
-            <span className="admin-numeric font-medium text-primary-700">
-              ¥{aiPriceHint.price.toLocaleString("ja-JP")}
-            </span>
-          </p>
+          <div className="mt-1">
+            <p className="text-[11px] leading-relaxed text-foreground-500">
+              AI価格案{" "}
+              <span className="admin-numeric font-medium text-primary-700">
+                ¥{aiPriceHint.price.toLocaleString("ja-JP")}
+              </span>
+            </p>
+            {aiPriceHint.basis && (
+              <p className="mt-0.5 break-words text-[11px] leading-relaxed text-foreground-400">
+                根拠: {aiPriceHint.basis}
+              </p>
+            )}
+          </div>
         )}
       </div>
 

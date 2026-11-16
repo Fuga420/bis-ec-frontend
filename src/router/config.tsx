@@ -7,6 +7,7 @@ import ProductDetailPage from "@/pages/products/detail/page";
 import DocumentsPage from "@/pages/documents/page";
 import DocumentDetailPage from "@/pages/documents/detail/page";
 import RelayCheckPage from "@/pages/dev/relay-check/page";
+import DriveBulkImportPage from "@/pages/drive-bulk-import/page";
 
 const routes: RouteObject[] = [
   {
@@ -29,6 +30,11 @@ const routes: RouteObject[] = [
   {
     path: "/products/:id",
     element: <ProductDetailPage />,
+  },
+  {
+    // Drive一括取込の操作画面（ドライラン→実行→進捗）。
+    path: "/drive-bulk-import",
+    element: <DriveBulkImportPage />,
   },
   {
     path: "/documents",
