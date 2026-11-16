@@ -4,7 +4,10 @@ import {
   normalizeStorageLocation,
 } from "@/pages/products/lib/pokecaRawStorage";
 import type { AdminProduct } from "@/pages/products/types";
-import type { PokecaLightProductInfo } from "@/pages/products/lib/pokecaRawStorageAi";
+import type {
+  PokecaLightProductInfo,
+  PokecaLightWorkerState,
+} from "@/pages/products/lib/pokecaRawStorageAi";
 
 /**
  * 保管場所（例: 旧裏ストレージ/BOX01/03）から、箱番・枝番を取り出す。
@@ -106,6 +109,140 @@ export function countByIllustrator(
   return Array.from(counts.entries())
     .map(([illustrator, count]) => ({ illustrator, count }))
     .sort((a, b) => b.count - a.count || a.illustrator.localeCompare(b.illustrator));
+}
+
+/**
+ * 一覧の参考価格。
+ * ライト版AIの商品別の候補価格 → 商品の販売価格（planned_sale_price）の順で採用し、
+ * どちらも無い場合は null（一覧では「—」）。
+ * 商品データは変更せず、表示に使う値だけを決める。
+ */
+export function resolveReferencePrice(
+  product: AdminProduct,
+  info: PokecaLightProductInfo | undefined
+): number | null {
+  const candidate = info?.candidatePrice;
+  if (
+    typeof candidate === "number" &&
+    Number.isFinite(candidate) &&
+    candidate > 0
+  ) {
+    return candidate;
+  }
+  const planned = product.planned_sale_price;
+  if (typeof planned === "number" && Number.isFinite(planned) && planned > 0) {
+    return planned;
+  }
+  return null;
+}
+
+/**
+ * ライト版AIの整備状況の集計。
+ * source="items": 商品別情報（worker_state.items[]）が返っている場合。
+ * source="worker": items[] が無く、APIの集計値（processed_count /
+ * price_found_count / illustrator_counts）だけで判定する場合。
+ */
+export interface PokecaLightCoverage {
+  /** 集計できた件数（items なら商品別情報がある件数、worker なら処理済み件数） */
+  known: number | null;
+  /** 対象件数（worker 集計時のみ。items 集計時は null） */
+  total: number | null;
+  priced: number | null;
+  unpriced: number | null;
+  authorKnown: number | null;
+  authorMissing: number | null;
+  authorList: Array<{ illustrator: string; count: number }>;
+  source: "items" | "worker";
+}
+
+/**
+ * パネルの整備状況を組み立てる。
+ * 商品別情報があれば従来どおりそれを優先し、無ければAPIの集計値を使う。
+ * どちらの値も無い場合は null（「まだ返っていません」を表示する）。
+ */
+export function buildLightCoverage(
+  worker: PokecaLightWorkerState | null,
+  products: AdminProduct[],
+  infoMap: PokecaLightInfoMap
+): PokecaLightCoverage | null {
+  if (infoMap.size > 0) {
+    let priced = 0;
+    let unpriced = 0;
+    let authorKnown = 0;
+    let authorMissing = 0;
+    const authors = new Map<string, number>();
+
+    products.forEach((product) => {
+      const info = infoMap.get(product.product_id);
+      // 商品別情報に含まれない商品は「未取得」なので集計しない
+      if (!info) return;
+      if (info.candidatePrice !== null && Number.isFinite(info.candidatePrice)) {
+        priced += 1;
+      } else {
+        unpriced += 1;
+      }
+      if (info.illustrator) {
+        authorKnown += 1;
+        authors.set(info.illustrator, (authors.get(info.illustrator) ?? 0) + 1);
+      } else {
+        authorMissing += 1;
+      }
+    });
+
+    // 商品別情報が一覧の商品と1件も対応しない場合は、集計値での表示に切り替える
+    if (priced + unpriced > 0) {
+      const authorList = Array.from(authors.entries())
+        .map(([illustrator, count]) => ({ illustrator, count }))
+        .sort(
+          (a, b) =>
+            b.count - a.count || a.illustrator.localeCompare(b.illustrator)
+        );
+
+      return {
+        known: priced + unpriced,
+        total: null,
+        priced,
+        unpriced,
+        authorKnown,
+        authorMissing,
+        authorList,
+        source: "items",
+      };
+    }
+  }
+
+  if (!worker) return null;
+  const hasAggregate =
+    worker.priceFoundCount !== null || worker.illustratorCounts.length > 0;
+  if (!hasAggregate) return null;
+
+  const total = worker.totalCount > 0 ? worker.totalCount : worker.processedCount;
+  const processed = Math.max(0, Math.min(worker.processedCount, total));
+  if (processed === 0) return null;
+
+  const rawPriced = worker.priceFoundCount;
+  const priced =
+    rawPriced === null ? null : Math.max(0, Math.min(rawPriced, processed));
+  const unpriced = priced === null ? null : Math.max(0, processed - priced);
+
+  const authorList = worker.illustratorCounts;
+  const authorKnown =
+    authorList.length > 0
+      ? authorList.reduce((sum, entry) => sum + entry.count, 0)
+      : null;
+  const authorMissing =
+    authorKnown === null ? null : Math.max(0, processed - authorKnown);
+
+  return {
+    known: processed,
+    total,
+    priced,
+    unpriced,
+    authorKnown,
+    authorMissing,
+    authorList,
+    source: "worker",
+  };
 }
 
 /** 箱番の選択肢（重複を除き、自然な順序で並べる）。 */

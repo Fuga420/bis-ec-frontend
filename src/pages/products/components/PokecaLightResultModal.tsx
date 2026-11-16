@@ -269,7 +269,7 @@ export default function PokecaLightResultModal({
             </span>
             {priceStats.known > 0 && (
               <span className="whitespace-nowrap">
-                価格は商品別情報が取得できた {priceStats.known} 件の集計
+                価格は処理済み {priceStats.known} 件の集計
               </span>
             )}
             {rows.length < total && (
@@ -332,7 +332,7 @@ export default function PokecaLightResultModal({
           {visibleRows.length === 0 ? (
             <p className="px-6 py-12 text-center text-[12px] text-foreground-500">
               {rows.length === 0
-                ? "この実行分の商品別結果はまだ取得できていません。実行が進むと、取得できた範囲で表示されます。"
+                ? "この実行分の商品別結果はまだ取得できていません。上の件数はサーバーが返す集計値です。実行が進むと、取得できた範囲で商品別に表示されます。"
                 : "該当する商品はありません。"}
             </p>
           ) : (

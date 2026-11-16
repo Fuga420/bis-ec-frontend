@@ -37,9 +37,19 @@ export interface PokecaLightProductInfo {
   errorMessage?: string;
 }
 
+export interface PokecaLightIllustratorCount {
+  illustrator: string;
+  count: number;
+}
+
 export interface PokecaLightWorkerState {
   /** 実行時のテストモード（画面モードと一致する実行だけを表示する） */
   isTest: boolean;
+  /**
+   * worker_state.active（実行中フラグ）。
+   * status 文字列を返さない応答では、この値だけで実行中を判定する。
+   */
+  isActive: boolean;
   status: PokecaLightJobStatus;
   /** 生のステータス文字列（表示の補助） */
   rawStatus: string;
@@ -52,6 +62,16 @@ export interface PokecaLightWorkerState {
   failures: PokecaLightFailure[];
   /** 商品別の読み取り結果（card_name / card_number / illustrator / candidate_price） */
   items: PokecaLightProductInfo[];
+  /**
+   * 価格が取得できた件数（worker_state の集計値 price_found_count）。
+   * 商品別の items[] が返らない応答では、この集計値で整備状況を表示する。
+   */
+  priceFoundCount: number | null;
+  /**
+   * 作家別件数（worker_state の集計値 illustrator_counts）。
+   * illustrator_counts はオブジェクト（名前→件数）でも配列でも受ける。
+   */
+  illustratorCounts: PokecaLightIllustratorCount[];
   jobId: string | null;
   startedAt: string | null;
   finishedAt: string | null;
@@ -260,7 +280,8 @@ function normalizeProductInfos(
 
 function resolveStatus(
   obj: Record<string, unknown>,
-  counts: { total: number; processed: number; failed: number }
+  counts: { total: number; processed: number; failed: number },
+  isActive: boolean
 ): PokecaLightJobStatus {
   const raw = (
     pickFirstString(obj, ["status", "worker_status", "state", "phase"]) ?? ""
@@ -268,6 +289,8 @@ function resolveStatus(
   const isRunning = pickBoolean(obj, ["is_running", "running"]);
   const isFinished = pickBoolean(obj, ["is_finished", "finished"]);
 
+  // worker_state.active が唯一の実行中シグナルの応答があるため最優先で扱う
+  if (isActive) return "running";
   if (isRunning === true) return "running";
   if (raw === "running" || raw === "processing" || raw === "in_progress") {
     return "running";
@@ -293,6 +316,41 @@ function resolveStatus(
   return "idle";
 }
 
+/** illustrator_counts（オブジェクト形式・配列形式の両方）を配列に正規化する。 */
+function parseIllustratorCounts(value: unknown): PokecaLightIllustratorCount[] {
+  const result: PokecaLightIllustratorCount[] = [];
+  const pushEntry = (name: unknown, count: unknown) => {
+    const label = asString(name).trim();
+    if (!label) return;
+    const parsed =
+      typeof count === "number"
+        ? count
+        : Number(asString(count).replace(/[^0-9.\-]/g, ""));
+    if (!Number.isFinite(parsed) || parsed <= 0) return;
+    result.push({ illustrator: label, count: Math.trunc(parsed) });
+  };
+
+  if (Array.isArray(value)) {
+    value.forEach((entry) => {
+      const obj = asObject(entry);
+      if (!obj) return;
+      pushEntry(
+        obj.illustrator ?? obj.name ?? obj.artist,
+        obj.count ?? obj.value ?? obj.total
+      );
+    });
+  } else {
+    const obj = asObject(value);
+    if (obj) {
+      Object.keys(obj).forEach((key) => pushEntry(key, obj[key]));
+    }
+  }
+
+  return result.sort(
+    (a, b) => b.count - a.count || a.illustrator.localeCompare(b.illustrator)
+  );
+}
+
 /** worker_state を画面表示用に正規化する（ジョブが無い場合は null）。 */
 export function normalizePokecaLightWorkerState(
   value: unknown
@@ -300,8 +358,19 @@ export function normalizePokecaLightWorkerState(
   const obj = asObject(value);
   if (!obj) return null;
 
+  const isActive =
+    pickBoolean(obj, ["active", "is_active", "worker_active"]) === true;
+
   const total =
-    pickCount(obj, ["total_count", "total", "target_count", "product_count"]) ?? 0;
+    pickCount(obj, [
+      "total_target_products",
+      "total_target_products_count",
+      "total_count",
+      "total",
+      "target_count",
+      "product_count",
+      "target_total",
+    ]) ?? 0;
   const processed =
     pickCount(obj, ["processed_count", "processed", "done_count", "finished_count"]) ??
     null;
@@ -321,20 +390,38 @@ export function normalizePokecaLightWorkerState(
   const resolvedProcessed =
     processed ?? Math.min(total, success + failed + skipped);
 
-  const status = resolveStatus(obj, {
-    total,
-    processed: resolvedProcessed,
-    failed,
-  });
+  // 商品別の items[] が返らない応答向けの集計値
+  const priceFoundCount = pickCount(obj, [
+    "price_found_count",
+    "priced_count",
+    "price_count",
+    "candidate_price_count",
+  ]);
+  const illustratorCounts = parseIllustratorCounts(
+    obj.illustrator_counts ?? obj.illustrators ?? obj.illustrator_breakdown
+  );
+
+  const status = resolveStatus(
+    obj,
+    {
+      total,
+      processed: resolvedProcessed,
+      failed,
+    },
+    isActive
+  );
 
   // 実行予定も結果も無い空の状態は「ジョブなし」として扱う
   const hasAnySignal =
+    isActive ||
     total > 0 ||
     resolvedProcessed > 0 ||
     success > 0 ||
     failed > 0 ||
     skipped > 0 ||
     failures.length > 0 ||
+    priceFoundCount !== null ||
+    illustratorCounts.length > 0 ||
     pickFirstString(obj, ["job_id", "run_id", "worker_id", "id"]) !== null ||
     status !== "idle";
   if (!hasAnySignal) return null;
@@ -347,6 +434,7 @@ export function normalizePokecaLightWorkerState(
 
   return {
     isTest: pickBoolean(obj, ["is_test", "test_mode"]) === true,
+    isActive,
     status,
     rawStatus:
       pickFirstString(obj, ["status", "worker_status", "state", "phase"]) ?? "",
@@ -358,6 +446,8 @@ export function normalizePokecaLightWorkerState(
     productIds,
     failures,
     items: normalizeProductInfos(obj),
+    priceFoundCount,
+    illustratorCounts,
     jobId: pickFirstString(obj, ["job_id", "run_id", "worker_id", "id"]),
     startedAt: pickFirstString(obj, ["started_at", "start_at"]),
     finishedAt: pickFirstString(obj, ["finished_at", "completed_at", "end_at"]),
@@ -386,6 +476,33 @@ async function parseJsonObject(response: Response): Promise<Record<string, unkno
   } catch {
     return null;
   }
+}
+
+/**
+ * 応答から worker_state の実体を取り出す。
+ * `{worker_state:{...}}` / `{worker:{...}}` / `{data:{worker_state:{...}}}` /
+ * 応答自体が worker_state の項目を持つフラット形式のいずれも受け付ける。
+ */
+function pickWorkerStatePayload(
+  data: Record<string, unknown> | null
+): unknown {
+  if (!data) return null;
+  const direct = data.worker_state ?? data.worker;
+  if (direct !== undefined && direct !== null) return direct;
+  const nested = asObject(data.data);
+  if (nested) {
+    const nestedState = nested.worker_state ?? nested.worker;
+    if (nestedState !== undefined && nestedState !== null) return nestedState;
+    // data の中身がそのまま worker_state の項目を持つ場合
+    if (
+      nested.active !== undefined ||
+      nested.processed_count !== undefined ||
+      nested.total_target_products !== undefined
+    ) {
+      return nested;
+    }
+  }
+  return data;
 }
 
 export interface PokecaLightRunResult {
@@ -430,9 +547,7 @@ export async function runPokecaLight(params: {
 
   return {
     alreadyRunning: data.already_running === true,
-    workerState: normalizePokecaLightWorkerState(
-      data.worker_state ?? data.worker ?? null
-    ),
+    workerState: normalizePokecaLightWorkerState(pickWorkerStatePayload(data)),
     message,
   };
 }
@@ -469,9 +584,7 @@ export async function fetchPokecaLightStatus(): Promise<PokecaLightStatusResult>
   }
 
   return {
-    workerState: normalizePokecaLightWorkerState(
-      data?.worker_state ?? data?.worker ?? data ?? null
-    ),
+    workerState: normalizePokecaLightWorkerState(pickWorkerStatePayload(data)),
     message,
   };
 }

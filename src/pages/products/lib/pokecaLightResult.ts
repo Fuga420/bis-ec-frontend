@@ -140,7 +140,7 @@ export function countPokecaLightResultRows(
   return counts;
 }
 
-/** 参考価格の有無（取得できた商品別情報の範囲だけで数える）。 */
+/** 参考価格の有無（商品別情報が無い場合は API の集計値で数える）。 */
 export function countPokecaLightPrices(worker: PokecaLightWorkerState): {
   known: number;
   priced: number;
@@ -155,7 +155,26 @@ export function countPokecaLightPrices(worker: PokecaLightWorkerState): {
       unpriced += 1;
     }
   });
-  return { known: priced + unpriced, priced, unpriced };
+  const itemKnown = priced + unpriced;
+
+  // items[] が返らない応答では price_found_count と処理済み件数で内訳を作る
+  if (worker.priceFoundCount !== null) {
+    const total = worker.totalCount > 0 ? worker.totalCount : worker.processedCount;
+    const processed = Math.max(0, Math.min(worker.processedCount, total));
+    if (processed > itemKnown) {
+      const pricedCount = Math.max(
+        0,
+        Math.min(worker.priceFoundCount, processed)
+      );
+      return {
+        known: processed,
+        priced: pricedCount,
+        unpriced: processed - pricedCount,
+      };
+    }
+  }
+
+  return { known: itemKnown, priced, unpriced };
 }
 
 /** 再実行の対象になる失敗商品ID（重複なし）。 */

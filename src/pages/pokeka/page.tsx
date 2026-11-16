@@ -23,10 +23,12 @@ import StorageSubTabs from "./components/StorageSubTabs";
 import StorageScopePending from "./components/StorageScopePending";
 import { usePokekaRawStorageList } from "./hooks/usePokekaRawStorageList";
 import {
+  buildLightCoverage,
   buildLightInfoMap,
   collectBoxOptions,
-  collectIllustratorOptions,
+  countByIllustrator,
   parseStoragePosition,
+  resolveReferencePrice,
 } from "./lib/rawStorage";
 import {
   DEFAULT_STORAGE_SCOPE,
@@ -124,12 +126,14 @@ export default function PokekaPage() {
   const infoMap = useMemo(() => buildLightInfoMap(lightItems), [lightItems]);
   const lightStatus = describeLightStatus(pokecaLight.worker);
 
-  // 表示できる実行結果が本当にあるか（商品別の明細・失敗内容・対象件数のいずれか）。
-  // 無いときに「結果を見る」を有効のまま無反応にしない。
+  // 表示できる実行結果が本当にあるか（実行中・完了・失敗のいずれかのジョブ）。
+  // 商品別の明細がまだ返っていない実行中ジョブでも「結果を見る」を開けるようにする。
   const rawLightWorker = pokecaLight.worker;
   const hasLightResult = Boolean(
     rawLightWorker &&
-      (rawLightWorker.items.length > 0 ||
+      (rawLightWorker.status !== "idle" ||
+        rawLightWorker.isActive ||
+        rawLightWorker.items.length > 0 ||
         rawLightWorker.failures.length > 0 ||
         rawLightWorker.totalCount > 0)
   );
@@ -147,9 +151,39 @@ export default function PokekaPage() {
   const selectAllRef = useRef<HTMLInputElement>(null);
 
   const boxOptions = useMemo(() => collectBoxOptions(scopeItems), [scopeItems]);
-  const illustratorOptions = useMemo(
-    () => collectIllustratorOptions(infoMap),
-    [infoMap]
+  // 作家の選択肢は、商品別情報とAPIの集計値（illustrator_counts）の両方から作る。
+  // 商品別情報が返らない応答でも、集計に含まれる作家を選べるようにする。
+  const illustratorOptions = useMemo(() => {
+    const merged = new Map<string, number>();
+    countByIllustrator(infoMap).forEach(({ illustrator, count }) => {
+      merged.set(illustrator, count);
+    });
+    (pokecaLight.worker?.illustratorCounts ?? []).forEach(
+      ({ illustrator, count }) => {
+        if (!merged.has(illustrator)) merged.set(illustrator, count);
+      }
+    );
+    return Array.from(merged.entries())
+      .sort(
+        (a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ja")
+      )
+      .map(([illustrator]) => illustrator);
+  }, [infoMap, pokecaLight.worker]);
+
+  // 参考価格の判定に使える商品があるか（候補価格または販売価格）
+  const priceFilterAvailable = useMemo(
+    () =>
+      scopeItems.some(
+        (product) =>
+          resolveReferencePrice(product, infoMap.get(product.product_id)) !== null
+      ),
+    [scopeItems, infoMap]
+  );
+
+  // パネルの整備状況。商品別情報が無いときはAPIの集計値で表示する。
+  const lightCoverage = useMemo(
+    () => buildLightCoverage(pokecaLight.worker, scopeItems, infoMap),
+    [pokecaLight.worker, scopeItems, infoMap]
   );
 
   const filtered = useMemo(() => {
@@ -170,13 +204,12 @@ export default function PokekaPage() {
         if (!info || info.illustrator !== illustrator) return false;
       }
       if (priceFilter !== "all") {
-        const info = infoMap.get(product.product_id);
-        // 実行結果に含まれない商品は「価格なし」ではなく「未取得」のため対象外
-        if (!info) return false;
-        const hasPrice =
-          info.candidatePrice !== null && Number.isFinite(info.candidatePrice);
-        if (priceFilter === "priced" && !hasPrice) return false;
-        if (priceFilter === "unpriced" && hasPrice) return false;
+        const price = resolveReferencePrice(
+          product,
+          infoMap.get(product.product_id)
+        );
+        if (priceFilter === "priced" && price === null) return false;
+        if (priceFilter === "unpriced" && price !== null) return false;
       }
       return true;
     });
@@ -444,7 +477,7 @@ export default function PokekaPage() {
           {isOldScope && (
             <PokecaLightAiPanel
               products={scopeItems}
-              infoMap={infoMap}
+              coverage={lightCoverage}
               selectedCount={selectedProducts.length}
               isStarting={pokecaLight.isStarting}
               status={lightStatus}
@@ -465,7 +498,7 @@ export default function PokekaPage() {
             onAuthorChange={handleIllustratorChange}
             priceValue={priceFilter}
             onPriceChange={handlePriceChange}
-            priceFilterAvailable={infoMap.size > 0}
+            priceFilterAvailable={priceFilterAvailable}
             disabled={loadState === "loading"}
             onClear={clearFilters}
           />

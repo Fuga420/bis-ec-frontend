@@ -1,27 +1,32 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { AdminProduct } from "@/pages/products/types";
-import type { PokecaLightInfoMap } from "@/pages/pokeka/lib/rawStorage";
+import type { PokecaLightCoverage } from "@/pages/pokeka/lib/rawStorage";
 
 export interface PokecaLightStatusView {
   label: string;
   tone: "idle" | "running" | "done" | "failed";
-  /** 実行中の実進捗（件数が取得できる場合のみ） */
+  /** 実行中の実進捗（status API の processed_count） */
   processed?: number;
+  /** 対象件数（status API の total_target_products） */
   total?: number;
 }
 
 interface PokecaLightAiPanelProps {
-  /** ストレージタブの商品（旧裏ストレージ全件）。整備状況の対象範囲の判定に使う */
+  /** ストレージタブの商品（旧裏ストレージ全件）。整備状況の対象範囲の表示に使う */
   products: AdminProduct[];
-  infoMap: PokecaLightInfoMap;
+  /**
+   * 整備状況の集計。status API の商品別情報、または集計値から組み立てたもの。
+   * null のときだけ「まだ返っていない」と表示する。
+   */
+  coverage: PokecaLightCoverage | null;
   selectedCount: number;
   isStarting: boolean;
   status: PokecaLightStatusView;
   onRun: () => void;
-  /** 実行結果（商品別）を開く */
+  /** 直近の実行結果（商品別・集計）を開く */
   onOpenResult: () => void;
   /**
-   * 表示できる実行結果（商品別の明細・失敗内容・対象件数）が本当にあるか。
+   * 表示できる実行結果（実行中・完了・失敗のいずれかのジョブ）があるか。
    * 無い場合は「結果を見る」を無効表示にし、押しても無反応にしない。
    */
   canOpenResult: boolean;
@@ -59,20 +64,26 @@ function InlineStat({
   );
 }
 
+function formatNumber(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return value.toLocaleString("ja-JP");
+}
+
 /**
  * ストレージタブのライト版AIパネル（コンパクト作業パネル）。
  *
  * 1行目: 名称・短い機能説明・現在の処理状態・実行／結果確認
- * 2行目: 参考価格と作家情報の整備状況（直近の実行で取得できた範囲のみ）
+ * 2行目: 参考価格と作家情報の整備状況
  * 詳細: 長い仕様説明と作家別件数（折りたたみ）
  *
- * 整備状況は、一覧の全件ではなく「ライト版AIの直近の実行結果に含まれる商品」だけを
- * 対象に集計し、その範囲を明記する。ジョブの進捗件数とは別物として扱い、
- * 取得できていない値は推測しない（未取得は集計対象外）。
+ * 状態と件数は、この画面から開始したかどうかに関係なく
+ * GET /pokeca-raw-storage-ai/status の worker_state に追随する。
+ * 商品別情報（items[]）が返らない応答でも、APIの集計値
+ * （processed_count / price_found_count / illustrator_counts）で表示する。
  */
 export default function PokecaLightAiPanel({
   products,
-  infoMap,
+  coverage,
   selectedCount,
   isStarting,
   status,
@@ -82,48 +93,6 @@ export default function PokecaLightAiPanel({
 }: PokecaLightAiPanelProps) {
   const [isDetailOpen, setIsDetailOpen] = useState(false);
 
-  const stats = useMemo(() => {
-    let priced = 0;
-    let unpriced = 0;
-    let authorKnown = 0;
-    let authorMissing = 0;
-    const authors = new Map<string, number>();
-
-    products.forEach((product) => {
-      const info = infoMap.get(product.product_id);
-      // 実行結果に含まれない商品は「価格なし」ではなく「未取得」なので集計しない
-      if (!info) return;
-      if (info.candidatePrice !== null && Number.isFinite(info.candidatePrice)) {
-        priced += 1;
-      } else {
-        unpriced += 1;
-      }
-      if (info.illustrator) {
-        authorKnown += 1;
-        authors.set(info.illustrator, (authors.get(info.illustrator) ?? 0) + 1);
-      } else {
-        authorMissing += 1;
-      }
-    });
-
-    const authorList = Array.from(authors.entries())
-      .map(([illustrator, count]) => ({ illustrator, count }))
-      .sort(
-        (a, b) => b.count - a.count || a.illustrator.localeCompare(b.illustrator)
-      );
-
-    return {
-      known: priced + unpriced,
-      priced,
-      unpriced,
-      authorKnown,
-      authorMissing,
-      authorList,
-    };
-  }, [products, infoMap]);
-
-  const coverage =
-    stats.known > 0 ? Math.floor((stats.priced / stats.known) * 100) : null;
   const storageTotal = products.length;
   const isRunning = status.tone === "running";
 
@@ -136,9 +105,27 @@ export default function PokecaLightAiPanel({
           ? "text-primary-700"
           : "text-foreground-500";
 
+  const progressRatio =
+    isRunning &&
+    typeof status.processed === "number" &&
+    typeof status.total === "number" &&
+    status.total > 0
+      ? Math.min(100, Math.floor((status.processed / status.total) * 100))
+      : null;
+
   const progressText =
-    isRunning && typeof status.processed === "number" && typeof status.total === "number"
-      ? `${status.processed} / ${status.total}件`
+    isRunning && typeof status.processed === "number"
+      ? typeof status.total === "number" && status.total > 0
+        ? `${status.processed.toLocaleString("ja-JP")} / ${status.total.toLocaleString("ja-JP")}件（${progressRatio}%）`
+        : `${status.processed.toLocaleString("ja-JP")}件を処理`
+      : null;
+
+  const coverageRate =
+    coverage &&
+    coverage.known !== null &&
+    coverage.known > 0 &&
+    coverage.priced !== null
+      ? Math.floor((coverage.priced / coverage.known) * 100)
       : null;
 
   return (
@@ -166,7 +153,7 @@ export default function PokecaLightAiPanel({
             {status.label}
           </span>
           {progressText && (
-            <span className="admin-numeric whitespace-nowrap text-[11px] leading-none text-foreground-500">
+            <span className="admin-numeric whitespace-nowrap text-[11px] leading-none text-foreground-600">
               {progressText}
             </span>
           )}
@@ -208,44 +195,64 @@ export default function PokecaLightAiPanel({
       </div>
 
       <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1.5 border-t border-background-200 px-3.5 py-2">
-        {stats.known > 0 ? (
+        {coverage ? (
           <>
             <span className="whitespace-nowrap text-[11px] leading-none text-foreground-400">
-              ライト版AIの直近の結果{" "}
-              <span className="admin-numeric text-foreground-600">
-                {stats.known.toLocaleString("ja-JP")}
-              </span>
-              件
-              <span className="text-foreground-300">
-                （ストレージ {storageTotal.toLocaleString("ja-JP")}件中）
-              </span>
+              {coverage.source === "worker" ? (
+                <>
+                  ライト版AI 処理済み{" "}
+                  <span className="admin-numeric text-foreground-600">
+                    {formatNumber(coverage.known)}
+                  </span>
+                  件
+                  {coverage.total !== null && coverage.total > 0 && (
+                    <span className="text-foreground-300">
+                      （対象 {formatNumber(coverage.total)}件中）
+                    </span>
+                  )}
+                </>
+              ) : (
+                <>
+                  ライト版AIの直近の結果{" "}
+                  <span className="admin-numeric text-foreground-600">
+                    {formatNumber(coverage.known)}
+                  </span>
+                  件
+                  <span className="text-foreground-300">
+                    （ストレージ {formatNumber(storageTotal)}件中）
+                  </span>
+                </>
+              )}
             </span>
-            <InlineStat
-              label="価格あり"
-              value={stats.priced.toLocaleString("ja-JP")}
-            />
-            <InlineStat
-              label="価格なし"
-              value={stats.unpriced.toLocaleString("ja-JP")}
-            />
+            <InlineStat label="価格あり" value={formatNumber(coverage.priced)} />
+            <InlineStat label="価格なし" value={formatNumber(coverage.unpriced)} />
             <InlineStat
               label="カバレッジ"
-              value={coverage === null ? "—" : `${coverage}%`}
+              value={coverageRate === null ? "—" : `${coverageRate}%`}
             />
             <span className="hidden h-3 w-px bg-background-200 sm:block" aria-hidden="true"></span>
-            <InlineStat
-              label="作家あり"
-              value={stats.authorKnown.toLocaleString("ja-JP")}
-            />
-            <InlineStat
-              label="作家なし"
-              value={stats.authorMissing.toLocaleString("ja-JP")}
-              tone="muted"
-            />
+            {coverage.source === "items" ? (
+              <>
+                <InlineStat
+                  label="作家あり"
+                  value={formatNumber(coverage.authorKnown)}
+                />
+                <InlineStat
+                  label="作家なし"
+                  value={formatNumber(coverage.authorMissing)}
+                  tone="muted"
+                />
+              </>
+            ) : (
+              <InlineStat
+                label="作家"
+                value={`${coverage.authorList.length}名`}
+              />
+            )}
           </>
         ) : (
           <span className="text-[11px] leading-relaxed text-foreground-500">
-            参考価格・作家情報はライト版AIの実行結果からのみ取得できます。直近の結果がないため整備状況は表示していません。
+            参考価格・作家情報の集計値がまだ返っていません（実行中または完了後に表示されます）。
           </span>
         )}
 
@@ -281,7 +288,7 @@ export default function PokecaLightAiPanel({
                 参考価格の扱い
               </dt>
               <dd className="mt-1 text-[11px] leading-relaxed text-foreground-500">
-                参考価格は「参考」の目安で、確定価格ではありません。取得できなかった場合は推測せず「—」と表示します。
+                参考価格は「参考」の目安で、確定価格ではありません。ライト版の候補価格が無い場合は商品の販売価格を表示し、どちらも無い場合は推測せず「—」と表示します。
               </dd>
             </div>
             <div className="min-w-0">
@@ -303,19 +310,19 @@ export default function PokecaLightAiPanel({
           </dl>
 
           <p className="text-[11px] leading-relaxed text-foreground-400">
-            実行中は処理済み・成功・失敗・スキップを画面上部の進捗に表示します。完了すると一覧を再取得します。
+            表示している状態・件数は、この画面から開始したかどうかに関係なく、サーバーが返す現在の実行状態に追随します。
           </p>
 
-          {stats.authorList.length > 0 && (
+          {coverage && coverage.authorList.length > 0 && (
             <div className="border-t border-background-200 pt-2">
               <p className="text-[11px] leading-none text-foreground-500">
-                作家別件数（直近の結果）
+                作家別件数（{coverage.source === "worker" ? "API集計値" : "直近の結果"}）
                 <span className="ml-1 text-foreground-400">
-                  {stats.authorList.length}名
+                  {coverage.authorList.length}名
                 </span>
               </p>
               <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {stats.authorList.slice(0, 12).map((author) => (
+                {coverage.authorList.slice(0, 12).map((author) => (
                   <span
                     key={author.illustrator}
                     className="inline-flex h-[22px] max-w-full items-center gap-1 whitespace-nowrap rounded-md border border-background-200 bg-background-50 px-2 text-[11px] leading-none text-foreground-700"
@@ -328,9 +335,9 @@ export default function PokecaLightAiPanel({
                     </span>
                   </span>
                 ))}
-                {stats.authorList.length > 12 && (
+                {coverage.authorList.length > 12 && (
                   <span className="inline-flex h-[22px] items-center whitespace-nowrap rounded-md border border-background-200 bg-background-50 px-2 text-[11px] leading-none text-foreground-400">
-                    ほか {stats.authorList.length - 12} 名
+                    ほか {coverage.authorList.length - 12} 名
                   </span>
                 )}
               </div>

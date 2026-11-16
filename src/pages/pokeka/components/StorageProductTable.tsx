@@ -8,6 +8,7 @@ import {
 } from "@/pages/products/types";
 import {
   formatStoragePosition,
+  resolveReferencePrice,
   type PokecaLightInfoMap,
 } from "@/pages/pokeka/lib/rawStorage";
 
@@ -98,7 +99,9 @@ export default function StorageProductTable({
         const cardName = info?.cardName ?? "";
         const cardNumber = info?.cardNumber ?? "";
         const author = info?.illustrator ?? "";
-        const price = formatPrice(info?.candidatePrice ?? null);
+        const price = formatPrice(
+          resolveReferencePrice(product, info)
+        );
         const publishLabel =
           PUBLISH_STATUS_LABELS[product.publish_status] ??
           product.publish_status ??

@@ -439,3 +439,13 @@
   - 既に完了している実行も、画面を開いた時点の status 取得で「完了／一部失敗／失敗」として表示する。
 - 「結果を見る」：表示できる結果（商品別の明細 `items[]`・`failures[]`・`totalCount` のいずれか）が無い場合は**ボタンを無効表示**（`disabled`＋控えめな配色＋理由の `title`）にし、押しても無反応な状態をなくした。結果が無くなった（モード切替等）ときは開いている結果ビューを閉じる。
 - 状態：ビルド成功。実画面での確認はスタッフが実施する。公開（Publish）は指示があるまで行わない。
+
+### フェーズ6追加：ライト版AIの状態判定をstatus APIの実応答に合わせる（2026-11-16 実装・フロントのみ）
+- 背景（実測）：`GET /pokeca-raw-storage-ai/status` の `worker_state` は `active`（実行中フラグ）/ `processed_count` / `total_target_products` / `price_found_count` / `illustrator_counts` を返す。旧実装は `status:"running"` や `total_count`、商品別 `items[]` だけを見ていたため、`/pokeka` では「待機中」になり、進捗・集計・「結果を見る」がすべて出なかった（APIは値を返しているのに画面が読んでいなかった）。
+- 変更範囲：`src/pages/products/lib/pokecaRawStorageAi.ts`（正規化）/ `src/pages/pokeka/lib/rawStorage.ts`（集計・参考価格の解決）/ `src/pages/pokeka/page.tsx` / `src/pages/pokeka/components/PokecaLightAiPanel.tsx` / `src/pages/pokeka/components/StorageProductTable.tsx` / `src/pages/products/lib/pokecaLightResult.ts` / `src/pages/products/components/PokecaLightResultModal.tsx`。API・DB・バックエンド・GAS、実行・予約・再実行・対象ID判定、`products` のデータ構造は無変更。
+- 状態判定（`isActive` を追加）：`worker_state.active` を最優先の実行中シグナルとし、`status` 文字列が無い応答でも「実行中」と判定する。対象件数は `total_target_products` を先に読む（旧 `total_count` 等も後方互換で受ける）。画面から開始したかどうかは条件にしない。
+- 集計（`price_found_count` / `illustrator_counts`）：商品別 `items[]` が無い応答では、`price_found_count` と処理済み件数で「価格あり／価格なし／カバレッジ」を、`illustrator_counts`（オブジェクト・配列どちらも可）で作家別件数と作家数を組み立てる。値が返っている場合は「まだ返っていません」と表示しない。`items[]` がある場合は従来どおり商品別情報を優先。
+- 進捗表示：`status.active` と `processed_count / total_target_products` から「処理済み / 対象件数（％）」をパネルに表示する（実行中のみ）。
+- 「結果を見る」：`worker_state` に実行中・完了・失敗のいずれかのジョブがあれば有効化し、既存の結果モーダルを開く。結果モーダルの価格内訳も集計値へ追随。商品別明細が未取得の間は、モーダル上部の件数（サーバー集計）と「明細は取得できた範囲のみ」の案内を表示する（空の結果を成功扱いにしない）。
+- 参考価格：一覧の「参考価格」は、ライト版の候補価格（`candidate_price`）→ 商品の販売価格（`planned_sale_price`）の順で表示し、どちらも無い場合のみ「—」。価格フィルター（すべて／価格あり／価格なし）も同じ解決関数で判定するため、商品別情報が無くても無効化されない。参照は読み取りのみで、価格の保存・計算は変更しない。
+- 状態：ビルド成功。実画面での確認（実行中ジョブがある状態で `/pokeka` を開き、進捗・集計・結果モーダルが出ること）はスタッフが実施する。公開（Publish）は指示があるまで行わない。
