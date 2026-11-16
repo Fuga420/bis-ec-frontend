@@ -84,8 +84,11 @@ function PokecaLightResultRowView({
               <span className="font-medium text-foreground-900">
                 参考価格 ¥{price}
               </span>
-            ) : (
+            ) : row.priceKnown ? (
               <span className="text-foreground-400">価格なし</span>
+            ) : (
+              // 一覧の商品データと突き合わせできない行は「価格なし」と断定しない
+              <span className="text-foreground-400">—</span>
             )}
           </span>
         </div>

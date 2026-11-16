@@ -753,6 +753,12 @@ export default function ProductsPage() {
     return map;
   }, [products, selectedProducts]);
 
+  // ライト版の結果モーダル用。価格解決に使う商品データ（表示中＋選択済み）
+  const lightResultProducts = useMemo(
+    () => [...products, ...selectedProducts],
+    [products, selectedProducts]
+  );
+
   // ライト版の失敗商品だけを再実行する（既存の開始処理を product_ids 指定で呼ぶ）。
   // 実行中ジョブがある場合は既存フックが新規開始せず、その旨を noticeMessage に出す。
   const retryPokecaLightFailed = async (productIds: string[]) => {
@@ -1681,6 +1687,7 @@ export default function ProductsPage() {
       <PokecaLightResultModal
         open={isLightResultOpen && Boolean(pokecaLight.worker)}
         worker={pokecaLight.worker}
+        products={lightResultProducts}
         imageMap={lightResultImageMap}
         isRefreshing={pokecaLight.isRefreshing}
         isStarting={pokecaLight.isStarting}

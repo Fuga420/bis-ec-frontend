@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useOperatingMode } from "@/context/OperatingModeProvider";
 import { adminThemeClass } from "@/lib/adminTheme";
 import type { PokecaLightWorkerState } from "@/pages/products/lib/pokecaRawStorageAi";
+import type { AdminProduct } from "@/pages/products/types";
 import {
   buildPokecaLightResultRows,
   countPokecaLightPrices,
@@ -16,6 +17,8 @@ type ResultFilter = "all" | "success" | "failed";
 interface PokecaLightResultModalProps {
   open: boolean;
   worker: PokecaLightWorkerState | null;
+  /** 商品IDで突き合わせる商品データ（価格の解決に使う。無い行は「—」表示） */
+  products?: AdminProduct[];
   /** 商品ID→サムネイルURL（一覧から取得できた分だけ） */
   imageMap: Map<string, string>;
   isRefreshing: boolean;
@@ -76,6 +79,7 @@ function SummaryStat({
 export default function PokecaLightResultModal({
   open,
   worker,
+  products = [],
   imageMap,
   isRefreshing,
   isStarting,
@@ -105,8 +109,8 @@ export default function PokecaLightResultModal({
   }, [open]);
 
   const rows = useMemo<PokecaLightResultRow[]>(
-    () => (worker ? buildPokecaLightResultRows(worker) : []),
-    [worker]
+    () => (worker ? buildPokecaLightResultRows(worker, products) : []),
+    [worker, products]
   );
   const counts = useMemo(() => countPokecaLightResultRows(rows), [rows]);
   const priceStats = useMemo(
@@ -269,7 +273,7 @@ export default function PokecaLightResultModal({
             </span>
             {priceStats.known > 0 && (
               <span className="whitespace-nowrap">
-                価格は処理済み {priceStats.known} 件の集計
+                価格は対象 {priceStats.known} 件の集計
               </span>
             )}
             {rows.length < total && (

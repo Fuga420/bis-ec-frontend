@@ -304,6 +304,9 @@ export interface AdminProductListResponse {
   version?: string;
   count: number;
   products: AdminProduct[];
+  // 除外条件（exclude_storage_location_prefix 等）で非表示にした件数。
+  // 除外条件を送っていない応答では未設定。
+  excluded_count?: number;
   // ページ分割モード（GAS 商品一覧API v3）のレスポンス項目。
   // 旧仕様（admin-product-list-v2）の応答では未設定。
   page?: number;

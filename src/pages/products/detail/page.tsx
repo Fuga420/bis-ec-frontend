@@ -63,6 +63,7 @@ import ProductDetailTabs, {
   type ProductDetailTabKey,
 } from "./components/ProductDetailTabs";
 import SalesManagementPanel from "./components/SalesManagementPanel";
+import ChannelListingsPanel from "./components/ChannelListingsPanel";
 import ProductDangerDialogs from "./components/ProductDangerDialogs";
 import SaveStatusMessage from "@/components/base/SaveStatusMessage";
 import BisImagePlaceholder from "@/components/base/BisImagePlaceholder";
@@ -1338,6 +1339,13 @@ export default function ProductDetailPage() {
                         <ProductDocumentSection doc={product.document} />
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* 出品チャネル（Mercari Shops / eBay / スニーカーダンク） */}
+                {activeTab === "channels" && (
+                  <div className="tab-fade">
+                    <ChannelListingsPanel productId={product.product_id} />
                   </div>
                 )}
 

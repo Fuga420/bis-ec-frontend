@@ -224,6 +224,8 @@ export default function StorageProductTable({
                 )}
               </span>
 
+              {/* 公開状態と在庫状態は別の意味を持つため、判定・データは統合せず
+                  中黒で並べるだけにする（通常状態は強調しない）。 */}
               <span
                 className={`${COL_STATUS} flex items-center gap-1.5 whitespace-nowrap text-[11px] leading-none`}
               >
@@ -231,8 +233,8 @@ export default function StorageProductTable({
                   <span
                     className={
                       isPublished
-                        ? "font-medium text-foreground-900"
-                        : "text-foreground-500"
+                        ? "text-foreground-600"
+                        : "text-foreground-400"
                     }
                   >
                     {publishLabel}
@@ -244,7 +246,7 @@ export default function StorageProductTable({
                   </span>
                 )}
                 {inventoryLabel && (
-                  <span className="text-foreground-600">{inventoryLabel}</span>
+                  <span className="text-foreground-500">{inventoryLabel}</span>
                 )}
               </span>
             </Link>

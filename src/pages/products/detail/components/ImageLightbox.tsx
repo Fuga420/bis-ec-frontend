@@ -5,6 +5,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { createPortal } from "react-dom";
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 4;
@@ -22,6 +23,11 @@ interface ImageLightboxProps {
  * 商品画像の拡大表示（ライトボックス）。
  * 表示専用で、画像の保存やAPI通信は一切行わない。
  * ホイール / ボタンでズーム、ドラッグでパン（移動）ができる。
+ *
+ * 表示は body 直下に描画する。
+ * 商品詳細の本文領域にはフェードのアニメーション（transform）がかかっており、
+ * その中に置くと position: fixed の基準が「画面全体」ではなく本文領域になり、
+ * 拡大画像が本文領域からはみ出したままスクロールできなくなるため。
  */
 export default function ImageLightbox({
   images,
@@ -40,6 +46,7 @@ export default function ImageLightbox({
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
 
+  const scrollRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const dragRef = useRef<{
@@ -111,10 +118,16 @@ export default function ImageLightbox({
 
   // ホイールでカーソル位置を中心にズームする。
   // passive なリスナーだと preventDefault が効かないため、ネイティブで passive:false を指定する。
+  // 画像が収まりきらずスクロールが必要な状態（等倍）では、ズームよりスクロールを優先する。
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
     const onWheel = (e: WheelEvent) => {
+      const scroller = scrollRef.current;
+      const scrollable =
+        scroller != null && scroller.scrollHeight > scroller.clientHeight + 1;
+      if (scaleRef.current === 1 && scrollable) return;
+
       e.preventDefault();
       const rect = stage.getBoundingClientRect();
       const dx = e.clientX - (rect.left + rect.width / 2);
@@ -192,14 +205,104 @@ export default function ImageLightbox({
 
   const isZoomed = scale > 1;
 
-  return (
+  const content = (
     <div
       role="dialog"
       aria-modal="true"
       aria-label={`${productName} の画像を拡大表示`}
-      onClick={onClose}
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4"
+      className="fixed inset-0 z-[60] bg-black/80"
     >
+      {/* 画面に収まらないときだけ、この領域をスクロールできる */}
+      <div
+        ref={scrollRef}
+        onClick={onClose}
+        className="absolute inset-0 overflow-y-auto overscroll-contain"
+      >
+        <div className="flex min-h-full w-full items-center justify-center px-4 py-14">
+          <div
+            ref={stageRef}
+            onClick={(e) => e.stopPropagation()}
+            className="relative flex w-full max-w-full flex-col items-center"
+          >
+            <div
+              onDoubleClick={handleDoubleClick}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerUp}
+              className={`flex select-none items-center justify-center overflow-hidden rounded-lg touch-none ${
+                isZoomed
+                  ? dragging
+                    ? "cursor-grabbing"
+                    : "cursor-grab"
+                  : "cursor-zoom-in"
+              }`}
+            >
+              {src && !failed ? (
+                <img
+                  ref={imgRef}
+                  src={src}
+                  alt={`${productName} ${safeIndex + 1}`}
+                  draggable={false}
+                  onError={() => setFailed(true)}
+                  style={{
+                    transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
+                    transition: dragging ? "none" : "transform 0.15s ease-out",
+                  }}
+                  className="max-h-[calc(100dvh_-_11rem)] max-w-[90vw] rounded-lg object-contain"
+                />
+              ) : (
+                <div className="flex h-[60vh] w-[70vw] max-w-2xl flex-col items-center justify-center gap-2 rounded-lg bg-white/5 text-background-50">
+                  <i className="ri-image-line w-12 h-12 flex items-center justify-center text-2xl text-white/50"></i>
+                  <span className="text-sm text-white/70">画像を表示できません</span>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                aria-label="縮小"
+                onClick={() => zoomBy(1 / ZOOM_STEP)}
+                disabled={!isZoomed}
+                className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-white/10 text-background-50 transition-colors hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+              >
+                <i className="ri-subtract-line"></i>
+              </button>
+              <button
+                type="button"
+                aria-label="等倍に戻す"
+                onClick={resetZoom}
+                disabled={!isZoomed}
+                className="flex h-9 min-w-[64px] cursor-pointer items-center justify-center whitespace-nowrap rounded-full bg-white/10 px-3 text-xs font-medium text-background-50 transition-colors hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+              >
+                {Math.round(scale * 100)}%
+              </button>
+              <button
+                type="button"
+                aria-label="拡大"
+                onClick={() => zoomBy(ZOOM_STEP)}
+                disabled={scale >= MAX_SCALE}
+                className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-white/10 text-background-50 transition-colors hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+              >
+                <i className="ri-add-line"></i>
+              </button>
+            </div>
+
+            <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+              {count > 1 && (
+                <span className="whitespace-nowrap rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-background-50">
+                  {safeIndex + 1} / {count}
+                </span>
+              )}
+              <span className="text-[11px] text-white/60">
+                ホイール / ダブルクリックでズーム、ドラッグで移動
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <button
         type="button"
         onClick={onClose}
@@ -213,111 +316,25 @@ export default function ImageLightbox({
         <button
           type="button"
           aria-label="前の画像"
-          onClick={(e) => {
-            e.stopPropagation();
-            onNavigate((safeIndex - 1 + count) % count);
-          }}
-          className="absolute left-3 z-10 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-white/10 text-background-50 transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 md:left-6"
+          onClick={() => onNavigate((safeIndex - 1 + count) % count)}
+          className="absolute left-3 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-white/10 text-background-50 transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 md:left-6"
         >
           <i className="ri-arrow-left-s-line text-2xl"></i>
         </button>
       )}
 
-      <div
-        ref={stageRef}
-        onClick={(e) => e.stopPropagation()}
-        className="relative flex max-h-full max-w-full flex-col items-center"
-      >
-        <div
-          onDoubleClick={handleDoubleClick}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerUp}
-          className={`flex select-none items-center justify-center touch-none ${
-            isZoomed
-              ? dragging
-                ? "cursor-grabbing"
-                : "cursor-grab"
-              : "cursor-zoom-in"
-          }`}
-        >
-          {src && !failed ? (
-            <img
-              ref={imgRef}
-              src={src}
-              alt={`${productName} ${safeIndex + 1}`}
-              draggable={false}
-              onError={() => setFailed(true)}
-              style={{
-                transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
-                transition: dragging ? "none" : "transform 0.15s ease-out",
-              }}
-              className="max-h-[85vh] max-w-[90vw] rounded-lg object-contain"
-            />
-          ) : (
-            <div className="flex h-[60vh] w-[70vw] max-w-2xl flex-col items-center justify-center gap-2 rounded-lg bg-white/5 text-background-50">
-              <i className="ri-image-line w-12 h-12 flex items-center justify-center text-2xl text-white/50"></i>
-              <span className="text-sm text-white/70">画像を表示できません</span>
-            </div>
-          )}
-        </div>
-
-        <div className="mt-3 flex items-center gap-2">
-          <button
-            type="button"
-            aria-label="縮小"
-            onClick={() => zoomBy(1 / ZOOM_STEP)}
-            disabled={!isZoomed}
-            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-white/10 text-background-50 transition-colors hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
-          >
-            <i className="ri-subtract-line"></i>
-          </button>
-          <button
-            type="button"
-            aria-label="等倍に戻す"
-            onClick={resetZoom}
-            disabled={!isZoomed}
-            className="flex h-9 min-w-[64px] cursor-pointer items-center justify-center whitespace-nowrap rounded-full bg-white/10 px-3 text-xs font-medium text-background-50 transition-colors hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
-          >
-            {Math.round(scale * 100)}%
-          </button>
-          <button
-            type="button"
-            aria-label="拡大"
-            onClick={() => zoomBy(ZOOM_STEP)}
-            disabled={scale >= MAX_SCALE}
-            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-white/10 text-background-50 transition-colors hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
-          >
-            <i className="ri-add-line"></i>
-          </button>
-        </div>
-
-        <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
-          {count > 1 && (
-            <span className="whitespace-nowrap rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-background-50">
-              {safeIndex + 1} / {count}
-            </span>
-          )}
-          <span className="text-[11px] text-white/60">
-            ホイール / ダブルクリックでズーム、ドラッグで移動
-          </span>
-        </div>
-      </div>
-
       {count > 1 && (
         <button
           type="button"
           aria-label="次の画像"
-          onClick={(e) => {
-            e.stopPropagation();
-            onNavigate((safeIndex + 1) % count);
-          }}
-          className="absolute right-3 z-10 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-white/10 text-background-50 transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 md:right-6"
+          onClick={() => onNavigate((safeIndex + 1) % count)}
+          className="absolute right-3 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-white/10 text-background-50 transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 md:right-6"
         >
           <i className="ri-arrow-right-s-line text-2xl"></i>
         </button>
       )}
     </div>
   );
+
+  return createPortal(content, document.body);
 }

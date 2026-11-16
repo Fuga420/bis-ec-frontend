@@ -138,17 +138,21 @@ export function resolveReferencePrice(
 
 /**
  * ライト版AIの整備状況の集計。
- * source="items": 商品別情報（worker_state.items[]）が返っている場合。
- * source="worker": items[] が無く、APIの集計値（processed_count /
- * price_found_count / illustrator_counts）だけで判定する場合。
+ *
+ * 価格は status 応答トップレベルの集計値（price_found_count）を優先して使う。
+ * 商品別の items[] には価格フィールドが含まれない場合があるため、items 由来の集計は
+ * 集計値が無いときのフォールバックに留める（0件と誤表示しないため）。
+ * 作家は商品別情報（items[]）を優先し、無ければ集計値（illustrator_counts）を使う。
  */
 export interface PokecaLightCoverage {
-  /** 集計できた件数（items なら商品別情報がある件数、worker なら処理済み件数） */
+  /** 集計できた件数（対象件数を基準にする） */
   known: number | null;
-  /** 対象件数（worker 集計時のみ。items 集計時は null） */
+  /** 対象件数 */
   total: number | null;
   priced: number | null;
   unpriced: number | null;
+  /** 価格カバレッジ（％・小数第1位）。算出できない場合は null */
+  priceRate: number | null;
   authorKnown: number | null;
   authorMissing: number | null;
   authorList: Array<{ illustrator: string; count: number }>;
@@ -157,92 +161,173 @@ export interface PokecaLightCoverage {
 
 /**
  * パネルの整備状況を組み立てる。
- * 商品別情報があれば従来どおりそれを優先し、無ければAPIの集計値を使う。
- * どちらの値も無い場合は null（「まだ返っていません」を表示する）。
+ * 価格はサーバーの集計値、作家は商品別情報を優先し、どちらも無い場合は null。
  */
 export function buildLightCoverage(
   worker: PokecaLightWorkerState | null,
   products: AdminProduct[],
   infoMap: PokecaLightInfoMap
 ): PokecaLightCoverage | null {
-  if (infoMap.size > 0) {
-    let priced = 0;
-    let unpriced = 0;
-    let authorKnown = 0;
-    let authorMissing = 0;
-    const authors = new Map<string, number>();
+  // 商品別情報から数えられる範囲（価格・作家のフォールバック用）
+  let itemsKnown = 0;
+  let itemsPriced = 0;
+  let itemsAuthorKnown = 0;
+  const authors = new Map<string, number>();
 
-    products.forEach((product) => {
-      const info = infoMap.get(product.product_id);
-      // 商品別情報に含まれない商品は「未取得」なので集計しない
-      if (!info) return;
-      if (info.candidatePrice !== null && Number.isFinite(info.candidatePrice)) {
-        priced += 1;
-      } else {
-        unpriced += 1;
-      }
-      if (info.illustrator) {
-        authorKnown += 1;
-        authors.set(info.illustrator, (authors.get(info.illustrator) ?? 0) + 1);
-      } else {
-        authorMissing += 1;
-      }
-    });
-
-    // 商品別情報が一覧の商品と1件も対応しない場合は、集計値での表示に切り替える
-    if (priced + unpriced > 0) {
-      const authorList = Array.from(authors.entries())
-        .map(([illustrator, count]) => ({ illustrator, count }))
-        .sort(
-          (a, b) =>
-            b.count - a.count || a.illustrator.localeCompare(b.illustrator)
-        );
-
-      return {
-        known: priced + unpriced,
-        total: null,
-        priced,
-        unpriced,
-        authorKnown,
-        authorMissing,
-        authorList,
-        source: "items",
-      };
+  products.forEach((product) => {
+    const info = infoMap.get(product.product_id);
+    // 商品別情報に含まれない商品は「未取得」なので集計しない
+    if (!info) return;
+    itemsKnown += 1;
+    if (
+      info.candidatePrice !== null &&
+      Number.isFinite(info.candidatePrice) &&
+      info.candidatePrice > 0
+    ) {
+      itemsPriced += 1;
     }
+    if (info.illustrator) {
+      itemsAuthorKnown += 1;
+      authors.set(info.illustrator, (authors.get(info.illustrator) ?? 0) + 1);
+    }
+  });
+
+  const storageTotal = products.length;
+  const targetTotal =
+    worker && worker.totalCount > 0 ? worker.totalCount : storageTotal;
+  const known = targetTotal > 0 ? targetTotal : itemsKnown || null;
+  if (known === null) return null;
+
+  // 価格: status 応答トップレベルの集計値を優先（items には価格が含まれない場合がある）
+  const aggregatePriced = worker?.priceFoundCount ?? null;
+  let priced: number | null = null;
+  if (aggregatePriced !== null) {
+    priced = Math.max(0, Math.min(aggregatePriced, known));
+  } else if (itemsKnown > 0) {
+    priced = itemsPriced;
   }
+  const unpriced =
+    priced === null ? null : Math.max(0, known - priced);
+  const priceRate =
+    priced === null || known <= 0
+      ? null
+      : Math.round((priced / known) * 1000) / 10;
 
-  if (!worker) return null;
-  const hasAggregate =
-    worker.priceFoundCount !== null || worker.illustratorCounts.length > 0;
-  if (!hasAggregate) return null;
+  // 作家: 商品別情報を優先し、無ければサーバーの集計値（illustrator_counts）
+  let authorList = Array.from(authors.entries())
+    .map(([illustrator, count]) => ({ illustrator, count }))
+    .sort(
+      (a, b) => b.count - a.count || a.illustrator.localeCompare(b.illustrator)
+    );
+  let authorKnown: number | null = itemsAuthorKnown > 0 ? itemsAuthorKnown : null;
 
-  const total = worker.totalCount > 0 ? worker.totalCount : worker.processedCount;
-  const processed = Math.max(0, Math.min(worker.processedCount, total));
-  if (processed === 0) return null;
-
-  const rawPriced = worker.priceFoundCount;
-  const priced =
-    rawPriced === null ? null : Math.max(0, Math.min(rawPriced, processed));
-  const unpriced = priced === null ? null : Math.max(0, processed - priced);
-
-  const authorList = worker.illustratorCounts;
-  const authorKnown =
-    authorList.length > 0
-      ? authorList.reduce((sum, entry) => sum + entry.count, 0)
-      : null;
+  if (authorKnown === null && worker && worker.illustratorCounts.length > 0) {
+    authorList = worker.illustratorCounts;
+    authorKnown = authorList.reduce((sum, entry) => sum + entry.count, 0);
+  }
   const authorMissing =
-    authorKnown === null ? null : Math.max(0, processed - authorKnown);
+    authorKnown === null ? null : Math.max(0, known - authorKnown);
+
+  if (priced === null && authorList.length === 0) return null;
 
   return {
-    known: processed,
-    total,
+    known,
+    total: targetTotal > 0 ? targetTotal : null,
     priced,
     unpriced,
+    priceRate,
     authorKnown,
     authorMissing,
     authorList,
-    source: "worker",
+    source: aggregatePriced !== null ? "worker" : "items",
   };
+}
+
+/**
+ * 一覧の並び順。
+ * position: 既定（箱番・枝番の順）
+ * price_*: 一覧に表示している参考価格
+ * created_*: 登録日時（商品の作成日時）
+ */
+export type StorageSortKey =
+  | "position"
+  | "price_desc"
+  | "price_asc"
+  | "created_desc"
+  | "created_asc";
+
+// 箱番・枝番は「BOX2」と「BOX10」のような数字入りの値を数値として比較する。
+const NATURAL_OPTIONS: Intl.CollatorOptions = {
+  numeric: true,
+  sensitivity: "base",
+};
+
+function comparePosition(a: AdminProduct, b: AdminProduct): number {
+  const pa = parseStoragePosition(a.storage_location);
+  const pb = parseStoragePosition(b.storage_location);
+
+  // 箱番が無い商品は末尾にまとめる。
+  if (!pa.box && pb.box) return 1;
+  if (pa.box && !pb.box) return -1;
+
+  const box = pa.box.localeCompare(pb.box, "ja", NATURAL_OPTIONS);
+  if (box !== 0) return box;
+
+  // 枝番が無い商品は、同じ箱の中で先頭に置く。
+  if (!pa.branch && pb.branch) return -1;
+  if (pa.branch && !pb.branch) return 1;
+
+  const branch = pa.branch.localeCompare(pb.branch, "ja", NATURAL_OPTIONS);
+  if (branch !== 0) return branch;
+
+  return a.product_id.localeCompare(b.product_id, "ja", NATURAL_OPTIONS);
+}
+
+function readCreatedAt(product: AdminProduct): number | null {
+  if (!product.created_at) return null;
+  const time = Date.parse(product.created_at);
+  return Number.isFinite(time) ? time : null;
+}
+
+/**
+ * 一覧の並べ替え。取得済みの商品配列をコピーして並べ替えるだけで、
+ * 商品データ自体は変更しない。
+ *
+ * - 既定（position）は箱番・枝番の順
+ * - 価格・登録日時が無い商品は、昇順・降順どちらでも末尾に置く
+ * - 同値のときは箱番・枝番の順で並べ、表示順を安定させる
+ */
+export function sortStorageProducts(
+  products: AdminProduct[],
+  sortKey: StorageSortKey,
+  infoMap: PokecaLightInfoMap
+): AdminProduct[] {
+  const list = [...products];
+  if (sortKey === "position") return list.sort(comparePosition);
+
+  if (sortKey === "price_desc" || sortKey === "price_asc") {
+    const direction = sortKey === "price_desc" ? -1 : 1;
+    return list.sort((a, b) => {
+      const priceA = resolveReferencePrice(a, infoMap.get(a.product_id));
+      const priceB = resolveReferencePrice(b, infoMap.get(b.product_id));
+      if (priceA === null && priceB === null) return comparePosition(a, b);
+      if (priceA === null) return 1;
+      if (priceB === null) return -1;
+      if (priceA !== priceB) return (priceA - priceB) * direction;
+      return comparePosition(a, b);
+    });
+  }
+
+  const direction = sortKey === "created_desc" ? -1 : 1;
+  return list.sort((a, b) => {
+    const timeA = readCreatedAt(a);
+    const timeB = readCreatedAt(b);
+    if (timeA === null && timeB === null) return comparePosition(a, b);
+    if (timeA === null) return 1;
+    if (timeB === null) return -1;
+    if (timeA !== timeB) return (timeA - timeB) * direction;
+    return comparePosition(a, b);
+  });
 }
 
 /** 箱番の選択肢（重複を除き、自然な順序で並べる）。 */

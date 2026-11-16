@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
 import { fetchProductsReadApi } from "@/config/productsApi";
 import type { ProductFilterValue } from "@/pages/products/components/ProductFilterBar";
-import { isPokecaRawStorageProduct } from "@/pages/products/lib/pokecaRawStorage";
+import { POKECA_RAW_STORAGE_PREFIX } from "@/pages/products/lib/pokecaRawStorage";
 import type { ProductSortKey } from "@/pages/products/lib/sort";
 import type {
   AdminProduct,
@@ -15,7 +15,7 @@ export const PRODUCT_LIST_PAGE_SIZE = 50;
 // 連続入力による通信を防ぐ検索のデバウンス時間。
 const SEARCH_DEBOUNCE_MS = 400;
 
-// 「旧裏ストレージを隠す」ONのとき、条件に一致する全件を集めるための取得件数と上限ページ。
+// 「全件を選択」などでページ送りするときの取得件数と上限ページ。
 // 一覧APIの page_size 上限（100）を使い、通信回数を減らす。
 // 上限は無限ループ防止の安全弁で、通常運用（数千件規模）では到達しない。
 const HIDDEN_ALL_FETCH_PAGE_SIZE = 100;
@@ -54,8 +54,11 @@ interface UseProductListParams {
  *
  * - 一覧取得は通常 GAS 商品一覧API v3（`mode=admin&page=1&page_size=50...`）へ
  *   `page` を送信してページ分割モードで取得する。
- * - 検索・カテゴリ・公開状態・在庫状態・台帳状態・並び順はすべてGETパラメータでGASへ送る。
+ * - 検索・カテゴリ・公開状態・在庫状態・台帳状態・並び順はすべてGETパラメータでAPIへ送る。
  *   ブラウザ側で取得済み商品を再検索・再ソートはしない。
+ * - 「旧裏ストレージを隠す」（既定ON）は `exclude_storage_location_prefix` を付けて
+ *   サーバー側で除外する。件数・ページングは応答の count / total_pages をそのまま使い、
+ *   非表示件数は応答の excluded_count を表示する（全件取得しない）。
  * - 検索入力はデバウンスし、古い応答が新しい結果を上書きしないよう通番でガードする。
  *
  * 互換対応（暫定）:
@@ -85,20 +88,12 @@ export function useProductList({
   const [page, setPage] = useState(initialState?.page ?? 1);
 
   // 「旧裏ストレージを隠す」トグル。既定はON（隠す）。
-  // ONのときは条件一致の全件を取得して非表示対象を除き、50件ずつページ分割して表示する
-  // （サーバー側のページ切り出しをそのまま使うと1ページの件数がまばらになるため）。
+  // ONのときは一覧取得に除外条件を付け、サーバー側で除外・ページ分割を行う。
   const [hidePokecaRawStorage, setHidePokecaRawStorage] = useState(
     initialState?.hidePokecaRawStorage ?? true
   );
-  // ONのときに隠している件数（一覧の補足表示用。OFFのときは0）。
+  // ONのときに隠している件数（応答の excluded_count。OFFのときは0）。
   const [hiddenCount, setHiddenCount] = useState(0);
-
-  // 全件取得の結果キャッシュ（条件・モードが変わらないページ移動では再取得しない）。
-  const hideCacheRef = useRef<{
-    key: string;
-    items: AdminProduct[];
-    hidden: number;
-  } | null>(null);
 
   // 検索入力のデバウンス値。入力中の連続通信を防ぐ。
   // 復元時は入力済みの検索文字列から始め、余分な取得を発生させない。
@@ -141,6 +136,14 @@ export function useProductList({
       params.set("record_status", isArchived ? "archived" : "active");
       params.set("is_test", isTestMode ? "true" : "false");
       params.set("sort", sortKey);
+      // 旧裏ストレージを隠す（既定ON）: 除外はサーバー側で行う。
+      // count / total_pages / excluded_count をそのまま使えるよう、全件取得はしない。
+      if (hidePokecaRawStorage) {
+        params.set(
+          "exclude_storage_location_prefix",
+          POKECA_RAW_STORAGE_PREFIX
+        );
+      }
       return params;
     },
     [
@@ -152,6 +155,7 @@ export function useProductList({
       isArchived,
       isTestMode,
       sortKey,
+      hidePokecaRawStorage,
     ]
   );
 
@@ -219,13 +223,12 @@ export function useProductList({
 
   /**
    * 「条件に一致する全件を選択」用。表示中の一覧と同じ範囲を返す
-   * （旧裏ストレージを隠しているときは、隠れている商品を選択対象に含めない）。
+   * （旧裏ストレージを隠しているときは除外条件が付くため、隠れている商品は含まれない）。
    */
-  const fetchAllMatchingProducts = useCallback(async () => {
-    const all = await fetchAllFilteredProducts();
-    if (!hidePokecaRawStorage) return all;
-    return all.filter((product) => !isPokecaRawStorageProduct(product));
-  }, [fetchAllFilteredProducts, hidePokecaRawStorage]);
+  const fetchAllMatchingProducts = useCallback(
+    () => fetchAllFilteredProducts(),
+    [fetchAllFilteredProducts]
+  );
 
   useEffect(() => {
     const scopeChanged =
@@ -233,7 +236,6 @@ export function useProductList({
       prevScopeRef.current.isTestMode !== isTestMode;
     if (scopeChanged) {
       prevScopeRef.current = { isArchived, isTestMode };
-      hideCacheRef.current = null;
       setProducts([]);
       setCount(0);
       setTotalPages(0);
@@ -251,39 +253,7 @@ export function useProductList({
 
     const load = async () => {
       try {
-        // 「旧裏ストレージを隠す」ON:
-        // 条件に一致する全件を取得し、保管場所が「旧裏ストレージ/」の商品を除いてから
-        // 50件ずつページ分割する。1ページあたりの件数がまばらにならない。
-        if (hidePokecaRawStorage) {
-          const cacheKey = `${buildListParams(1).toString()}|reload:${reloadKey}`;
-          const cached =
-            hideCacheRef.current?.key === cacheKey
-              ? hideCacheRef.current
-              : null;
-          let items = cached ? cached.items : null;
-          let hidden = cached ? cached.hidden : 0;
-
-          if (!items) {
-            const all = await fetchAllFilteredProducts();
-            if (cancelled || seq !== requestSeqRef.current) return;
-            items = all.filter(
-              (product) => !isPokecaRawStorageProduct(product)
-            );
-            hidden = all.length - items.length;
-            hideCacheRef.current = { key: cacheKey, items, hidden };
-          }
-          if (cancelled || seq !== requestSeqRef.current) return;
-
-          const start = (page - 1) * PRODUCT_LIST_PAGE_SIZE;
-          setProducts(items.slice(start, start + PRODUCT_LIST_PAGE_SIZE));
-          setCount(items.length);
-          setTotalPages(Math.ceil(items.length / PRODUCT_LIST_PAGE_SIZE));
-          setHiddenCount(hidden);
-          setLoadState("success");
-          return;
-        }
-
-        setHiddenCount(0);
+        // 除外（旧裏ストレージを隠す）はサーバー側で行うため、常にページ単位で取得する。
         const response = await fetchProductsReadApi(
           buildListParams(page).toString()
         );
@@ -303,9 +273,15 @@ export function useProductList({
           setProducts(list);
           setCount(typeof data.count === "number" ? data.count : list.length);
           setTotalPages(data.total_pages);
+          // 非表示件数は応答値を使う（画面側で数え直さない）。
+          setHiddenCount(
+            hidePokecaRawStorage ? Math.max(0, data.excluded_count ?? 0) : 0
+          );
           setLoadState("success");
           return;
         }
+
+        setHiddenCount(0);
 
         // 旧 v2 だが新パラメータを無視して全件を返してきた場合は、そのまま全件を表示する。
         const v2List = data.products ?? [];
@@ -360,13 +336,7 @@ export function useProductList({
     return () => {
       cancelled = true;
     };
-  }, [
-    buildListParams,
-    page,
-    reloadKey,
-    hidePokecaRawStorage,
-    fetchAllFilteredProducts,
-  ]);
+  }, [buildListParams, page, reloadKey, hidePokecaRawStorage]);
 
   const resetFilter = useCallback(() => {
     setFilter(EMPTY_PRODUCT_FILTER);

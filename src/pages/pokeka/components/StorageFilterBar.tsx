@@ -1,4 +1,8 @@
+import type { StorageSortKey } from "@/pages/pokeka/lib/rawStorage";
+
 export type PriceFilterValue = "all" | "priced" | "unpriced";
+
+export type StorageSortValue = StorageSortKey;
 
 interface StorageFilterBarProps {
   searchValue: string;
@@ -13,6 +17,8 @@ interface StorageFilterBarProps {
   onPriceChange: (next: PriceFilterValue) => void;
   /** 参考価格の判定に使える商品別情報があるか（無い場合は価格フィルターを無効化） */
   priceFilterAvailable: boolean;
+  sortValue: StorageSortValue;
+  onSortChange: (next: StorageSortValue) => void;
   disabled?: boolean;
   onClear: () => void;
 }
@@ -32,6 +38,14 @@ const PRICE_OPTIONS: Array<{ value: PriceFilterValue; label: string }> = [
   { value: "all", label: "すべて" },
   { value: "priced", label: "価格あり" },
   { value: "unpriced", label: "価格なし" },
+];
+
+const SORT_OPTIONS: Array<{ value: StorageSortValue; label: string }> = [
+  { value: "position", label: "箱番" },
+  { value: "price_desc", label: "金額 高い順" },
+  { value: "price_asc", label: "金額 安い順" },
+  { value: "created_desc", label: "登録 新しい順" },
+  { value: "created_asc", label: "登録 古い順" },
 ];
 
 /**
@@ -57,6 +71,8 @@ export default function StorageFilterBar({
   priceValue,
   onPriceChange,
   priceFilterAvailable,
+  sortValue,
+  onSortChange,
   disabled = false,
   onClear,
 }: StorageFilterBarProps) {
@@ -160,6 +176,25 @@ export default function StorageFilterBar({
           </select>
         </div>
 
+        <div className={GROUP_CLASS}>
+          <label htmlFor="pokeka-sort" className={LABEL_CLASS}>
+            並び順
+          </label>
+          <select
+            id="pokeka-sort"
+            value={sortValue}
+            disabled={disabled}
+            onChange={(e) => onSortChange(e.target.value as StorageSortValue)}
+            className={`${FIELD_CLASS} w-[132px] cursor-pointer`}
+          >
+            {SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {isFiltered && (
           <button
             type="button"
@@ -171,16 +206,6 @@ export default function StorageFilterBar({
           </button>
         )}
       </div>
-
-      {(authorOptions.length === 0 || !priceFilterAvailable) && (
-        <p className="max-w-3xl text-[11px] leading-relaxed text-foreground-400">
-          {authorOptions.length === 0 && priceFilterAvailable
-            ? "作家情報は未取得です。ライト版AIの実行結果があると選べます。"
-            : authorOptions.length === 0 && !priceFilterAvailable
-              ? "作家・参考価格は未取得です。ライト版AIの実行結果があると、絞り込みと一覧の表示に反映されます。"
-              : "参考価格は、ライト版AIの候補価格を優先し、無い場合は商品の販売価格で判定します。どちらも未設定の商品は「価格なし」に含まれます。"}
-        </p>
-      )}
     </div>
   );
 }

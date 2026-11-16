@@ -1,4 +1,6 @@
+import { resolveReferencePrice } from "@/pages/pokeka/lib/rawStorage";
 import type { PokecaLightWorkerState } from "@/pages/products/lib/pokecaRawStorageAi";
+import type { AdminProduct } from "@/pages/products/types";
 
 /**
  * ライト版AIの結果ビュー用の表示データ。
@@ -19,7 +21,13 @@ export interface PokecaLightResultRow {
   cardName: string;
   cardNumber: string;
   illustrator: string;
+  /**
+   * 参考価格。status 応答の items[] に価格が無い場合があるため、
+   * 商品IDで一覧の商品データと突き合わせて解決した値を入れる。
+   */
   candidatePrice: number | null;
+  /** 価格を突き合わせできたか（false のときは「価格なし」と断定しない） */
+  priceKnown: boolean;
   status: PokecaLightResultStatus;
   errorMessage: string;
 }
@@ -57,14 +65,20 @@ function resolveStatus(
  * 商品別の結果行を作る。
  * 並び順は API が返した対象商品の順（worker.productIds）を優先し、
  * 対象一覧が無い場合は商品別情報の順に並べる。
+ *
+ * 価格は items[] の候補価格を優先し、無ければ商品IDで突き合わせた商品データから
+ * 既存の参考価格の解決規則（下書き価格 → 販売予定価格）で求める。
+ * 商品データと突き合わせできない行は priceKnown=false（表示は「—」）。
  */
 export function buildPokecaLightResultRows(
-  worker: PokecaLightWorkerState
+  worker: PokecaLightWorkerState,
+  products: AdminProduct[] = []
 ): PokecaLightResultRow[] {
   const infoMap = new Map(worker.items.map((item) => [item.product_id, item]));
   const failureMap = new Map(
     worker.failures.map((failure) => [failure.product_id, failure])
   );
+  const productMap = new Map(products.map((product) => [product.product_id, product]));
 
   const orderedIds: string[] = [];
   const seen = new Set<string>();
@@ -97,13 +111,19 @@ export function buildPokecaLightResultRows(
       (failure?.error_message ?? "").trim() ||
       (info?.errorMessage ?? "").trim();
 
+    const product = productMap.get(productId);
+    const resolvedPrice = product
+      ? resolveReferencePrice(product, info)
+      : info?.candidatePrice ?? null;
+
     return {
       productId,
       productName: (info?.product_name ?? failure?.product_name ?? "").trim(),
       cardName: info?.cardName ?? "",
       cardNumber: info?.cardNumber ?? "",
       illustrator: info?.illustrator ?? "",
-      candidatePrice: info?.candidatePrice ?? null,
+      candidatePrice: resolvedPrice,
+      priceKnown: Boolean(product) || resolvedPrice !== null,
       status: resolveStatus(
         info?.status ?? "",
         hasInfo,
@@ -157,21 +177,18 @@ export function countPokecaLightPrices(worker: PokecaLightWorkerState): {
   });
   const itemKnown = priced + unpriced;
 
-  // items[] が返らない応答では price_found_count と処理済み件数で内訳を作る
+  // items[] に価格が含まれない応答があるため、集計値（price_found_count）があれば
+  // 対象件数を基準に内訳を作る（items 由来の集計はフォールバック）。
   if (worker.priceFoundCount !== null) {
     const total = worker.totalCount > 0 ? worker.totalCount : worker.processedCount;
-    const processed = Math.max(0, Math.min(worker.processedCount, total));
-    if (processed > itemKnown) {
-      const pricedCount = Math.max(
-        0,
-        Math.min(worker.priceFoundCount, processed)
-      );
-      return {
-        known: processed,
-        priced: pricedCount,
-        unpriced: processed - pricedCount,
-      };
-    }
+    const base = Math.max(worker.processedCount, worker.priceFoundCount, itemKnown);
+    const known = total > 0 ? Math.min(base, total) : base;
+    const pricedCount = Math.max(0, Math.min(worker.priceFoundCount, known));
+    return {
+      known,
+      priced: pricedCount,
+      unpriced: Math.max(0, known - pricedCount),
+    };
   }
 
   return { known: itemKnown, priced, unpriced };

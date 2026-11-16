@@ -4,7 +4,6 @@ import AdminShell from "@/components/feature/AdminShell";
 import { useOperatingMode } from "@/context/OperatingModeProvider";
 import ProductPagination from "@/pages/products/components/ProductPagination";
 import ProductLoadErrorState from "@/pages/products/components/ProductLoadErrorState";
-import PokecaLightProgressBar from "@/pages/products/components/PokecaLightProgressBar";
 import PokecaLightResultModal from "@/pages/products/components/PokecaLightResultModal";
 import { usePokecaRawStorageAi } from "@/pages/products/hooks/usePokecaRawStorageAi";
 import type { PokecaLightWorkerState } from "@/pages/products/lib/pokecaRawStorageAi";
@@ -13,8 +12,10 @@ import PokekaTabs, { type PokekaTabKey } from "./components/PokekaTabs";
 import PokecaLightAiPanel, {
   type PokecaLightStatusView,
 } from "./components/PokecaLightAiPanel";
+import PokecaLightProgressBar from "./components/PokecaLightProgressBar";
 import StorageFilterBar, {
   type PriceFilterValue,
+  type StorageSortValue,
 } from "./components/StorageFilterBar";
 import StorageProductTable from "./components/StorageProductTable";
 import PokecaComingSoon from "./components/PokecaComingSoon";
@@ -35,10 +36,10 @@ import {
   countByIllustrator,
   parseStoragePosition,
   resolveReferencePrice,
+  sortStorageProducts,
 } from "./lib/rawStorage";
 import {
   filterProductsByScope,
-  getStorageScope,
   type StorageScopeKey,
 } from "./lib/storageScopes";
 
@@ -47,26 +48,11 @@ const PAGE_SIZE = 50;
 
 const COMING_SOON: Record<
   Exclude<PokekaTabKey, "storage">,
-  { label: string; description: string; icon: string }
+  { label: string }
 > = {
-  vss: {
-    label: "VSS",
-    description:
-      "VSS鑑定品の該当判定方法が決まっていないため、一覧は表示していません。判定条件が決まり次第、このタブで一覧・絞り込み・AI生成を利用できるようにします。",
-    icon: "ri-shield-star-line",
-  },
-  psa: {
-    label: "PSA",
-    description:
-      "PSA鑑定品の該当判定方法が決まっていないため、一覧は表示していません。判定条件が決まり次第、このタブで一覧・絞り込み・AI生成を利用できるようにします。",
-    icon: "ri-award-line",
-  },
-  other: {
-    label: "その他鑑定",
-    description:
-      "その他鑑定品の該当判定方法が決まっていないため、一覧は表示していません。判定条件が決まり次第、このタブで一覧・絞り込み・AI生成を利用できるようにします。",
-    icon: "ri-file-shield-2-line",
-  },
+  vss: { label: "VSS" },
+  psa: { label: "PSA" },
+  other: { label: "その他鑑定" },
 };
 
 // ライト版AIパネルに出す「現在の処理状態」。
@@ -125,8 +111,6 @@ export default function PokekaPage() {
     idleFollowMs: 20000,
   });
 
-  const scope = useMemo(() => getStorageScope(storageScope), [storageScope]);
-
   // 区分ごとの表示対象。判定は storageScopes.ts に集約している。
   // 「すべて」は現時点で判定できる旧裏ストレージ商品のみ（現行は未分類のため空）。
   const scopeItems = useMemo(
@@ -160,10 +144,14 @@ export default function PokekaPage() {
   const [priceFilter, setPriceFilter] = useState<PriceFilterValue>(
     initialQuery.price
   );
+  // 並び順。既定は箱番・枝番の順（従来の一覧順）。
+  const [sortValue, setSortValue] = useState<StorageSortValue>("position");
   const [page, setPage] = useState(initialQuery.page);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [isRunDialogOpen, setIsRunDialogOpen] = useState(false);
   const [isResultOpen, setIsResultOpen] = useState(false);
+  // ライト版AIの操作パネル（通常画面には常設せず「AI生成」から開く）
+  const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
   const selectAllRef = useRef<HTMLInputElement>(null);
 
   const boxOptions = useMemo(() => collectBoxOptions(scopeItems), [scopeItems]);
@@ -245,10 +233,15 @@ export default function PokekaPage() {
     priceFilter !== "all";
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  // 絞り込んだ結果を並べ替えてからページ分割する（取得済みデータの並べ替えのみ）。
+  const sorted = useMemo(
+    () => sortStorageProducts(filtered, sortValue, infoMap),
+    [filtered, sortValue, infoMap]
+  );
   const pageItems = useMemo(() => {
     const start = (page - 1) * PAGE_SIZE;
-    return filtered.slice(start, start + PAGE_SIZE);
-  }, [filtered, page]);
+    return sorted.slice(start, start + PAGE_SIZE);
+  }, [sorted, page]);
 
   // 表示中のページが範囲外になったら最終ページへ収める。
   // 読み込み中は件数がまだ0件（totalPages=1）なので、URLから復元したページ番号を
@@ -331,6 +324,12 @@ export default function PokekaPage() {
     setPriceFilter(next);
     setPage(1);
     setSelectedIds(new Set());
+  };
+
+  // 並び順は表示の見方だけの切り替えなので、選択（実行対象）は解除しない。
+  const handleSortChange = (next: StorageSortValue) => {
+    setSortValue(next);
+    setPage(1);
   };
 
   // 表示中の条件（タブ・区分・絞り込み・ページ）をURLに反映する。
@@ -463,6 +462,14 @@ export default function PokekaPage() {
   const isStorage = tab === "storage";
   const comingSoon = isStorage ? null : COMING_SOON[tab];
 
+  // 実行中だけ表示する進捗と、直近の実行に失敗が残っているときだけ出す控えめな導線。
+  // いずれも既存のジョブ状態（worker_state）の値だけを使う。
+  const lightProcessed = pokecaLight.worker?.processedCount ?? 0;
+  const lightTotal = pokecaLight.worker?.totalCount ?? 0;
+  const lightFailedCount = pokecaLight.worker?.failedCount ?? 0;
+  const showLightFailureNotice =
+    !pokecaLight.isRunning && hasLightResult && lightFailedCount > 0;
+
   // 「すべて」は現時点で分類できる商品だけを対象にしていることを明示する。
   const isAllScope = storageScope === "all";
   const isOldScope = storageScope === "old";
@@ -470,20 +477,10 @@ export default function PokekaPage() {
   const showsStorageList = isStorage && !isCurrentScope;
 
   const emptyTitle = hasFilter
-    ? isAllScope
-      ? "条件に一致する商品がありません"
-      : "条件に一致する旧裏ストレージ商品がありません"
+    ? "条件に一致する商品がありません"
     : isTestMode
-      ? isAllScope
-        ? "テスト商品に、現在分類できる商品はありません"
-        : "テスト商品の旧裏ストレージ在庫はありません"
-      : isAllScope
-        ? "現在分類できる商品が見つかりません"
-        : "旧裏ストレージ商品が見つかりません";
-
-  const emptyDescription = isAllScope
-    ? "現在分類できるのは、保管場所が「旧裏ストレージ/」で始まる商品のみです。現行ストレージの分類条件が決まり次第、この区分に統合します。"
-    : "保管場所（storage_location）が「旧裏ストレージ/」で始まる商品だけを表示します。環境切り替えでテストモード／通常モードを切り替えると、表示対象も切り替わります。";
+      ? "テスト商品がありません"
+      : "商品が見つかりません";
 
   return (
     <AdminShell
@@ -494,27 +491,31 @@ export default function PokekaPage() {
         <div className="min-w-0 flex-1">
           <PokekaTabs value={tab} onChange={handleTabChange} />
         </div>
-        <p className="shrink-0 pb-2 text-[11px] leading-none text-foreground-400">
-          {isTestMode ? "テスト商品を表示中" : "実商品を表示中"}
-        </p>
+        {isTestMode && (
+          <p className="shrink-0 pb-2 text-[11px] leading-none text-foreground-400">
+            テスト商品を表示中
+          </p>
+        )}
       </div>
 
       {isStorage && (
         <div className="mb-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <StorageSubTabs value={storageScope} onChange={handleScopeChange} />
-          <p className="min-w-0 text-[11px] leading-relaxed text-foreground-400">
-            {scope.hint}
-          </p>
+          {isOldScope && (
+            <button
+              type="button"
+              onClick={() => setIsAiPanelOpen(true)}
+              className="ml-auto inline-flex h-8 shrink-0 cursor-pointer items-center whitespace-nowrap rounded-md border border-background-300 bg-white px-2.5 text-[12px] font-medium text-foreground-700 transition-colors hover:bg-background-100"
+            >
+              AI生成
+            </button>
+          )}
         </div>
       )}
 
       {!isStorage && comingSoon && (
         <div className="tab-fade">
-          <PokecaComingSoon
-            label={comingSoon.label}
-            description={comingSoon.description}
-            icon={comingSoon.icon}
-          />
+          <PokecaComingSoon label={comingSoon.label} />
         </div>
       )}
 
@@ -526,48 +527,27 @@ export default function PokekaPage() {
 
       {showsStorageList && (
         <div className="tab-fade space-y-3">
-          {isAllScope && (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border border-background-200 bg-white px-3 py-2">
-              <p className="min-w-0 flex-1 text-[11px] leading-relaxed text-foreground-500">
-                旧裏以外の商品はまだ分類できないため、この区分には表示していません。現行ストレージの判定条件が決まり次第、ここに統合します。ライト版AIは旧裏ストレージ向けのため「旧裏」で実行できます。
-              </p>
-              <button
-                type="button"
-                onClick={() => handleScopeChange("old")}
-                className="inline-flex h-7 shrink-0 cursor-pointer items-center whitespace-nowrap rounded-md border border-background-300 bg-white px-2.5 text-[12px] font-medium text-foreground-700 transition-colors hover:bg-background-100"
-              >
-                旧裏を開く
-              </button>
-            </div>
+          {isOldScope && pokecaLight.isRunning && (
+            <PokecaLightProgressBar
+              processed={lightProcessed}
+              total={lightTotal}
+              onOpen={() => setIsAiPanelOpen(true)}
+            />
           )}
 
-          {/* ライト版の進捗（実行中のみ・失敗内容や通知があるときだけ詳細バーを出す） */}
-          {isOldScope &&
-            !pokecaLight.isHidden &&
-            pokecaLight.worker &&
-            (pokecaLight.isRunning ||
-              pokecaLight.worker.failures.length > 0 ||
-              Boolean(pokecaLight.noticeMessage)) && (
-              <PokecaLightProgressBar
-                worker={pokecaLight.worker}
-                isRefreshing={pokecaLight.isRefreshing}
-                noticeMessage={pokecaLight.noticeMessage}
-                onRefresh={() => void pokecaLight.refresh()}
-                onClose={pokecaLight.dismiss}
-              />
-            )}
-
-          {isOldScope && (
-            <PokecaLightAiPanel
-              products={scopeItems}
-              coverage={lightCoverage}
-              selectedCount={selectedProducts.length}
-              isStarting={pokecaLight.isStarting}
-              status={lightStatus}
-              onRun={() => setIsRunDialogOpen(true)}
-              onOpenResult={() => setIsResultOpen(true)}
-              canOpenResult={hasLightResult}
-            />
+          {isOldScope && showLightFailureNotice && (
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[11px] leading-none">
+              <span className="whitespace-nowrap text-amber-700">
+                失敗 {lightFailedCount.toLocaleString("ja-JP")}件
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsResultOpen(true)}
+                className="cursor-pointer whitespace-nowrap text-foreground-500 underline-offset-2 transition-colors hover:text-foreground-900 hover:underline"
+              >
+                結果を見る
+              </button>
+            </div>
           )}
 
           <StorageFilterBar
@@ -582,6 +562,8 @@ export default function PokekaPage() {
             priceValue={priceFilter}
             onPriceChange={handlePriceChange}
             priceFilterAvailable={priceFilterAvailable}
+            sortValue={sortValue}
+            onSortChange={handleSortChange}
             disabled={loadState === "loading"}
             onClear={clearFilters}
           />
@@ -616,8 +598,7 @@ export default function PokekaPage() {
               </p>
             )}
             {loadState === "loading" && (
-              <span className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-foreground-400">
-                <i className="ri-loader-4-line flex h-3.5 w-3.5 animate-spin items-center justify-center"></i>
+              <span className="whitespace-nowrap text-xs text-foreground-400">
                 読み込み中
               </span>
             )}
@@ -637,15 +618,9 @@ export default function PokekaPage() {
           )}
 
           {loadState === "success" && filtered.length === 0 && (
-            <div className="ui-card flex flex-col items-center justify-center rounded-lg px-6 py-14 text-center">
-              <i className="ri-archive-2-line mb-2 flex h-8 w-8 items-center justify-center text-[22px] text-foreground-400"></i>
+            <div className="ui-card flex flex-col items-center justify-center rounded-lg px-6 py-12 text-center">
               <p className="text-sm font-medium text-foreground-700">
                 {emptyTitle}
-              </p>
-              <p className="mt-1 max-w-xl text-xs leading-relaxed text-foreground-500">
-                {hasFilter
-                  ? "検索語や絞り込み条件を変更するか、「条件をクリア」で全件表示に戻してください。"
-                  : emptyDescription}
               </p>
               {hasFilter && (
                 <button
@@ -695,6 +670,22 @@ export default function PokekaPage() {
         </div>
       )}
 
+      <PokecaLightAiPanel
+        open={isStorage && isOldScope && isAiPanelOpen}
+        onClose={() => setIsAiPanelOpen(false)}
+        products={scopeItems}
+        coverage={lightCoverage}
+        selectedCount={selectedProducts.length}
+        isStarting={pokecaLight.isStarting}
+        status={lightStatus}
+        worker={pokecaLight.worker}
+        noticeMessage={pokecaLight.noticeMessage}
+        errorMessage={pokecaLight.errorMessage}
+        onRun={() => setIsRunDialogOpen(true)}
+        onOpenResult={() => setIsResultOpen(true)}
+        canOpenResult={hasLightResult}
+      />
+
       <PokecaLightRunDialog
         open={isRunDialogOpen}
         count={selectedProducts.length}
@@ -708,6 +699,7 @@ export default function PokekaPage() {
       <PokecaLightResultModal
         open={isResultOpen && hasLightResult}
         worker={pokecaLight.worker}
+        products={scopeItems}
         imageMap={imageMap}
         isRefreshing={pokecaLight.isRefreshing}
         isStarting={pokecaLight.isStarting}
