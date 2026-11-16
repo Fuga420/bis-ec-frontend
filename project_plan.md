@@ -449,3 +449,15 @@
 - 「結果を見る」：`worker_state` に実行中・完了・失敗のいずれかのジョブがあれば有効化し、既存の結果モーダルを開く。結果モーダルの価格内訳も集計値へ追随。商品別明細が未取得の間は、モーダル上部の件数（サーバー集計）と「明細は取得できた範囲のみ」の案内を表示する（空の結果を成功扱いにしない）。
 - 参考価格：一覧の「参考価格」は、ライト版の候補価格（`candidate_price`）→ 商品の販売価格（`planned_sale_price`）の順で表示し、どちらも無い場合のみ「—」。価格フィルター（すべて／価格あり／価格なし）も同じ解決関数で判定するため、商品別情報が無くても無効化されない。参照は読み取りのみで、価格の保存・計算は変更しない。
 - 状態：ビルド成功。実画面での確認（実行中ジョブがある状態で `/pokeka` を開き、進捗・集計・結果モーダルが出ること）はスタッフが実施する。公開（Publish）は指示があるまで行わない。
+
+### フェーズ6追加：ライト版AI status取得の根本原因修正（2026-11-16 実装・フロントのみ）
+- 背景（実測＋コード調査）：表示側（パネル・フック・ページ）の配線は正しかったが、`src/pages/products/lib/pokecaRawStorageAi.ts` の2点が誤っていたため、`/pokeka` は常に「待機中・集計なし・結果なし」になっていた。
+- 原因1：status取得の認証ヘッダー誤り
+  - `fetchPokecaLightStatus()` が書込用の `getBackendWriteAuthHeaders()`（Supabase の apikey/Bearer）を送っていたため、管理読み取り専用の `GET /pokeca-raw-storage-ai/status` が401を返し、取得そのものが失敗していた。
+  - 修正：一覧取得（`src/config/productsApi.ts`）と同じ `@/lib/adminAuth` の `getAdminReadHeaders()`（`X-Admin-Password`）へ切り替え、401時は `notifyAdminUnauthorized()` を呼ぶ（失敗を「データなし」と取り違えない）。開始（`POST /run`）は書込認証のまま無変更。
+- 原因2：集計値の参照位置の誤り
+  - status 応答の `processed_count` / `total_target_products` / `price_found_count` / `price_not_found_count` / `illustrator_counts` は**応答トップレベル**にあり、`worker_state` の中には無い（worker_state 側は `target_count` / `completed_count` / `attempted_count`）。旧実装は `worker_state` の中だけを読んでいたため、`priceFoundCount` が常に null・`illustratorCounts` が常に空になり、集計表示の分岐が永久に成立しなかった。
+  - 修正：`normalizePokecaLightWorkerState(value, aggregateFallbacks)` に第2引数を追加し、`worker_state` 側に同名項目が無いときだけトップレベル（`{...集計値, worker_state}` と `{data:{...}}` の両方）の値で補う。対象は `processed_count` / `total_target_products` / `price_found_count` / `illustrator_counts`（`not_found` は処理済み−価格ありで算出）。`active` / `is_test` も同様に補完し、`worker_state` が空でも実行中ジョブを取りこぼさない。
+  - 集計は `worker_state.items[]`（サーバー側で最大500件）からではなく、この集計値から組み立てる。
+- 不変更：パネル・フック・ページの表示配線、開始・予約・再実行・対象ID判定、参考価格の保存・計算、`storage_location` の判定、テスト／通常モードの分離、API・DB・バックエンド・GAS。公開（Publish）は行わない。
+- 状態：ビルド成功。実画面での確認（実行中ジョブがある状態で `/pokeka` を再読み込みし、進捗・集計・結果モーダル・作家フィルタの選択肢が出ること）はスタッフが実施する。

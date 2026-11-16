@@ -1,13 +1,15 @@
 import { PRODUCTS_READ_API_URL } from "@/config/productsApi";
 import { getBackendWriteAuthHeaders } from "@/lib/supabaseClient";
+import { getAdminReadHeaders, notifyAdminUnauthorized } from "@/lib/adminAuth";
 
 /**
  * ライト版（旧裏ストレージ向け）AI生成の Cloud Run API 接続。
  *
- * - 開始: POST /pokeca-raw-storage-ai/run（product_ids / background / is_test）
- * - 進捗: GET  /pokeca-raw-storage-ai/status の worker_state
+ * - 開始: POST /pokeca-raw-storage-ai/run（product_ids / background / is_test）… 書込認証
+ * - 進捗: GET  /pokeca-raw-storage-ai/status の worker_state … 管理読み取り認証（X-Admin-Password）
  *
- * 通常版（/ai-batches）とは別のジョブとして扱う。既存の認証ヘッダーをそのまま使う。
+ * 通常版（/ai-batches）とは別のジョブとして扱う。
+ * status は一覧取得と同じ管理読み取り認証が必須（書込認証では401になる）。
  */
 
 export const POKECA_LIGHT_RUN_PATH = "/pokeca-raw-storage-ai/run";
@@ -351,18 +353,53 @@ function parseIllustratorCounts(value: unknown): PokecaLightIllustratorCount[] {
   );
 }
 
-/** worker_state を画面表示用に正規化する（ジョブが無い場合は null）。 */
+/**
+ * worker_state を画面表示用に正規化する（ジョブが無い場合は null）。
+ *
+ * status 応答の集計値（processed_count / total_target_products / price_found_count /
+ * illustrator_counts など）は worker_state の外（応答トップレベル）に置かれる場合がある。
+ * worker_state 側に同名の項目が無いときだけ、aggregateFallbacks から補う。
+ * worker_state.items は最大500件までしか返らないため、集計は items ではなくこの値から作る。
+ */
 export function normalizePokecaLightWorkerState(
-  value: unknown
+  value: unknown,
+  aggregateFallbacks?: unknown[]
 ): PokecaLightWorkerState | null {
   const obj = asObject(value);
   if (!obj) return null;
 
+  const fallbackSources = (Array.isArray(aggregateFallbacks) ? aggregateFallbacks : [])
+    .map((source) => asObject(source))
+    .filter((source): source is Record<string, unknown> => source !== null)
+    .filter((source) => source !== obj);
+
+  /** worker_state に値が無いときだけ、トップレベルの値を返す。 */
+  const pickBooleanWithFallback = (keys: string[]): boolean | null => {
+    const local = pickBoolean(obj, keys);
+    if (local !== null) return local;
+    for (const source of fallbackSources) {
+      const value = pickBoolean(source, keys);
+      if (value !== null) return value;
+    }
+    return null;
+  };
+
   const isActive =
-    pickBoolean(obj, ["active", "is_active", "worker_active"]) === true;
+    pickBooleanWithFallback(["active", "is_active", "worker_active"]) === true;
+
+  /** worker_state に値が無いときだけ、トップレベルの集計値を返す。 */
+  const pickCountWithFallback = (keys: string[]): number | null => {
+    const local = pickCount(obj, keys);
+    if (local !== null) return local;
+    for (const source of fallbackSources) {
+      const value = pickCount(source, keys);
+      if (value !== null) return value;
+    }
+    return null;
+  };
 
   const total =
-    pickCount(obj, [
+    pickCountWithFallback([
       "total_target_products",
       "total_target_products_count",
       "total_count",
@@ -372,8 +409,12 @@ export function normalizePokecaLightWorkerState(
       "target_total",
     ]) ?? 0;
   const processed =
-    pickCount(obj, ["processed_count", "processed", "done_count", "finished_count"]) ??
-    null;
+    pickCountWithFallback([
+      "processed_count",
+      "processed",
+      "done_count",
+      "finished_count",
+    ]) ?? null;
   const success =
     pickCount(obj, [
       "success_count",
@@ -390,16 +431,27 @@ export function normalizePokecaLightWorkerState(
   const resolvedProcessed =
     processed ?? Math.min(total, success + failed + skipped);
 
-  // 商品別の items[] が返らない応答向けの集計値
-  const priceFoundCount = pickCount(obj, [
+  // 商品別の items[] が返らない応答向けの集計値（worker_state に無ければトップレベルから補う）
+  const priceFoundCount = pickCountWithFallback([
     "price_found_count",
     "priced_count",
     "price_count",
     "candidate_price_count",
   ]);
-  const illustratorCounts = parseIllustratorCounts(
+  let illustratorCounts = parseIllustratorCounts(
     obj.illustrator_counts ?? obj.illustrators ?? obj.illustrator_breakdown
   );
+  if (illustratorCounts.length === 0) {
+    for (const source of fallbackSources) {
+      const parsed = parseIllustratorCounts(
+        source.illustrator_counts ?? source.illustrators ?? source.illustrator_breakdown
+      );
+      if (parsed.length > 0) {
+        illustratorCounts = parsed;
+        break;
+      }
+    }
+  }
 
   const status = resolveStatus(
     obj,
@@ -433,7 +485,7 @@ export function normalizePokecaLightWorkerState(
     : [];
 
   return {
-    isTest: pickBoolean(obj, ["is_test", "test_mode"]) === true,
+    isTest: pickBooleanWithFallback(["is_test", "test_mode"]) === true,
     isActive,
     status,
     rawStatus:
@@ -505,6 +557,21 @@ function pickWorkerStatePayload(
   return data;
 }
 
+/**
+ * 応答から、worker_state の外側にある集計値の入れ物を集める。
+ * `{...集計値, worker_state:{...}}` と `{data:{...集計値, worker_state:{...}}}` の両方に対応する。
+ */
+function buildAggregateFallbacks(
+  data: Record<string, unknown> | null
+): Record<string, unknown>[] {
+  const sources: Record<string, unknown>[] = [];
+  if (!data) return sources;
+  sources.push(data);
+  const nested = asObject(data.data);
+  if (nested) sources.push(nested);
+  return sources;
+}
+
 export interface PokecaLightRunResult {
   alreadyRunning: boolean;
   workerState: PokecaLightWorkerState | null;
@@ -547,7 +614,10 @@ export async function runPokecaLight(params: {
 
   return {
     alreadyRunning: data.already_running === true,
-    workerState: normalizePokecaLightWorkerState(pickWorkerStatePayload(data)),
+    workerState: normalizePokecaLightWorkerState(
+      pickWorkerStatePayload(data),
+      buildAggregateFallbacks(data)
+    ),
     message,
   };
 }
@@ -562,14 +632,19 @@ export interface PokecaLightStatusResult {
  * 失敗を成功扱いにせず例外にする（呼び出し側は最後に取得できた状態を保持する）。
  */
 export async function fetchPokecaLightStatus(): Promise<PokecaLightStatusResult> {
-  const authHeaders = await getBackendWriteAuthHeaders();
+  // status は管理読み取りAPI。一覧取得と同じ X-Admin-Password で認証する。
   const response = await fetch(
     `${PRODUCTS_READ_API_URL}${POKECA_LIGHT_STATUS_PATH}`,
     {
       method: "GET",
-      headers: { ...authHeaders },
+      headers: { ...getAdminReadHeaders() },
     }
   );
+
+  // 401 は「ジョブが無い」ではなく認証失敗。保持を消してロック画面へ戻す。
+  if (response.status === 401) {
+    notifyAdminUnauthorized();
+  }
 
   const data = await parseJsonObject(response);
   const message = extractMessage(data);
@@ -584,7 +659,10 @@ export async function fetchPokecaLightStatus(): Promise<PokecaLightStatusResult>
   }
 
   return {
-    workerState: normalizePokecaLightWorkerState(pickWorkerStatePayload(data)),
+    workerState: normalizePokecaLightWorkerState(
+      pickWorkerStatePayload(data),
+      buildAggregateFallbacks(data)
+    ),
     message,
   };
 }
