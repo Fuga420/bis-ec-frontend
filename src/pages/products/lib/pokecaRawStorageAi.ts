@@ -22,6 +22,12 @@ export interface PokecaLightFailure {
   error_message: string;
 }
 
+// ステータス集計の作家別件数（件数の多い順に並べる）
+export interface PokecaLightIllustratorCount {
+  illustrator: string;
+  count: number;
+}
+
 export interface PokecaLightWorkerState {
   /** 実行時のテストモード（画面モードと一致する実行だけを表示する） */
   isTest: boolean;
@@ -41,6 +47,11 @@ export interface PokecaLightWorkerState {
   priceNotFoundCount: number | null;
   priceFoundCardTypesCount: number | null;
   priceNotFoundCardTypesCount: number | null;
+  /**
+   * 作家別件数（illustrator_counts）。件数の多い順。
+   * 旧バックエンドでは返らないため null（表示しない）。
+   */
+  illustratorCounts: PokecaLightIllustratorCount[] | null;
   productIds: string[];
   failures: PokecaLightFailure[];
   jobId: string | null;
@@ -91,6 +102,62 @@ function pickBoolean(obj: Record<string, unknown>, keys: string[]): boolean | nu
     if (value === "false") return false;
   }
   return null;
+}
+
+/**
+ * 作家別件数（illustrator_counts）を読み取る。
+ * - オブジェクト形式 { "作家名": 件数 }
+ * - 配列形式 [{ illustrator, count }]
+ * のどちらでも受け、件数の多い順に並べて返す。形式が読めない場合は null。
+ */
+function normalizeIllustratorCounts(
+  value: unknown
+): PokecaLightIllustratorCount[] | null {
+  if (!value) return null;
+
+  const entries: PokecaLightIllustratorCount[] = [];
+  const push = (name: unknown, rawCount: unknown) => {
+    const label = asString(name).trim();
+    if (!label) return;
+    let count: number | null = null;
+    if (typeof rawCount === "number" && Number.isFinite(rawCount)) {
+      count = Math.max(0, Math.trunc(rawCount));
+    } else if (typeof rawCount === "string" && rawCount.trim() !== "") {
+      const parsed = Number(rawCount);
+      if (Number.isFinite(parsed)) count = Math.max(0, Math.trunc(parsed));
+    }
+    if (count == null) return;
+    entries.push({ illustrator: label, count });
+  };
+
+  if (Array.isArray(value)) {
+    value.forEach((entry) => {
+      const obj = asObject(entry);
+      if (!obj) return;
+      const name = pickFirstString(obj, [
+        "illustrator",
+        "illustrator_name",
+        "name",
+        "key",
+      ]);
+      if (!name) return;
+      push(
+        name,
+        obj.count ?? obj.total_count ?? obj.total ?? obj.value ?? obj.product_count
+      );
+    });
+  } else {
+    const obj = asObject(value);
+    if (obj) {
+      Object.keys(obj).forEach((key) => push(key, obj[key]));
+    }
+  }
+
+  if (entries.length === 0) return null;
+  return entries.sort(
+    (a, b) =>
+      b.count - a.count || a.illustrator.localeCompare(b.illustrator, "ja")
+  );
 }
 
 const FAILURE_ARRAY_KEYS = ["failed_items", "failures", "errors", "failed_products"];
@@ -229,6 +296,14 @@ export function normalizePokecaLightWorkerState(
     "price_not_found_card_types_count",
   ]);
 
+  // 作家別件数は worker_state 直下・トップレベル・stats/summary 配下のどこでも読めるようにする。
+  // どこにも無ければ null（表示しない）。
+  const illustratorCounts =
+    normalizeIllustratorCounts(obj.illustrator_counts) ??
+    normalizeIllustratorCounts(statsSource.illustrator_counts) ??
+    normalizeIllustratorCounts(asObject(obj.stats)?.illustrator_counts) ??
+    normalizeIllustratorCounts(asObject(statsSource.stats)?.illustrator_counts);
+
   const status = resolveStatus(obj, {
     total,
     processed: resolvedProcessed,
@@ -243,6 +318,7 @@ export function normalizePokecaLightWorkerState(
     failed > 0 ||
     skipped > 0 ||
     failures.length > 0 ||
+    (illustratorCounts?.length ?? 0) > 0 ||
     pickFirstString(obj, ["job_id", "run_id", "worker_id", "id"]) !== null ||
     status !== "idle";
   if (!hasAnySignal) return null;
@@ -273,6 +349,7 @@ export function normalizePokecaLightWorkerState(
     priceNotFoundCount,
     priceFoundCardTypesCount,
     priceNotFoundCardTypesCount,
+    illustratorCounts,
   };
 }
 

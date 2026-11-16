@@ -45,6 +45,8 @@ export default function ProductProfilePanel({
   onStartEdit,
 }: ProductProfilePanelProps) {
   const japaneseTitle = (product.product_name ?? "").trim();
+  // 作家（イラストレーター）は設定されている場合だけ表示する（編集は対象外）。
+  const illustrator = (product.illustrator ?? "").trim();
   const hasPrice = Boolean(
     product.planned_sale_price && product.planned_sale_price > 0
   );
@@ -91,6 +93,14 @@ export default function ProductProfilePanel({
             {categoryLabel}
           </dd>
         </div>
+        {illustrator && (
+          <div className="flex min-w-0 items-center gap-1.5">
+            <dt className="shrink-0">作家</dt>
+            <dd className="min-w-0 break-words font-medium text-foreground-800">
+              {illustrator}
+            </dd>
+          </div>
+        )}
       </dl>
 
       {/* 4. 販売予定価格 */}

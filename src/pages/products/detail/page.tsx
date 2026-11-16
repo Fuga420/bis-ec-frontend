@@ -91,6 +91,7 @@ function mapListProductToDetail(product: AdminProduct): AdminProductDetail {
     purchase_price: product.purchase_price ?? null,
     planned_sale_price: product.planned_sale_price ?? 0,
     storage_location: product.storage_location ?? "",
+    illustrator: product.illustrator ?? "",
     sneaker_sku: product.sneaker_sku ?? "",
     sneaker_size: product.sneaker_size ?? null,
     publish_status: product.publish_status ?? "draft",

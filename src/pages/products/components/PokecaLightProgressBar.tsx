@@ -67,6 +67,14 @@ export default function PokecaLightProgressBar({
     worker.priceFoundCardTypesCount != null ||
     worker.priceNotFoundCardTypesCount != null;
 
+  // 作家別件数はバックエンドが返す場合だけ表示する（旧バックエンドでは null）。
+  // 件数の多い順に並べ、多い場合は先頭のみ表示して残りは件数だけ示す。
+  const illustratorCounts = worker.illustratorCounts ?? [];
+  const hasIllustratorCounts = illustratorCounts.length > 0;
+  const visibleIllustrators = illustratorCounts.slice(0, 10);
+  const hiddenIllustratorCount =
+    illustratorCounts.length - visibleIllustrators.length;
+
   const stateLabel = useMemo(() => {
     if (isRunning) return "実行中";
     if (isFailed) return worker.successCount > 0 ? "一部失敗" : "失敗";
@@ -161,6 +169,33 @@ export default function PokecaLightProgressBar({
                 {`種類数 あり${worker.priceFoundCardTypesCount ?? 0} / なし${
                   worker.priceNotFoundCardTypesCount ?? 0
                 }`}
+              </span>
+            )}
+          </span>
+        )}
+
+        {hasIllustratorCounts && (
+          <span className="admin-numeric flex w-full flex-wrap items-center gap-x-2 gap-y-1 basis-full border-t border-background-200 pt-1.5">
+            <span className="whitespace-nowrap text-[11px] leading-none text-foreground-500">
+              作家別
+            </span>
+            {visibleIllustrators.map((entry) => (
+              <span
+                key={entry.illustrator}
+                className="inline-flex items-baseline gap-1 whitespace-nowrap rounded-full border border-background-200 bg-background-50 px-2 py-0.5"
+                title={`${entry.illustrator}：${entry.count}件`}
+              >
+                <span className="max-w-[160px] truncate text-[11px] leading-none text-foreground-700">
+                  {entry.illustrator}
+                </span>
+                <span className="text-[11px] font-semibold leading-none text-foreground-900">
+                  {entry.count}
+                </span>
+              </span>
+            ))}
+            {hiddenIllustratorCount > 0 && (
+              <span className="whitespace-nowrap text-[11px] leading-none text-foreground-400">
+                他{hiddenIllustratorCount}名
               </span>
             )}
           </span>

@@ -326,3 +326,14 @@
   - 価格案の取得を `candidate.price` → `candidate_price` の順で参照するよう拡張。`candidate_price_basis`（価格の根拠テキスト）も取得し、価格案の表示箇所（商品情報パネル・編集フォーム）に「根拠: ...」として表示する。未設定なら行を出さない。
 - 変更範囲：上記4ファイルのみ。新しいAPI呼び出し・エンドポイント追加はなく、既存の `run` / `status` / `get_ai_product_draft` の応答範囲で実装。通常版AI生成・商品一覧レイアウト・価格の販売予定価格への反映処理は無変更。
 - 状態：ビルド成功。価格系フィールドが無い状態（デプロイ前のバックエンド）でも表示されないだけで画面は壊れない。公開（Publish）は指示があるまで行わない。
+
+### フェーズ6追加：ポケカ旧裏商品の作家（illustrator）表示 2026-11-16 実装・フロントのみ
+- 背景：バックエンドの products に `illustrator` カラムが追加され、管理用の一覧・詳細APIが `illustrator` を、ライト版AIのステータス集計が `illustrator_counts` を返せるようになった。
+- 型（`src/pages/products/types.ts` / `src/pages/products/lib/pokecaRawStorageAi.ts`）
+  - `AdminProductDetail` / `AdminProduct` に `illustrator?: string`、`PokecaLightWorkerState` に `illustratorCounts: PokecaLightIllustratorCount[] | null` を追加。すべて任意項目で、返らない場合は未設定（null）のまま保持する。
+  - `illustrator_counts` はオブジェクト形式 `{ "作家名": 件数 }` と配列形式 `[{ illustrator, count }]` のどちらでも読み取り、件数の多い順に並べる（同数は名前順）。worker_state 直下・応答トップレベル・stats 配下のどこにあっても読めるようにしてある。
+- 表示
+  - 商品詳細（`detail/components/ProductProfilePanel.tsx`）：商品名の下の補助情報に「作家」を追加。値が空のときは行ごと表示しない。編集UIは追加しない（表示のみ）。一覧からのフォールバック表示でも `illustrator` を引き継ぐ。
+  - ライト版AIの進捗パネル（`products/components/PokecaLightProgressBar.tsx`）：既存の件数表示の下に「作家別」として作家名＋件数のチップを件数の多い順に表示。多い場合は先頭10名まで表示し、残りは「他N名」と示す。`illustrator_counts` が無い場合は行ごと非表示。
+- 変更範囲：上記4ファイルと詳細ページのフォールバックのみ。商品一覧への作家フィルタ・検索、作家名の編集UI、他の画面レイアウト、バックエンド／DB／GAS は無変更。
+- 状態：ビルド成功。フィールドが無い状態（デプロイ前のバックエンド）でも表示されないだけで画面は壊れない。公開（Publish）は指示があるまで行わない。

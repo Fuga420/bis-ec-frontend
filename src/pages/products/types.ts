@@ -60,6 +60,8 @@ export interface AdminProductDetail {
   purchase_price: number | null;
   planned_sale_price: number;
   storage_location: string;
+  // ポケカ等の作家（イラストレーター）名。バックエンドが返さない場合は未設定。
+  illustrator?: string;
   description?: string;
   notes?: string;
   sneaker_sku?: string;
@@ -285,6 +287,8 @@ export interface AdminProduct {
   purchase_price: number | null;
   planned_sale_price: number;
   storage_location: string;
+  // 作家（イラストレーター）名。未設定の応答では項目自体が無い。
+  illustrator?: string;
   sneaker_sku?: string;
   sneaker_size?: number | null;
   main_image_display_url: string;
