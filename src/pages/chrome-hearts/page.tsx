@@ -5,10 +5,8 @@ import { useOperatingMode } from "@/context/OperatingModeProvider";
 import ProductListSkeleton from "@/pages/products/components/ProductListSkeleton";
 import ProductLoadErrorState from "@/pages/products/components/ProductLoadErrorState";
 import ProductPagination from "@/pages/products/components/ProductPagination";
-import {
-  PRODUCT_SORT_OPTIONS,
-  type ProductSortKey,
-} from "@/pages/products/lib/sort";
+import { type ProductSortKey } from "@/pages/products/lib/sort";
+import { PURCHASE_PRICE_SORT_OPTIONS } from "@/pages/products/lib/purchasePriceSort";
 import {
   buildChromeHeartsOrigin,
   buildChromeHeartsQueryString,
@@ -225,7 +223,7 @@ export default function ChromeHeartsPage() {
                 aria-label="商品の並び替え"
                 className="bis-field min-w-0 flex-1 sm:flex-none sm:w-[176px]"
               >
-                {PRODUCT_SORT_OPTIONS.map((option) => (
+                {PURCHASE_PRICE_SORT_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>

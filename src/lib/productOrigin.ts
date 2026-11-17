@@ -72,9 +72,12 @@ export interface SneakersQueryState {
   page: number;
 }
 
-const SNEAKERS_SORT_KEYS: string[] = PRODUCT_SORT_OPTIONS.map(
-  (option) => option.value
-);
+const SNEAKERS_SORT_KEYS: string[] = [
+  ...PRODUCT_SORT_OPTIONS.map((option) => option.value),
+  // 仕入価格ソート（Chrome Hearts / Sneakers / Apparel）も復元対象に含める。
+  "purchase_asc",
+  "purchase_desc",
+];
 
 /** 商品詳細をスニーカーページから開いたときの遷移元 */
 export interface SneakersProductOrigin {

@@ -9,7 +9,11 @@ export type ProductSortKey =
   | "price_desc"
   | "price_asc"
   | "name_asc"
-  | "name_desc";
+  | "name_desc"
+  // 仕入価格ソート（Chrome Hearts / Sneakers / Apparel のみ。一覧APIは未対応のため
+  // 条件一致の全件を取得してブラウザ側で数値ソートする）
+  | "purchase_asc"
+  | "purchase_desc";
 
 // 初期選択は現在の既存表示順（APIが返した順）を維持する「既定の順序」。
 export const PRODUCT_SORT_OPTIONS: Array<{ value: ProductSortKey; label: string }> = [
