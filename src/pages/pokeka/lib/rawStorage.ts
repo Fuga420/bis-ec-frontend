@@ -44,6 +44,37 @@ export function pickRawStorageProducts(
   return products.filter((product) => isPokecaRawStorageProduct(product));
 }
 
+/**
+ * ポケカページの対象範囲（ポケカカテゴリの商品）。
+ * 旧裏ストレージ商品は、カテゴリが未設定でも従来どおり対象に含める
+ * （既存の一覧から商品が黙って消えないようにするため）。
+ */
+export function pickPokecaScopeProducts(
+  products: AdminProduct[]
+): AdminProduct[] {
+  return products.filter(
+    (product) =>
+      product.category === "pokemon_card" ||
+      isPokecaRawStorageProduct(product)
+  );
+}
+
+/**
+ * グレードの有無を既存の一覧データから判定できなかった商品の件数。
+ *
+ * 一覧APIは鑑定状態・鑑定機関・グレード値を返さないため、
+ * 「旧裏ストレージ（生カード保管）に該当しないポケカ商品」は
+ * グレードあり／なしのどちらとも確定できない。その件数だけを返す。
+ * 推測でどちらかへ振り分けることはしない。
+ */
+export function countUndeterminedGradeProducts(
+  products: AdminProduct[]
+): number {
+  return pickPokecaScopeProducts(products).filter(
+    (product) => !isPokecaRawStorageProduct(product)
+  ).length;
+}
+
 /** 商品IDをキーにした、ライト版AIの商品別情報マップ。 */
 export type PokecaLightInfoMap = Map<string, PokecaLightProductInfo>;
 
@@ -134,6 +165,37 @@ export function resolveReferencePrice(
     return planned;
   }
   return null;
+}
+
+/**
+ * 一覧に出す金額の出どころ。
+ * reference: ライト版AIの候補価格（＝参考価格）
+ * sale: 登録済みの販売価格（参考価格が未取得のときの代替表示）
+ * 値そのものは商品データから変えず、どちらの金額かを画面で区別できるようにする。
+ */
+export type ReferencePriceSource = "reference" | "sale";
+
+/**
+ * 一覧に出す金額と、その出どころを返す。
+ * 参考価格と販売価格を同じものとして見せないための判定をここ1か所に集約する。
+ */
+export function resolveReferencePriceWithSource(
+  product: AdminProduct,
+  info: PokecaLightProductInfo | undefined
+): { value: number | null; source: ReferencePriceSource | null } {
+  const candidate = info?.candidatePrice;
+  if (
+    typeof candidate === "number" &&
+    Number.isFinite(candidate) &&
+    candidate > 0
+  ) {
+    return { value: candidate, source: "reference" };
+  }
+  const planned = product.planned_sale_price;
+  if (typeof planned === "number" && Number.isFinite(planned) && planned > 0) {
+    return { value: planned, source: "sale" };
+  }
+  return { value: null, source: null };
 }
 
 /**
@@ -251,6 +313,7 @@ export function buildLightCoverage(
  */
 export type StorageSortKey =
   | "position"
+  | "name"
   | "price_desc"
   | "price_asc"
   | "created_desc"
@@ -304,6 +367,20 @@ export function sortStorageProducts(
 ): AdminProduct[] {
   const list = [...products];
   if (sortKey === "position") return list.sort(comparePosition);
+
+  // 商品名順。名前が空の商品は末尾にまとめ、同名列は箱番・枝番の順で固定する。
+  if (sortKey === "name") {
+    return list.sort((a, b) => {
+      const nameA = (a.product_name || "").trim();
+      const nameB = (b.product_name || "").trim();
+      if (!nameA && nameB) return 1;
+      if (nameA && !nameB) return -1;
+      if (nameA !== nameB) {
+        return nameA.localeCompare(nameB, "ja", NATURAL_OPTIONS);
+      }
+      return comparePosition(a, b);
+    });
+  }
 
   if (sortKey === "price_desc" || sortKey === "price_asc") {
     const direction = sortKey === "price_desc" ? -1 : 1;

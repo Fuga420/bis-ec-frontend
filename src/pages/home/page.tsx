@@ -1,12 +1,44 @@
-export default function Home() {
+import AdminShell from "@/components/feature/AdminShell";
+import { useOperatingMode } from "@/context/OperatingModeProvider";
+import HomeDateLabel from "./components/HomeDateLabel";
+import HomeProductOverview from "./components/HomeProductOverview";
+import HomeQuickAccess from "./components/HomeQuickAccess";
+import HomeSection from "./components/HomeSection";
+import HomeWorkStatus from "./components/HomeWorkStatus";
+import { useHomeSummary } from "./hooks/useHomeSummary";
+
+export default function HomePage() {
+  const { isTestMode } = useOperatingMode();
+  const summary = useHomeSummary(isTestMode);
+
   return (
-    // This is the template home page, please edit from this page
-    <div className="relative flex flex-col items-center justify-center h-screen text-center px-4">
-      <p className="absolute top-4 text-lg text-gray-500">You can switch pages using this dropdown menu ⬆️</p>
-      <div className="relative z-10">
-        <h1 className="text-xl md:text-2xl font-semibold mt-6">This is homepage, but there is no content yet</h1>
-        <p className="mt-4 text-lg md:text-xl text-gray-500">Tell me more about homepage, so I can generate it</p>
+    <AdminShell
+      pageTitle="ホーム"
+      mainClassName="page-fade w-full px-4 py-4 md:px-6 md:py-5 lg:px-8"
+    >
+      <div className="flex w-full flex-col gap-3">
+        <HomeDateLabel />
+
+        <HomeSection title="商品概要">
+          <HomeProductOverview
+            state={summary.productState}
+            products={summary.products}
+            onReload={summary.reloadProducts}
+          />
+        </HomeSection>
+
+        <HomeSection title="作業状況">
+          <HomeWorkStatus
+            documentState={summary.documentState}
+            documents={summary.documents}
+            onReloadDocuments={summary.reloadDocuments}
+          />
+        </HomeSection>
+
+        <HomeSection title="クイックアクセス">
+          <HomeQuickAccess />
+        </HomeSection>
       </div>
-    </div>
+    </AdminShell>
   );
 }

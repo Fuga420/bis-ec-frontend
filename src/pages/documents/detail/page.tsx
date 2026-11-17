@@ -264,7 +264,7 @@ export default function DocumentDetailPage() {
   return (
     <AdminShell
       pageTitle="書類詳細"
-      backLink={{ to: "/documents", label: "書類管理" }}
+      breadcrumbs={[{ label: "仕入・書類", to: "/documents" }]}
       mainClassName="page-fade mx-auto w-full max-w-5xl px-4 py-4 md:px-6"
     >
         {loadState === "loading" && (

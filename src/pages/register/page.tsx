@@ -845,8 +845,8 @@ export default function RegisterPage() {
 
   return (
     <AdminShell
-      pageTitle="商品を登録"
-      backLink={{ to: "/products", label: "すべての商品" }}
+      pageTitle="商品登録"
+      breadcrumbs={[{ label: "商品管理", to: "/products" }]}
       mainClassName="page-fade mx-auto w-full max-w-5xl px-4 py-4 md:px-6"
     >
         {/* 商品画像 */}

@@ -4,6 +4,8 @@ interface ProductPaginationProps {
   count: number;
   disabled?: boolean;
   onPageChange: (page: number) => void;
+  // 一覧上部に件数を出している画面では false にして、同じ件数を繰り返さない。
+  showSummary?: boolean;
 }
 
 // 表示するページ番号の並びを組み立てる。
@@ -36,6 +38,7 @@ export default function ProductPagination({
   count,
   disabled = false,
   onPageChange,
+  showSummary = true,
 }: ProductPaginationProps) {
   if (totalPages <= 1) return null;
 
@@ -43,19 +46,23 @@ export default function ProductPagination({
   const canPrev = page > 1;
   const canNext = page < totalPages;
 
-  const navButtonClass =
-    "inline-flex h-9 cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-md border border-background-300 bg-white px-3 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100 disabled:cursor-not-allowed disabled:opacity-50";
+  // ページ送りは一覧の補助操作なので、共通の小サイズボタンに揃える。
+  const navButtonClass = "bis-btn bis-btn-sm bis-btn-secondary";
 
   return (
     <nav
-      className="mt-6 flex flex-col items-center justify-between gap-3 sm:flex-row"
+      className={`mt-6 flex flex-col items-center gap-3 sm:flex-row ${
+        showSummary ? "justify-between" : "sm:justify-end"
+      }`}
       aria-label="商品一覧のページ送り"
     >
-      <p className="text-xs text-foreground-500">
-        全 <span className="font-bold text-foreground-950">{count}</span> 件 /{" "}
-        <span className="font-bold text-foreground-950">{page}</span> /{" "}
-        {totalPages} ページ
-      </p>
+      {showSummary && (
+        <p className="bis-meta">
+          全 <span className="admin-numeric font-semibold text-foreground-950">{count}</span> 件 /{" "}
+          <span className="admin-numeric font-semibold text-foreground-950">{page}</span> /{" "}
+          {totalPages} ページ
+        </p>
+      )}
 
       <div className="flex flex-wrap items-center justify-center gap-1.5">
         <button
@@ -74,7 +81,7 @@ export default function ProductPagination({
             <span
               key={`ellipsis-${index}`}
               aria-hidden="true"
-              className="flex h-9 w-7 items-center justify-center text-sm text-foreground-400"
+              className="flex h-[34px] w-7 items-center justify-center text-[13px] text-foreground-400"
             >
               …
             </span>
@@ -86,9 +93,9 @@ export default function ProductPagination({
               disabled={disabled}
               aria-label={`${item}ページ目`}
               aria-current={item === page ? "page" : undefined}
-              className={`inline-flex h-9 min-w-9 cursor-pointer items-center justify-center rounded-md border px-2 text-sm font-medium tabular-nums transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+              className={`inline-flex h-[34px] min-w-[34px] cursor-pointer items-center justify-center rounded-[7px] border px-2 text-[13px] font-medium tabular-nums transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                 item === page
-                  ? "border-primary-500 bg-primary-500 text-background-50"
+                  ? "border-foreground-950 bg-foreground-950 text-background-50"
                   : "border-background-300 bg-white text-foreground-700 hover:bg-background-100"
               }`}
             >

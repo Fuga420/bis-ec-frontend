@@ -8,7 +8,9 @@ import PokecaLightResultModal from "@/pages/products/components/PokecaLightResul
 import { usePokecaRawStorageAi } from "@/pages/products/hooks/usePokecaRawStorageAi";
 import type { PokecaLightWorkerState } from "@/pages/products/lib/pokecaRawStorageAi";
 import type { AdminProduct } from "@/pages/products/types";
-import PokekaTabs, { type PokekaTabKey } from "./components/PokekaTabs";
+import PokekaTabs from "./components/PokekaTabs";
+import GradePendingNotice from "./components/GradePendingNotice";
+import type { PokekaGradeKey } from "./lib/gradeTabs";
 import PokecaLightAiPanel, {
   type PokecaLightStatusView,
 } from "./components/PokecaLightAiPanel";
@@ -18,7 +20,6 @@ import StorageFilterBar, {
   type StorageSortValue,
 } from "./components/StorageFilterBar";
 import StorageProductTable from "./components/StorageProductTable";
-import PokecaComingSoon from "./components/PokecaComingSoon";
 import PokecaLightRunDialog from "./components/PokecaLightRunDialog";
 import StorageSubTabs from "./components/StorageSubTabs";
 import StorageScopePending from "./components/StorageScopePending";
@@ -34,6 +35,7 @@ import {
   buildLightInfoMap,
   collectBoxOptions,
   countByIllustrator,
+  countUndeterminedGradeProducts,
   parseStoragePosition,
   resolveReferencePrice,
   sortStorageProducts,
@@ -45,15 +47,6 @@ import {
 
 // 一覧の1ページあたり件数（商品一覧と同じ密度に揃える）。
 const PAGE_SIZE = 50;
-
-const COMING_SOON: Record<
-  Exclude<PokekaTabKey, "storage">,
-  { label: string }
-> = {
-  vss: { label: "VSS" },
-  psa: { label: "PSA" },
-  other: { label: "その他鑑定" },
-};
 
 // ライト版AIパネルに出す「現在の処理状態」。
 // 表示は既存のジョブ状態（idle / running / completed / failed）だけに対応させ、
@@ -89,7 +82,7 @@ export default function PokekaPage() {
   // 直接アクセス（パラメータなし）は従来どおりの初期表示になる。
   const [initialQuery] = useState(() => readPokekaQuery(searchParams));
 
-  const [tab, setTab] = useState<PokekaTabKey>(initialQuery.tab);
+  const [tab, setTab] = useState<PokekaGradeKey>(initialQuery.tab);
   // ストレージ内の区分。初期表示は既存の旧裏ストレージ一覧（「旧裏」）。
   const [storageScope, setStorageScope] =
     useState<StorageScopeKey>(initialQuery.scope);
@@ -97,7 +90,7 @@ export default function PokekaPage() {
 
   // 旧裏ストレージ商品（storage_location が「旧裏ストレージ/」で始まる商品）を全件取得し、
   // 画面側で50件ずつページ表示する（「旧裏ストレージを隠す」トグルと同じ方式）。
-  const { loadState, items, errorMessage } = usePokekaRawStorageList({
+  const { loadState, items, allItems, errorMessage } = usePokekaRawStorageList({
     isTestMode,
     reloadKey,
   });
@@ -145,7 +138,10 @@ export default function PokekaPage() {
     initialQuery.price
   );
   // 並び順。既定は箱番・枝番の順（従来の一覧順）。
-  const [sortValue, setSortValue] = useState<StorageSortValue>("position");
+  // 商品詳細から戻ったときは、URLに残っている並び順を復元する。
+  const [sortValue, setSortValue] = useState<StorageSortValue>(
+    initialQuery.sort
+  );
   const [page, setPage] = useState(initialQuery.page);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [isRunDialogOpen, setIsRunDialogOpen] = useState(false);
@@ -268,7 +264,7 @@ export default function PokekaPage() {
   // タブを切り替えたら1ページ目に戻し、絞り込みと選択を解除する。
   // 初回表示（商品詳細のパンくずからURLの条件で戻ってきた直後）は、
   // その条件をそのまま使う。
-  const handleTabChange = (next: PokekaTabKey) => {
+  const handleTabChange = (next: PokekaGradeKey) => {
     if (next === tab) return;
     setTab(next);
     setPage(1);
@@ -343,6 +339,7 @@ export default function PokekaPage() {
       box: boxFilter,
       author: illustratorFilter,
       price: priceFilter,
+      sort: sortValue,
       page,
     });
     if (next === searchParams.toString()) return;
@@ -354,6 +351,7 @@ export default function PokekaPage() {
     boxFilter,
     illustratorFilter,
     priceFilter,
+    sortValue,
     page,
     searchParams,
     setSearchParams,
@@ -371,6 +369,7 @@ export default function PokekaPage() {
           box: boxFilter,
           author: illustratorFilter,
           price: priceFilter,
+          sort: sortValue,
           page,
         })
       ),
@@ -381,6 +380,7 @@ export default function PokekaPage() {
       boxFilter,
       illustratorFilter,
       priceFilter,
+      sortValue,
       page,
     ]
   );
@@ -459,8 +459,13 @@ export default function PokekaPage() {
 
   const retry = () => setReloadKey((k) => k + 1);
 
-  const isStorage = tab === "storage";
-  const comingSoon = isStorage ? null : COMING_SOON[tab];
+  const isUngraded = tab === "ungraded";
+  // グレードの有無を一覧データから判定できなかったポケカ商品の件数。
+  // 推測でどちらのタブにも振り分けず、グレードありタブで件数だけを示す。
+  const undeterminedGradeCount = useMemo(
+    () => countUndeterminedGradeProducts(allItems),
+    [allItems]
+  );
 
   // 実行中だけ表示する進捗と、直近の実行に失敗が残っているときだけ出す控えめな導線。
   // いずれも既存のジョブ状態（worker_state）の値だけを使う。
@@ -474,7 +479,7 @@ export default function PokekaPage() {
   const isAllScope = storageScope === "all";
   const isOldScope = storageScope === "old";
   const isCurrentScope = storageScope === "current";
-  const showsStorageList = isStorage && !isCurrentScope;
+  const showsStorageList = isUngraded && !isCurrentScope;
 
   const emptyTitle = hasFilter
     ? "条件に一致する商品がありません"
@@ -487,7 +492,7 @@ export default function PokekaPage() {
       pageTitle="Pokémon Card"
       mainClassName="page-fade px-4 py-4 md:px-6 md:py-5 lg:px-8"
     >
-      <div className="mb-2.5 flex flex-wrap items-end gap-x-3 gap-y-1">
+      <div className="mb-3 flex flex-wrap items-end gap-x-3 gap-y-1">
         <div className="min-w-0 flex-1">
           <PokekaTabs value={tab} onChange={handleTabChange} />
         </div>
@@ -498,14 +503,14 @@ export default function PokekaPage() {
         )}
       </div>
 
-      {isStorage && (
-        <div className="mb-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+      {isUngraded && (
+        <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <StorageSubTabs value={storageScope} onChange={handleScopeChange} />
           {isOldScope && (
             <button
               type="button"
               onClick={() => setIsAiPanelOpen(true)}
-              className="ml-auto inline-flex h-8 shrink-0 cursor-pointer items-center whitespace-nowrap rounded-md border border-background-300 bg-white px-2.5 text-[12px] font-medium text-foreground-700 transition-colors hover:bg-background-100"
+              className="bis-btn bis-btn-sm bis-btn-secondary ml-auto"
             >
               AI生成
             </button>
@@ -513,13 +518,16 @@ export default function PokekaPage() {
         </div>
       )}
 
-      {!isStorage && comingSoon && (
+      {!isUngraded && (
         <div className="tab-fade">
-          <PokecaComingSoon label={comingSoon.label} />
+          <GradePendingNotice
+            undeterminedCount={undeterminedGradeCount}
+            isLoading={loadState === "loading"}
+          />
         </div>
       )}
 
-      {isStorage && isCurrentScope && (
+      {isUngraded && isCurrentScope && (
         <div className="tab-fade">
           <StorageScopePending />
         </div>
@@ -671,7 +679,7 @@ export default function PokekaPage() {
       )}
 
       <PokecaLightAiPanel
-        open={isStorage && isOldScope && isAiPanelOpen}
+        open={isUngraded && isOldScope && isAiPanelOpen}
         onClose={() => setIsAiPanelOpen(false)}
         products={scopeItems}
         coverage={lightCoverage}

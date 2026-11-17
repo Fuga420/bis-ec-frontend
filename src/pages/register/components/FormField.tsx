@@ -68,7 +68,7 @@ export default function FormField({
         )}
         {badge && (
           <span
-            className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${badgeClasses[badgeColor]}`}
+            className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${badgeClasses[badgeColor]}`}
           >
             {badge}
           </span>
@@ -97,5 +97,4 @@ export default function FormField({
   );
 }
 
-export const inputClass =
-  "w-full rounded-lg border border-background-300 bg-white px-3 py-2.5 text-sm text-foreground-950 placeholder:text-foreground-400 outline-none transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:cursor-not-allowed disabled:border-background-200 disabled:bg-background-100 disabled:text-foreground-400";
+export const inputClass = "bis-field";

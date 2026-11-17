@@ -1091,7 +1091,7 @@ export default function ProductDetailPage() {
       breadcrumbs={originTrail?.ancestors}
       activeNavTo={originTrail?.navActiveTo}
       backLink={
-        originTrail ? undefined : { to: listPath, label: "すべての商品" }
+        originTrail ? undefined : { to: listPath, label: "商品管理" }
       }
       rootClassName="catalogue"
       mainClassName="page-fade mx-auto w-full max-w-5xl px-4 pb-10 pt-4 md:px-6 md:pt-5"

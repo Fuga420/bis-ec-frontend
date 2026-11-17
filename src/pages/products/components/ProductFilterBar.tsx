@@ -1,3 +1,5 @@
+import { useState } from "react";
+import ProductSearchField from "./ProductSearchField";
 import {
   CATEGORY_LABELS,
   PUBLISH_STATUS_LABELS,
@@ -53,14 +55,11 @@ const IMPORT_MODE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "pokeca_raw_storage", label: "旧裏ストレージ" },
 ];
 
-// 一覧の取得は全件一括だが、画面での絞り込みは「取得済み全件」を対象にする。
-// 件数表示はフィルターエリア直下に1か所だけまとめて表示する。
-//
-// レイアウト方針（Edge-to-Edge 化後の上部最適化）:
-// - 親コンテナの枠線・背景は持たない（各入力が個別に境界線を持つため、二重の枠を作らない）。
-// - 検索欄は最大520pxまでとし、広い画面でも間延びさせない。
-// - フィルター3つは160〜190pxの固定幅で、検索欄の右隣に8〜12px間隔でまとめる。
-// - 狭い画面では自然に折り返す（横スクロールは発生させない）。
+// レイアウト方針:
+// - 検索欄を最も広く・最も目立つ位置（先頭）に置く。
+// - よく使う条件（カテゴリ・公開状態・在庫状態）は検索欄の右隣に同じ幅で並べる。
+// - 使用頻度の低い取込モードは「その他の条件」の中にまとめ、適用中だけ折りたたみボタンに示す。
+// - 画面幅が狭いときは1列 → 2列 → 横並びの順に切り替え、1つだけ孤立して2段目へ落ちないようにする。
 export default function ProductFilterBar({
   value,
   onChange,
@@ -72,119 +71,128 @@ export default function ProductFilterBar({
     value.publishStatus !== "" ||
     value.inventoryStatus !== "" ||
     value.importMode !== "";
-  const hasSearch = value.search !== "";
+  const hasOtherFilter = value.importMode !== "";
+  // 折りたたみ内の条件が適用中の状態で開いたまま始める（適用中の条件を見えなくしない）。
+  const [isOtherOpen, setIsOtherOpen] = useState(hasOtherFilter);
 
-  // 各セレクト共通の見た目（高さ40px・角丸・スタイルを統一）。
-  const selectClass =
-    "h-10 w-full min-w-0 rounded-lg border border-background-300 bg-white px-3 text-sm text-foreground-900 transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-[160px] xl:w-[184px]";
+  // 各セレクト共通の見た目（.bis-field: 高さ40px・角丸8px・枠線1px・文字14px）。
+  const selectClass = "bis-field w-full min-w-0 lg:w-[172px]";
 
   return (
-    <div className="mb-5 flex w-full flex-wrap items-center gap-2 md:gap-3">
-      {/* 検索欄：操作群の中で最も広い入力欄。ただし上限520pxで頭打ちにする */}
-      <div className="relative min-w-0 w-full sm:w-[340px] lg:w-[440px] xl:w-[520px]">
-        <i className="ri-search-line pointer-events-none absolute left-3 top-1/2 w-4 h-4 -translate-y-1/2 flex items-center justify-center text-sm text-foreground-400"></i>
-        <input
-          type="text"
-          value={value.search}
+    <div className="mb-4 w-full">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center">
+        {/* 検索欄：操作群の中で最も広い入力欄。広い画面では最大420pxで頭打ちにする */}
+        <div className="min-w-0 w-full sm:col-span-2 lg:w-[340px] xl:w-[420px]">
+          <ProductSearchField
+            value={value.search}
+            onChange={(next) => onChange({ ...value, search: next })}
+            placeholder="商品名・商品ID・ブランドで検索"
+            ariaLabel="商品を検索"
+            disabled={disabled}
+          />
+        </div>
+
+        {/* よく使う条件（カテゴリ・公開状態・在庫状態） */}
+        <select
+          value={value.category}
           disabled={disabled}
-          onChange={(e) => onChange({ ...value, search: e.target.value })}
-          placeholder="商品名・商品ID・ブランドで検索"
-          aria-label="商品を検索"
-          className="h-10 w-full rounded-lg border border-background-300 bg-white py-2 pl-9 pr-9 text-sm text-foreground-900 placeholder:text-foreground-400 transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-50"
-        />
-        {hasSearch && (
+          onChange={(e) => onChange({ ...value, category: e.target.value })}
+          aria-label="カテゴリで絞り込み"
+          className={selectClass}
+        >
+          {CATEGORY_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={value.publishStatus}
+          disabled={disabled}
+          onChange={(e) =>
+            onChange({ ...value, publishStatus: e.target.value })
+          }
+          aria-label="公開状態で絞り込み"
+          className={selectClass}
+        >
+          {PUBLISH_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={value.inventoryStatus}
+          disabled={disabled}
+          onChange={(e) =>
+            onChange({ ...value, inventoryStatus: e.target.value })
+          }
+          aria-label="在庫状態で絞り込み"
+          className={selectClass}
+        >
+          {INVENTORY_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+
+        {/* 使用頻度の低い条件は折りたたむ。適用中は見出しで分かるようにする */}
+        <button
+          type="button"
+          onClick={() => setIsOtherOpen((prev) => !prev)}
+          disabled={disabled}
+          aria-expanded={isOtherOpen}
+          aria-controls="product-filter-other"
+          className="bis-btn bis-btn-ghost w-full justify-start sm:w-auto"
+        >
+          {hasOtherFilter ? "その他の条件（適用中）" : "その他の条件"}
+        </button>
+
+        {/* 条件クリアは操作群の末尾に控えめに置く（横へ押し広げない） */}
+        {hasFilter && (
           <button
             type="button"
-            onClick={() => onChange({ ...value, search: "" })}
+            onClick={() =>
+              onChange({
+                search: "",
+                category: "",
+                publishStatus: "",
+                inventoryStatus: "",
+                importMode: "",
+              })
+            }
             disabled={disabled}
-            aria-label="検索文字列をクリア"
-            className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-foreground-400 transition-colors hover:bg-background-200 hover:text-foreground-700 disabled:cursor-not-allowed disabled:opacity-50"
+            aria-label="検索・フィルターの条件をすべてクリア"
+            className="bis-btn bis-btn-ghost w-full justify-start sm:w-auto"
           >
-            <i className="ri-close-line w-4 h-4 flex items-center justify-center text-sm"></i>
+            条件をクリア
           </button>
         )}
       </div>
 
-      {/* カテゴリ・公開状態・在庫状態（同じ高さ・角丸・スタイルで統一） */}
-      <select
-        value={value.category}
-        disabled={disabled}
-        onChange={(e) => onChange({ ...value, category: e.target.value })}
-        aria-label="カテゴリで絞り込み"
-        className={selectClass}
-      >
-        {CATEGORY_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-
-      <select
-        value={value.publishStatus}
-        disabled={disabled}
-        onChange={(e) => onChange({ ...value, publishStatus: e.target.value })}
-        aria-label="公開状態で絞り込み"
-        className={selectClass}
-      >
-        {PUBLISH_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-
-      <select
-        value={value.inventoryStatus}
-        disabled={disabled}
-        onChange={(e) =>
-          onChange({ ...value, inventoryStatus: e.target.value })
-        }
-        aria-label="在庫状態で絞り込み"
-        className={selectClass}
-      >
-        {INVENTORY_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-
-      {/* 取込モード（旧裏ストレージ）。絞り込みはAPI側で行うため、選択変更で1ページ目に戻す */}
-      <select
-        value={value.importMode}
-        disabled={disabled}
-        onChange={(e) => onChange({ ...value, importMode: e.target.value })}
-        aria-label="取込モードで絞り込み"
-        className={selectClass}
-      >
-        {IMPORT_MODE_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-
-      {/* 条件クリアは操作群の末尾に控えめに置く（横へ押し広げない） */}
-      {hasFilter && (
-        <button
-          type="button"
-          onClick={() =>
-            onChange({
-              search: "",
-              category: "",
-              publishStatus: "",
-              inventoryStatus: "",
-              importMode: "",
-            })
-          }
-          disabled={disabled}
-          aria-label="検索・フィルターの条件をすべてクリア"
-          className="inline-flex h-10 cursor-pointer items-center gap-1 whitespace-nowrap rounded-lg px-2.5 text-[13px] font-medium text-foreground-500 transition-colors hover:bg-background-100 hover:text-foreground-900 disabled:cursor-not-allowed disabled:opacity-50"
+      {/* その他の条件（取込モード）。絞り込みはAPI側で行うため、選択変更で1ページ目に戻す */}
+      {isOtherOpen && (
+        <div
+          id="product-filter-other"
+          className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:items-center"
         >
-          <i className="ri-refresh-line w-3.5 h-3.5 flex items-center justify-center text-sm"></i>
-          条件をクリア
-        </button>
+          <select
+            value={value.importMode}
+            disabled={disabled}
+            onChange={(e) => onChange({ ...value, importMode: e.target.value })}
+            aria-label="取込モードで絞り込み"
+            className={selectClass}
+          >
+            {IMPORT_MODE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
       )}
     </div>
   );

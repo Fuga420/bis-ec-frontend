@@ -38,12 +38,12 @@ export default function DocumentsPage() {
   // Inbox一括取込と書類アップロードは、この下部パネルを開いたときだけ表示する。
   const [addPanelOpen, setAddPanelOpen] = useState(false);
 
-  const selectClass =
-    "h-9 w-full rounded-lg border border-background-300 bg-white px-3 text-sm text-foreground-900 transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 sm:w-44";
+  // 検索欄・セレクトは共通の入力スタイル（.bis-field: 高さ40px・角丸8px）に揃える。
+  const selectClass = "bis-field w-full sm:w-44";
 
   return (
     <AdminShell
-      pageTitle="書類管理"
+      pageTitle="仕入・書類"
       mainClassName="page-fade mx-auto w-full max-w-[1560px] px-4 py-4 md:px-6 lg:px-8"
     >
         {/* 画面の主役: 仕入明細を探す（受付番号・ことば） */}
@@ -52,7 +52,7 @@ export default function DocumentsPage() {
         {/* 従来の書類一覧（ファイル単位）。検索の役割を分けてここに置く。 */}
         <section className="mt-5">
           <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-            <h2 className="flex items-center gap-1.5 text-[16px] font-semibold leading-[1.4] text-foreground-950">
+            <h2 className="bis-section-title flex items-center gap-1.5">
               <i className="ri-folder-3-line w-4 h-4 flex items-center justify-center text-foreground-500"></i>
               書類一覧
             </h2>
@@ -89,14 +89,14 @@ export default function DocumentsPage() {
                 onChange={(e) => setKeyword(e.target.value)}
                 placeholder="ファイル名・書類IDで絞り込む"
                 aria-label="書類を絞り込む"
-                className="h-9 w-full rounded-lg border border-background-300 bg-white py-2 pl-9 pr-9 text-sm text-foreground-900 placeholder:text-foreground-400 transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
+                className="bis-field bis-field-search w-full"
               />
               {keyword !== "" && (
                 <button
                   type="button"
                   onClick={() => setKeyword("")}
                   aria-label="検索文字列をクリア"
-                  className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-foreground-400 transition-colors hover:bg-background-200 hover:text-foreground-700"
+                  className="bis-field-clear absolute right-1 top-1/2 -translate-y-1/2"
                 >
                   <i className="ri-close-line w-4 h-4 flex items-center justify-center text-sm"></i>
                 </button>
@@ -122,7 +122,7 @@ export default function DocumentsPage() {
               <button
                 type="button"
                 onClick={clearFilter}
-                className="inline-flex w-fit cursor-pointer items-center gap-1 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium text-foreground-600 transition-colors hover:bg-background-100 hover:text-foreground-900"
+                className="bis-btn bis-btn-ghost w-fit"
               >
                 <i className="ri-refresh-line w-3.5 h-3.5 flex items-center justify-center text-sm"></i>
                 条件をクリア
@@ -149,7 +149,7 @@ export default function DocumentsPage() {
               <button
                 type="button"
                 onClick={retry}
-                className="mt-2 inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border border-background-300 px-4 py-2 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100"
+                className="bis-btn bis-btn-secondary mt-2"
               >
                 <i className="ri-refresh-line w-4 h-4 flex items-center justify-center"></i>
                 再読み込み
@@ -178,7 +178,7 @@ export default function DocumentsPage() {
                   <button
                     type="button"
                     onClick={clearFilter}
-                    className="mt-1 inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border border-background-300 px-4 py-2 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100"
+                    className="bis-btn bis-btn-secondary mt-1"
                   >
                     <i className="ri-refresh-line w-4 h-4 flex items-center justify-center"></i>
                     条件をクリア

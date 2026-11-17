@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
+import { useAdminNav } from "@/context/AdminNavProvider";
 import { useOperatingMode } from "@/context/OperatingModeProvider";
 import { adminThemeClass } from "@/lib/adminTheme";
 import AdminHeader, {
@@ -9,25 +10,13 @@ import AdminHeader, {
 } from "./AdminHeader";
 import { AdminSidebar, AdminNavDrawer } from "./AdminSidebar";
 
-const NAV_COLLAPSED_STORAGE_KEY = "bis.admin.nav_collapsed.v1";
+// 「商品を追加」を出す画面（商品を扱う画面だけ）。
+// ホーム・仕入書類・設定など、商品登録と関係のない画面には出さない。
+const PRODUCT_SCREEN_PATTERN =
+  /^\/(products|pokeka|sneakers|chrome-hearts|apparel)(\/|$)/;
 
-function readNavCollapsed(): boolean {
-  try {
-    return window.localStorage.getItem(NAV_COLLAPSED_STORAGE_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function writeNavCollapsed(collapsed: boolean): void {
-  try {
-    window.localStorage.setItem(
-      NAV_COLLAPSED_STORAGE_KEY,
-      collapsed ? "1" : "0"
-    );
-  } catch {
-    // ストレージ不可時も、その場の開閉操作自体は継続する
-  }
+function isProductScreen(pathname: string): boolean {
+  return PRODUCT_SCREEN_PATTERN.test(pathname);
 }
 
 interface AdminShellProps {
@@ -59,7 +48,7 @@ interface AdminShellProps {
  * 構造（ヘッダー＋サイドナビ＋本文）だけを共通化し、
  * 各画面の内容・データ取得・処理はそのまま維持する。
  *
- * - デスクトップ: 左にコンパクトなサイドナビ（折りたたみ可）
+ * - デスクトップ: 左の細いレールを上部の操作でクリック開閉（レイアウト内で幅を共有）
  * - タブレット／スマートフォン: ヘッダーのメニューからドロワー表示
  * - テーマ: 既存の OperatingModeProvider（通常／テスト）に連動
  */
@@ -76,21 +65,15 @@ export default function AdminShell({
 }: AdminShellProps) {
   const { isTestMode } = useOperatingMode();
   const { pathname } = useLocation();
-  const [collapsed, setCollapsed] = useState<boolean>(readNavCollapsed);
+  // 開閉状態はページをまたいで 1 つだけ持つ（このレイアウトの再生成では初期化しない）
+  const { expanded, toggleExpanded } = useAdminNav();
+  // モバイルのドロワーはページごとの一時的な表示なので、従来どおり遷移で閉じる
   const [navOpen, setNavOpen] = useState(false);
 
   // 画面が変わったらドロワーは閉じる（遷移後に被らないようにする）
   useEffect(() => {
     setNavOpen(false);
   }, [pathname]);
-
-  const toggleCollapsed = () => {
-    setCollapsed((prev) => {
-      const next = !prev;
-      writeNavCollapsed(next);
-      return next;
-    });
-  };
 
   return (
     <div
@@ -104,17 +87,16 @@ export default function AdminShell({
         breadcrumbs={breadcrumbs}
         extras={headerExtras}
         aiHistory={aiHistory}
-        navCollapsed={collapsed}
+        showAddProduct={isProductScreen(pathname)}
         onOpenNav={() => setNavOpen(true)}
       />
 
       <div className="flex w-full items-start">
-        {!collapsed && (
-          <AdminSidebar
-            onToggleCollapse={toggleCollapsed}
-            activeNavTo={activeNavTo}
-          />
-        )}
+        <AdminSidebar
+          expanded={expanded}
+          onToggle={toggleExpanded}
+          activeNavTo={activeNavTo}
+        />
         <main className={`min-w-0 flex-1 ${mainClassName}`}>{children}</main>
       </div>
 

@@ -1,18 +1,19 @@
 import { useState } from "react";
 import BisImagePlaceholder from "@/components/base/BisImagePlaceholder";
 
-type ThumbnailSize = "sm" | "md" | "lg";
+type ThumbnailSize = "xs" | "sm" | "md" | "lg";
 
 interface ProductThumbnailProps {
   src: string;
   alt: string;
-  // sm: 56px / md: 72px（モバイル一覧）/ lg: 64px（デスクトップ一覧の標準サイズ）
+  // xs: 40px（高密度一覧）/ sm: 56px / md: 72px（モバイル一覧）/ lg: 64px（デスクトップ一覧の標準サイズ）
   size?: ThumbnailSize;
 }
 
 // 画像はサイズ違いでも同じ比率（正方形）で表示し、一覧の世界観を揃える。
 // 一覧は情報密度を優先するため、標準表示は 64px・角丸6px（rounded-md）に統一する。
 const SIZE_CLASSES: Record<ThumbnailSize, string> = {
+  xs: "h-10 w-10 rounded-md",
   sm: "h-14 w-14 rounded-md",
   md: "h-[72px] w-[72px] rounded-md",
   lg: "h-16 w-16 rounded-md",
@@ -20,6 +21,7 @@ const SIZE_CLASSES: Record<ThumbnailSize, string> = {
 
 // 画像が無いときは画像アイコンではなく、薄いグレーに「BIS」を透かしたプレースホルダにする。
 const PLACEHOLDER_SIZE: Record<ThumbnailSize, "sm" | "md" | "lg"> = {
+  xs: "sm",
   sm: "sm",
   md: "md",
   lg: "lg",

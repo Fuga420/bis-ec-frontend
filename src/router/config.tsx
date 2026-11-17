@@ -3,9 +3,14 @@ import NotFound from "@/pages/NotFound";
 import RegisterPage from "@/pages/register/page";
 import ImportPage from "@/pages/import/page";
 import ProductsPage from "@/pages/products/page";
+import HomePage from "@/pages/home/page";
 import ProductDetailPage from "@/pages/products/detail/page";
 import PokekaPage from "@/pages/pokeka/page";
+import SneakersPage from "@/pages/sneakers/page";
+import ChromeHeartsPage from "@/pages/category/ChromeHeartsPage";
+import ApparelPage from "@/pages/category/ApparelPage";
 import DocumentsPage from "@/pages/documents/page";
+import SettingsPage from "@/pages/settings/page";
 import DocumentDetailPage from "@/pages/documents/detail/page";
 import RelayCheckPage from "@/pages/dev/relay-check/page";
 
@@ -14,6 +19,11 @@ const routes: RouteObject[] = [
     // トップページは商品一覧（商品管理）画面
     path: "/",
     element: <ProductsPage />,
+  },
+  {
+    // 業務全体の状況を確認するホーム（商品一覧とは役割を分ける）
+    path: "/home",
+    element: <HomePage />,
   },
   {
     path: "/register",
@@ -37,8 +47,26 @@ const routes: RouteObject[] = [
     element: <PokekaPage />,
   },
   {
+    // カテゴリ別の商品一覧（商品マスターは共通のまま、入口だけを分ける）
+    path: "/sneakers",
+    element: <SneakersPage />,
+  },
+  {
+    path: "/chrome-hearts",
+    element: <ChromeHeartsPage />,
+  },
+  {
+    path: "/apparel",
+    element: <ApparelPage />,
+  },
+  {
     path: "/documents",
     element: <DocumentsPage />,
+  },
+  {
+    // 設定（環境切り替え・ログアウト）をサイドナビから開く
+    path: "/settings",
+    element: <SettingsPage />,
   },
   {
     path: "/documents/:id",

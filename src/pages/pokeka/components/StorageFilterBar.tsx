@@ -1,3 +1,4 @@
+import ProductSearchField from "@/pages/products/components/ProductSearchField";
 import type { StorageSortKey } from "@/pages/pokeka/lib/rawStorage";
 
 export type PriceFilterValue = "all" | "priced" | "unpriced";
@@ -23,14 +24,12 @@ interface StorageFilterBarProps {
   onClear: () => void;
 }
 
-// 高さは検索・絞り込み・クリアで揃える（36px）。
-const CONTROL_HEIGHT = "h-9";
-
-// 入力欄・セレクトの共通見た目。幅は各項目で指定する。
-const FIELD_CLASS = `${CONTROL_HEIGHT} min-w-0 rounded-md border border-background-300 bg-white px-2.5 text-xs text-foreground-900 transition-colors focus:border-foreground-500 focus:outline-none focus:ring-2 focus:ring-foreground-200 disabled:cursor-not-allowed disabled:opacity-60`;
+// 検索欄・セレクトは全画面共通（.bis-field: 高さ40px・角丸8px・枠線1px・文字14px）。
+// 幅だけを各項目で指定する。
+const FIELD_CLASS = "bis-field";
 
 const LABEL_CLASS =
-  "shrink-0 whitespace-nowrap text-[11px] leading-none text-foreground-500";
+  "shrink-0 whitespace-nowrap text-[12px] leading-none text-foreground-500";
 
 const GROUP_CLASS = "flex min-w-0 shrink-0 items-center gap-1.5";
 
@@ -40,10 +39,13 @@ const PRICE_OPTIONS: Array<{ value: PriceFilterValue; label: string }> = [
   { value: "unpriced", label: "価格なし" },
 ];
 
+// 既定順＝保管場所（箱番・枝番）の順。
+// 価格は一覧に出している参考価格で並べ、未取得の商品は昇順・降順どちらでも末尾に置く。
 const SORT_OPTIONS: Array<{ value: StorageSortValue; label: string }> = [
-  { value: "position", label: "箱番" },
-  { value: "price_desc", label: "金額 高い順" },
-  { value: "price_asc", label: "金額 安い順" },
+  { value: "position", label: "既定順" },
+  { value: "name", label: "商品名" },
+  { value: "price_desc", label: "参考価格 高い順" },
+  { value: "price_asc", label: "参考価格 安い順" },
   { value: "created_desc", label: "登録 新しい順" },
   { value: "created_asc", label: "登録 古い順" },
 ];
@@ -87,34 +89,15 @@ export default function StorageFilterBar({
   return (
     <div className="space-y-1.5">
       <div className="flex flex-wrap items-center gap-2.5">
-        <div className="relative w-full min-w-0 sm:w-auto sm:min-w-[220px] sm:flex-1 sm:max-w-[420px]">
-          <i
-            className="ri-search-line pointer-events-none absolute left-2.5 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center text-[14px] text-foreground-400"
-            aria-hidden="true"
-          ></i>
-          <input
-            type="text"
+        {/* 検索は最も広い領域を占め、残りは内容に合った固定幅で並べる */}
+        <div className="w-full min-w-0 lg:w-auto lg:min-w-[240px] lg:flex-1">
+          <ProductSearchField
             value={searchValue}
-            disabled={disabled}
-            onChange={(e) => onSearchChange(e.target.value)}
+            onChange={onSearchChange}
             placeholder="カード名・商品IDで検索"
-            aria-label="カード名・商品IDで検索"
-            className={`${FIELD_CLASS} w-full pl-8 pr-8 placeholder:text-foreground-400`}
+            ariaLabel="カード名・商品IDで検索"
+            disabled={disabled}
           />
-          {searchValue !== "" && (
-            <button
-              type="button"
-              onClick={() => onSearchChange("")}
-              disabled={disabled}
-              aria-label="検索文字列をクリア"
-              className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-foreground-400 transition-colors hover:bg-background-200 hover:text-foreground-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <i
-                className="ri-close-line flex h-3.5 w-3.5 items-center justify-center text-[13px]"
-                aria-hidden="true"
-              ></i>
-            </button>
-          )}
         </div>
 
         <div className={GROUP_CLASS}>
@@ -126,7 +109,7 @@ export default function StorageFilterBar({
             value={boxValue}
             disabled={disabled || boxOptions.length === 0}
             onChange={(e) => onBoxChange(e.target.value)}
-            className={`${FIELD_CLASS} w-[92px] cursor-pointer`}
+            className={`${FIELD_CLASS} w-[84px] cursor-pointer`}
           >
             <option value="">すべて</option>
             {boxOptions.map((box) => (
@@ -146,7 +129,7 @@ export default function StorageFilterBar({
             value={authorValue}
             disabled={authorDisabled}
             onChange={(e) => onAuthorChange(e.target.value)}
-            className={`${FIELD_CLASS} w-[136px] cursor-pointer`}
+            className={`${FIELD_CLASS} w-[120px] cursor-pointer`}
           >
             <option value="">すべて</option>
             {authorOptions.map((author) => (
@@ -166,7 +149,7 @@ export default function StorageFilterBar({
             value={priceValue}
             disabled={priceDisabled}
             onChange={(e) => onPriceChange(e.target.value as PriceFilterValue)}
-            className={`${FIELD_CLASS} w-[100px] cursor-pointer`}
+            className={`${FIELD_CLASS} w-[96px] cursor-pointer`}
           >
             {PRICE_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -200,7 +183,7 @@ export default function StorageFilterBar({
             type="button"
             onClick={onClear}
             disabled={disabled}
-            className={`${CONTROL_HEIGHT} ml-auto inline-flex cursor-pointer items-center whitespace-nowrap rounded-md px-2 text-[12px] font-medium text-foreground-500 transition-colors hover:bg-background-100 hover:text-foreground-900 disabled:cursor-not-allowed disabled:opacity-50`}
+            className="bis-btn bis-btn-sm bis-btn-ghost ml-auto"
           >
             条件をクリア
           </button>

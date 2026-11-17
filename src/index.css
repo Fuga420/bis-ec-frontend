@@ -1294,3 +1294,410 @@ button:disabled.bg-accent-500:hover {
     font-size: 30px;
   }
 }
+
+/* ========================================================================
+   BIS デザインシステム v1
+   タイポグラフィ / ボタン / フォーム / ステータスの共通スケール
+   ------------------------------------------------------------------------
+   画面ごとに散っていた寸法と文字サイズをここへ集約する。
+   色は既存の5つの役割トークン（background / foreground / primary /
+   accent / secondary）だけを使い、新しい色名は増やさない。
+   フォントも既存の Inter / Noto Sans JP / Playfair Display のみ。
+   余白の基準は8px（4 / 8 / 12 / 16 / 24 / 32）。
+   ライト・ダーク（.is-test-dark）は同じクラスのままトークンで追従する。
+   ======================================================================== */
+
+/* --- タイポグラフィ ---
+   ページ見出し 20 / 600 ・ セクション見出し 15 / 600 ・ 本文 14 / 400
+   商品名 14 / 600 ・ 補助情報 12 / 400。11px 未満は使わない。 */
+.bis-page-title {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: oklch(var(--foreground-950));
+}
+
+.bis-section-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: normal;
+  color: oklch(var(--foreground-900));
+}
+
+.bis-item-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.45;
+  letter-spacing: normal;
+  color: oklch(var(--foreground-950));
+}
+
+.bis-body {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.6;
+  color: oklch(var(--foreground-800));
+}
+
+/* 補助情報（件数・ID・日時・注記）。12px を下限にし、色だけで弱める。 */
+.bis-meta {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: normal;
+  color: oklch(var(--foreground-500));
+}
+
+/* --- ボタン ---
+   3種類だけ: primary（その領域の最重要操作・原則1つ）/ secondary（通常操作）/
+   ghost（補助・テキスト操作）。破壊的操作だけ danger。
+   高さ40px・角丸8px・文字13px/600・影なし・アイコン任意。 */
+.bis-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background-color: transparent;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    opacity 150ms ease;
+}
+
+.bis-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px oklch(var(--foreground-950) / 0.14);
+}
+
+.bis-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.bis-btn > i {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  font-size: 16px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 主操作：ニュートラルな濃色（緑の塗りは標準にしない） */
+.bis-btn-primary {
+  background-color: oklch(var(--foreground-950));
+  border-color: oklch(var(--foreground-950));
+  color: oklch(var(--background-50));
+}
+
+.bis-btn-primary:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+/* 通常操作：白面＋細い枠線 */
+.bis-btn-secondary {
+  border-color: oklch(var(--background-300));
+  background-color: #ffffff;
+  color: oklch(var(--foreground-800));
+}
+
+.bis-btn-secondary:hover:not(:disabled) {
+  background-color: oklch(var(--background-100));
+  color: oklch(var(--foreground-950));
+}
+
+/* 補助操作：テキストのみ（ホバーで淡い面） */
+.bis-btn-ghost {
+  padding: 0 10px;
+  color: oklch(var(--foreground-600));
+}
+
+.bis-btn-ghost:hover:not(:disabled) {
+  background-color: oklch(var(--background-100));
+  color: oklch(var(--foreground-950));
+}
+
+/* 破壊的操作：赤は「危険」の意味だけに使う */
+.bis-btn-danger {
+  border-color: #f3c3bf;
+  background-color: #ffffff;
+  color: #b42318;
+}
+
+.bis-btn-danger:hover:not(:disabled) {
+  background-color: #fef3f2;
+  color: #961e13;
+}
+
+/* 小さめの寸法（表の中・選択バー・モーダル内の副操作） */
+.bis-btn-sm {  height: 34px;
+  padding: 0 10px;
+  border-radius: 7px;
+  font-size: 13px;
+}
+
+.bis-btn-sm > i {
+  width: 14px;
+  height: 14px;
+  font-size: 14px;
+}
+
+/* 切り替えボタンの選択中（aria-pressed=true）。色ではなく面の差で示す */
+.bis-btn.is-on {
+  border-color: oklch(var(--background-400));
+  background-color: oklch(var(--background-200));
+  color: oklch(var(--foreground-950));
+}
+
+.is-test-dark .bis-btn.is-on {
+  border-color: #4b5663;
+  background-color: #33404c;
+  color: #f3f4f6;
+}
+
+/* 正方形のアイコン操作（一覧の行操作など）。36px でタップ領域を確保する */
+.bis-icon-btn {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid oklch(var(--background-300));
+  border-radius: 8px;
+  background-color: #ffffff;
+  color: oklch(var(--foreground-500));
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.bis-icon-btn:hover:not(:disabled) {
+  background-color: oklch(var(--background-100));
+  color: oklch(var(--foreground-800));
+}
+
+.bis-icon-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px oklch(var(--foreground-950) / 0.14);
+}
+
+.bis-icon-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* --- フォーム ---
+   検索欄・セレクト・入力欄は高さ40px・角丸8px・枠線1pxで統一する。
+   フォーカスは枠線の濃さ＋浅いリング、エラーは赤枠（色だけに頼らず
+   各画面のエラー本文と併用する）。 */
+.bis-field {
+  box-sizing: border-box;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid oklch(var(--background-300));
+  border-radius: 8px;
+  background-color: #ffffff;
+  color: oklch(var(--foreground-950));
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.4;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    background-color 150ms ease;
+}
+
+.bis-field::placeholder {
+  color: oklch(var(--foreground-400));
+  opacity: 1;
+}
+
+.bis-field:focus {
+  outline: none;
+  border-color: oklch(var(--foreground-900) / 0.5);
+  box-shadow: 0 0 0 3px oklch(var(--foreground-950) / 0.08);
+}
+
+.bis-field:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.bis-field.is-error,
+.bis-field[aria-invalid='true'] {
+  border-color: #e08585;
+}
+
+.bis-field.is-error:focus,
+.bis-field[aria-invalid='true']:focus {
+  box-shadow: 0 0 0 3px rgba(224, 133, 133, 0.28);
+}
+
+/* 検索欄：左にアイコン分の余白を取る */
+.bis-field-search {
+  padding-left: 36px;
+  padding-right: 36px;
+}
+
+/* セレクトは矢印の分だけ右余白を広げる */
+select.bis-field {
+  padding-right: 32px;
+  cursor: pointer;
+}
+
+/* 複数行の入力欄は高さ固定にせず、上下に余白を取る */
+textarea.bis-field {
+  height: auto;
+  min-height: 80px;
+  padding: 10px 12px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+/* 検索欄内のクリア操作（28px）。入力欄の高さを変えずに置ける小さなテキストボタン */
+.bis-field-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background-color: transparent;
+  color: oklch(var(--foreground-400));
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.bis-field-clear:hover {
+  background-color: oklch(var(--background-200));
+  color: oklch(var(--foreground-700));
+}
+
+.is-test-dark .bis-field-clear {
+  color: #9ba6b4;
+}
+
+.is-test-dark .bis-field-clear:hover {
+  background-color: #2b333c;
+  color: #f3f4f6;
+}
+
+/* --- ステータス ---   通常状態（下書き・在庫あり・未照合）はニュートラル。
+   成功・要対応・失敗だけに意味のある色を使い、必ず文字と併記する。
+   AI は「生成中 / 完了」ともに金（accent）で統一する。 */
+/* 極小文字の下限
+   管理画面では 11px 未満を使わない。既存画面に残っている 10px 以下の指定も
+   ここで 11px に引き上げ、画面ごとの見え方の差をなくす（行の高さは変えない）。 */
+.admin-font [class*='text-[9px]'],
+.admin-font [class*='text-[10px]'],
+.admin-lock [class*='text-[9px]'],
+.admin-lock [class*='text-[10px]'] {
+  font-size: 11px;
+}
+
+.st-ai {
+  @apply bg-accent-100 text-accent-900;
+}
+
+.st-ai-failed {
+  @apply bg-amber-100 text-amber-800;
+}
+
+/* --- ボタンのダークテーマ ---
+   面はヘッダー（#181D23）より一段明るい #20262D、
+   枠線 #343D47、文字 #E5E7EB。主操作だけは明るいニュートラルで反転する。 */
+.is-test-dark .bis-btn-primary {
+  background-color: #eef0f3;
+  border-color: #eef0f3;
+  color: #111418;
+}
+
+.is-test-dark .bis-btn-primary:hover:not(:disabled) {
+  background-color: #ffffff;
+  opacity: 1;
+}
+
+.is-test-dark .bis-btn-secondary {
+  background-color: #20262d;
+  border-color: #343d47;
+  color: #e5e7eb;
+}
+
+.is-test-dark .bis-btn-secondary:hover:not(:disabled) {
+  background-color: #2b333c;
+  color: #f3f4f6;
+}
+
+.is-test-dark .bis-btn-ghost {
+  color: #b5bec9;
+}
+
+.is-test-dark .bis-btn-ghost:hover:not(:disabled) {
+  background-color: #2b333c;
+  color: #f3f4f6;
+}
+
+.is-test-dark .bis-btn-danger {
+  border-color: #5a3438;
+  background-color: #20262d;
+  color: #f0a9ae;
+}
+
+.is-test-dark .bis-btn-danger:hover:not(:disabled) {
+  background-color: #332124;
+  color: #f3b6ba;
+}
+
+.is-test-dark .bis-btn:focus-visible,
+.is-test-dark .bis-icon-btn:focus-visible {
+  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.4);
+}
+
+.is-test-dark .bis-icon-btn {
+  background-color: #20262d;
+  border-color: #343d47;
+  color: #b5bec9;
+}
+
+.is-test-dark .bis-icon-btn:hover:not(:disabled) {
+  background-color: #2b333c;
+  color: #f3f4f6;
+}
+
+.is-test-dark .bis-field {
+  background-color: #20262d;
+  border-color: #343d47;
+  color: #f3f4f6;
+}
+
+.is-test-dark .bis-field::placeholder {
+  color: #8d98a6;
+}

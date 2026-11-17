@@ -33,9 +33,15 @@ export function usePokekaRawStorageList({
 }: UsePokekaRawStorageListParams) {
   const [loadState, setLoadState] = useState<PokekaListLoadState>("loading");
   const [items, setItems] = useState<AdminProduct[]>([]);
+  // 取得した全商品（グレード未判定件数の集計用）。表示には使わない。
+  const [allItems, setAllItems] = useState<AdminProduct[]>([]);
   const [errorMessage, setErrorMessage] = useState("");
 
-  const cacheRef = useRef<{ key: string; items: AdminProduct[] } | null>(null);
+  const cacheRef = useRef<{
+    key: string;
+    items: AdminProduct[];
+    allItems: AdminProduct[];
+  } | null>(null);
   const seqRef = useRef(0);
 
   useEffect(() => {
@@ -47,6 +53,7 @@ export function usePokekaRawStorageList({
     const cached = cacheRef.current?.key === cacheKey ? cacheRef.current : null;
     if (cached) {
       setItems(cached.items);
+      setAllItems(cached.allItems);
       setLoadState("success");
       setErrorMessage("");
       return () => {
@@ -122,13 +129,13 @@ export function usePokekaRawStorageList({
           });
         });
 
-        const rawStorage = pickRawStorageProducts(
-          Array.from(collected.values())
-        );
+        const all = Array.from(collected.values());
+        const rawStorage = pickRawStorageProducts(all);
         if (cancelled || seq !== seqRef.current) return;
 
-        cacheRef.current = { key: cacheKey, items: rawStorage };
+        cacheRef.current = { key: cacheKey, items: rawStorage, allItems: all };
         setItems(rawStorage);
+        setAllItems(all);
         setLoadState("success");
       } catch (err) {
         if (cancelled || seq !== seqRef.current) return;
@@ -147,5 +154,5 @@ export function usePokekaRawStorageList({
     };
   }, [isTestMode, reloadKey]);
 
-  return { loadState, items, errorMessage };
+  return { loadState, items, allItems, errorMessage };
 }

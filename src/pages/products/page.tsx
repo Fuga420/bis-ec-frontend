@@ -1198,6 +1198,24 @@ export default function ProductsPage() {
                       onChange={handleToggleHidePokeca}
                       disabled={isAnyBulkBusy}
                     />
+                    {/* 表示中のページ全選択はヘッダーのチェックボックス。
+                        こちらは検索条件に一致する全ページ分を選択する（対象件数を併記）。 */}
+                    {count > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectAllMatchingError(null);
+                          setIsSelectAllConfirmOpen(true);
+                        }}
+                        disabled={isAnyBulkBusy || isSelectingAllMatching}
+                        className="bis-btn bis-btn-sm bis-btn-ghost"
+                        title="現在の検索条件に一致する商品を全ページ分まとめて選択します"
+                      >
+                        {isSelectingAllMatching
+                          ? "選択中..."
+                          : `条件一致の全${count}件を選択`}
+                      </button>
+                    )}
                     <label
                       htmlFor="product-sort"
                       className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-foreground-500"
@@ -1213,7 +1231,7 @@ export default function ProductsPage() {
                         handleSortChange(e.target.value as ProductSortKey)
                       }
                       aria-label="商品の並び替え"
-                      className="h-9 w-full rounded-lg border border-background-300 bg-white px-3 text-xs text-foreground-900 transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                      className="bis-field w-full sm:w-auto"
                     >
                       {PRODUCT_SORT_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>
@@ -1223,27 +1241,22 @@ export default function ProductsPage() {
                     </select>
                   </div>
                 </div>
+
+                {selectAllMatchingError && (
+                  <p className="mb-3 flex items-start gap-1.5 text-[12px] leading-relaxed text-red-700">
+                    <i className="ri-error-warning-line mt-0.5 w-3.5 h-3.5 shrink-0 flex items-center justify-center"></i>
+                    <span className="min-w-0 flex-1">{selectAllMatchingError}</span>
+                  </p>
+                )}
               </>
             )}
 
-            {/* 選択操作バー。選択件数を常時表示し、ページ全選択／条件一致の全件選択／
-                選択中のみ表示／一括操作を1行にまとめる（新しい上部固定バーは追加しない）。 */}
-            {(count > 0 || hasSelection || isSelectionView) && (
+            {/* 一括操作バー。商品を1件以上選択したときだけ表示し、通常時は一覧を押し下げない。 */}
+            {hasSelection && (
               <ProductSelectionBar
                 selectedCount={selectedIds.size}
-                viewCount={viewProducts.length}
-                viewSelectedCount={pageSelectedCount}
-                filteredCount={count}
                 isSelectionView={isSelectionView}
                 disabled={isAnyBulkBusy}
-                isSelectingAll={isSelectingAllMatching}
-                selectAllError={selectAllMatchingError}
-                onSelectPage={toggleSelectAll}
-                onClearPage={toggleSelectAll}
-                onSelectAllMatching={() => {
-                  setSelectAllMatchingError(null);
-                  setIsSelectAllConfirmOpen(true);
-                }}
                 onToggleSelectionView={() => {
                   setSelectionViewPage(1);
                   setShowSelectedOnly((prev) => !prev);
@@ -1264,23 +1277,21 @@ export default function ProductsPage() {
                     </span>
                   )}
                   {!isTestMode && (
-                  <button
-                    type="button"
-                    onClick={() => setIsBulkConfirmOpen(true)}
-                    disabled={isAnyBulkBusy}
-                    className="inline-flex h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border border-background-300 bg-white px-3 text-[13px] font-medium text-foreground-700 transition-colors hover:bg-background-100 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <i className="ri-upload-2-line text-base w-4 h-4 flex items-center justify-center"></i>
-                    {selectedIds.size > 1 ? "一括公開" : "公開"}
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsBulkConfirmOpen(true)}
+                      disabled={isAnyBulkBusy}
+                      className="bis-btn bis-btn-sm bis-btn-secondary"
+                    >
+                      {selectedIds.size > 1 ? "一括公開" : "公開"}
+                    </button>
                   )}
                   <button
                     type="button"
                     onClick={openAiBatchConfirm}
                     disabled={isAiStartDisabled}
-                    className="inline-flex h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border border-background-300 bg-white px-3 text-[13px] font-medium text-foreground-700 transition-colors hover:bg-background-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="bis-btn bis-btn-sm bis-btn-secondary"
                   >
-                    <i className="ri-sparkling-line text-base w-4 h-4 flex items-center justify-center"></i>
                     {selectedIds.size > 1 ? "一括AI生成" : "AI生成"}
                   </button>
                   {!isArchived && (
@@ -1288,9 +1299,8 @@ export default function ProductsPage() {
                       type="button"
                       onClick={() => setIsArchiveConfirmOpen(true)}
                       disabled={isAnyBulkBusy}
-                      className="inline-flex h-9 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border border-background-300 bg-white px-3 text-[13px] font-medium text-foreground-700 transition-colors hover:bg-background-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="bis-btn bis-btn-sm bis-btn-secondary"
                     >
-                      <i className="ri-archive-line text-base w-4 h-4 flex items-center justify-center"></i>
                       {selectedIds.size > 1 ? "一括アーカイブ" : "アーカイブ"}
                     </button>
                   )}
@@ -1309,7 +1319,7 @@ export default function ProductsPage() {
                         : "テスト商品はまだ登録されていません"}
                     </p>
                     <p className="mt-1 text-xs text-foreground-500">
-                      テストモードで「新しい商品を登録」または「画像だけ取込」を実行すると、ここに表示されます（実商品一覧は右端の設定アイコン「環境切り替え」から「通常モード」へ切り替えてください）。
+                      テストモードで「新しい商品を登録」または「画像だけ取込」を実行すると、ここに表示されます。実商品は「設定」の「通常モード」で表示されます。
                     </p>
                   </div>
                 ) : (
@@ -1477,7 +1487,7 @@ export default function ProductsPage() {
               <button
                 type="button"
                 onClick={() => setIsSelectAllConfirmOpen(false)}
-                className="whitespace-nowrap rounded-lg border border-background-300 bg-background-50 px-4 py-2 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100"
+                className="bis-btn bis-btn-secondary"
               >
                 キャンセル
               </button>
@@ -1485,7 +1495,7 @@ export default function ProductsPage() {
                 type="button"
                 onClick={() => void runSelectAllMatching()}
                 disabled={isSelectingAllMatching}
-                className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-bold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
+                className="bis-btn bis-btn-primary"
               >
                 {isSelectingAllMatching ? (
                   <>
@@ -1518,7 +1528,7 @@ export default function ProductsPage() {
 
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
               <div className="rounded-md bg-background-100 px-3 py-2">
-                <p className="text-[11px] text-foreground-500">
+                <p className="text-[12px] text-foreground-500">
                   Square商品を作成
                 </p>
                 <p className="admin-numeric text-[15px] font-semibold text-foreground-950">
@@ -1526,13 +1536,13 @@ export default function ProductsPage() {
                 </p>
               </div>
               <div className="rounded-md bg-background-100 px-3 py-2">
-                <p className="text-[11px] text-foreground-500">公開対象</p>
+                <p className="text-[12px] text-foreground-500">公開対象</p>
                 <p className="admin-numeric text-[15px] font-semibold text-foreground-950">
                   {plan.publish} 件
                 </p>
               </div>
               <div className="rounded-md bg-background-100 px-3 py-2">
-                <p className="text-[11px] text-foreground-500">
+                <p className="text-[12px] text-foreground-500">
                   決済リンクのみ生成対象
                 </p>
                 <p className="admin-numeric text-[15px] font-semibold text-foreground-950">
@@ -1540,7 +1550,7 @@ export default function ProductsPage() {
                 </p>
               </div>
               <div className="rounded-md bg-background-100 px-3 py-2">
-                <p className="text-[11px] text-foreground-500">
+                <p className="text-[12px] text-foreground-500">
                   処理不要（完了済み）
                 </p>
                 <p className="admin-numeric text-[15px] font-semibold text-foreground-950">
@@ -1548,7 +1558,7 @@ export default function ProductsPage() {
                 </p>
               </div>
               <div className="rounded-md bg-background-100 px-3 py-2">
-                <p className="text-[11px] text-foreground-500">スキップ対象</p>
+                <p className="text-[12px] text-foreground-500">スキップ対象</p>
                 <p className="admin-numeric text-[15px] font-semibold text-foreground-950">
                   {plan.skipped} 件
                 </p>
@@ -1589,7 +1599,7 @@ export default function ProductsPage() {
                 type="button"
                 onClick={() => setIsBulkConfirmOpen(false)}
                 disabled={isBulkProcessing}
-                className="whitespace-nowrap rounded-lg border border-background-300 bg-background-50 px-4 py-2 text-sm font-medium text-foreground-700 transition-colors hover:bg-background-100 disabled:cursor-not-allowed disabled:opacity-50"
+                className="bis-btn bis-btn-secondary"
               >
                 キャンセル
               </button>
@@ -1597,7 +1607,7 @@ export default function ProductsPage() {
                 type="button"
                 onClick={runBulkPublish}
                 disabled={isBulkProcessing}
-                className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-bold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
+                className="bis-btn bis-btn-primary"
               >
                 {isBulkProcessing ? (
                   <>
@@ -1630,7 +1640,7 @@ export default function ProductsPage() {
                   key={status}
                   className="rounded-md bg-background-100 px-3 py-2 text-center"
                 >
-                  <p className="text-[11px] text-foreground-500">
+                  <p className="text-[12px] text-foreground-500">
                     {STATUS_LABELS[status]}
                   </p>
                   <p className="admin-numeric text-[15px] font-semibold text-foreground-950">
@@ -1647,7 +1657,7 @@ export default function ProductsPage() {
                   className="flex items-start gap-3 border-b border-background-200 px-3 py-2.5 last:border-b-0"
                 >
                   <span
-                    className={`mt-0.5 inline-flex h-[22px] shrink-0 items-center whitespace-nowrap rounded-md px-2 text-[11px] font-medium leading-none ${
+                    className={`mt-0.5 inline-flex h-[22px] shrink-0 items-center whitespace-nowrap rounded-md px-2 text-[12px] font-medium leading-none ${
                       STATUS_STYLES[item.status]
                     }`}
                   >
@@ -1674,7 +1684,7 @@ export default function ProductsPage() {
               <button
                 type="button"
                 onClick={closeResultModal}
-                className="cursor-pointer whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-bold text-background-50 transition-colors hover:bg-primary-600"
+                className="bis-btn bis-btn-primary"
               >
                 閉じる
               </button>

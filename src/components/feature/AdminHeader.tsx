@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useOperatingMode } from "@/context/OperatingModeProvider";
-import OperatingModeMenu from "./OperatingModeMenu";
 import AdminLockButton from "./AdminLockButton";
 import AddProductMenu from "./AddProductMenu";
 
@@ -23,7 +22,7 @@ export interface AdminHeaderAiHistory {
 
 interface AdminHeaderProps {
   pageTitle: string;
-  /** 一覧などへ戻る導線（パンくずとして表示する） */
+  /** 一覧などへ戻る導線（パンくずの親階層として表示する） */
   backLink?: AdminHeaderBackLink;
   /**
    * 現在地より上の階層（2階層以上のパンくず）。
@@ -34,19 +33,24 @@ interface AdminHeaderProps {
   extras?: ReactNode;
   /** AI生成履歴への入口（履歴を持つ画面だけで表示する） */
   aiHistory?: AdminHeaderAiHistory;
-  /** サイドナビを折りたたんでいるか（折りたたみ時は開くボタンを常に出す） */
-  navCollapsed: boolean;
+  /**
+   * 「商品を追加」を出すか。
+   * 商品を扱う画面（商品一覧・商品詳細・Pokémon Card など）だけで true にする。
+   */
+  showAddProduct?: boolean;
   onOpenNav: () => void;
 }
 
 /**
  * 管理画面の共通ヘッダー。
  *
- * 左: BIS ブランド（セリフ体ロゴ）＋現在のページ名
- * 右: 商品を追加 / AI生成履歴 / 環境設定 / ログアウト
+ * すべての管理画面で同じ寸法・余白・文字サイズになるよう、このコンポーネントだけで
+ * ロゴ・ページ名・パンくず・操作を組み立てる（画面ごとに個別のヘッダーは作らない）。
  *
- * カテゴリや機能が増えても、ここにボタンが増え続けないよう
- * 画面移動はサイドナビゲーション側に寄せている。
+ * 左: BIS ブランド（セリフ体ロゴ）＋パンくず／現在のページ名
+ * 右: 画面固有の操作 / 商品を追加（商品を扱う画面のみ） / AI生成履歴 / ログアウト
+ *
+ * 環境切り替えなどの設定はサイドナビの「設定」（/settings）へ集約している。
  */
 export default function AdminHeader({
   pageTitle,
@@ -54,13 +58,12 @@ export default function AdminHeader({
   breadcrumbs,
   extras,
   aiHistory,
-  navCollapsed,
+  showAddProduct = false,
   onOpenNav,
 }: AdminHeaderProps) {
   const { isTestMode } = useOperatingMode();
 
   // 表示するパンくずの階層（現在地は to を持たず、末尾に置く）。
-  // 階層が深い場合は現在地だけを強調し、親階層は控えめな文字色にする。
   const ancestors: AdminHeaderBreadcrumb[] = breadcrumbs?.length
     ? breadcrumbs
     : backLink
@@ -69,17 +72,15 @@ export default function AdminHeader({
 
   return (
     <header className="border-b border-background-200 bg-white">
-      <div className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-2.5 md:px-6 lg:px-8">
-        <div className="flex min-w-0 items-center gap-3">
-          {/* ナビゲーションを開く（スマートフォン・タブレット、または折りたたみ時） */}
+      <div className="flex min-h-[60px] w-full flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-2.5 md:px-6 lg:px-8">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          {/* ナビゲーションを開く（タブレット・スマートフォンのみ。デスクトップは左のサイドバーで開閉する） */}
           <button
             type="button"
             onClick={onOpenNav}
             aria-label="メニューを開く"
             title="メニュー"
-            className={`product-header-icon-btn shrink-0 ${
-              navCollapsed ? "" : "lg:hidden"
-            }`}
+            className="product-header-icon-btn shrink-0 lg:hidden"
           >
             <i aria-hidden="true" className="ri-menu-line"></i>
           </button>
@@ -99,63 +100,66 @@ export default function AdminHeader({
             className="h-7 w-px shrink-0 bg-background-300"
           ></span>
 
-          <div className="flex min-w-0 items-baseline gap-2">
-            {ancestors.length > 0 ? (
-              <nav
-                aria-label="パンくずリスト"
-                className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-              >
-                {ancestors.map((crumb, index) => (
-                  <span
-                    key={`${crumb.to}-${index}`}
-                    className="flex min-w-0 shrink-0 items-center gap-1"
-                  >
-                    {index > 0 && (
-                      <span
-                        aria-hidden="true"
-                        className="shrink-0 text-[12px] leading-none text-foreground-300"
-                      >
-                        ›
-                      </span>
-                    )}
-                    <Link
-                      to={crumb.to}
-                      className="cursor-pointer whitespace-nowrap text-[13px] font-medium text-foreground-500 transition-colors hover:text-foreground-900"
-                    >
-                      {crumb.label}
-                    </Link>
-                  </span>
-                ))}
+          <nav
+            aria-label="パンくずリスト"
+            className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden"
+          >
+            {ancestors.map((crumb, index) => {
+              // 階層が深い場合、狭い画面では現在地の1つ上だけを残して省略する
+              const isNearestParent = index === ancestors.length - 1;
+              return (
                 <span
-                  aria-hidden="true"
-                  className="shrink-0 text-[12px] leading-none text-foreground-300"
+                  key={`${crumb.to}-${index}`}
+                  className={`${
+                    isNearestParent ? "flex" : "hidden sm:flex"
+                  } min-w-0 shrink items-center gap-1.5`}
                 >
-                  ›
+                  {index > 0 && (
+                    <span
+                      aria-hidden="true"
+                      className="shrink-0 text-[12px] leading-none text-foreground-300"
+                    >
+                      ›
+                    </span>
+                  )}
+                  <Link
+                    to={crumb.to}
+                    title={crumb.label}
+                    className="max-w-[200px] cursor-pointer truncate whitespace-nowrap text-[13px] font-normal text-foreground-500 transition-colors hover:text-foreground-900"
+                  >
+                    {crumb.label}
+                  </Link>
                 </span>
-                <h1 className="admin-display shrink-0 truncate whitespace-nowrap text-[15px] font-semibold leading-none tracking-[-0.01em] text-foreground-900">
-                  {pageTitle}
-                </h1>
-              </nav>
-            ) : (
-              <h1 className="admin-display whitespace-nowrap text-[18px] font-semibold leading-none tracking-[-0.01em] text-foreground-800">
-                {pageTitle}
-              </h1>
+              );
+            })}
+            {ancestors.length > 0 && (
+              <span
+                aria-hidden="true"
+                className="shrink-0 text-[12px] leading-none text-foreground-300"
+              >
+                ›
+              </span>
             )}
+            {/* ページタイトルは全画面共通（20px / 600）。
+                パンくずの有無で大きさを変えない。 */}
+            <h1 className="bis-page-title min-w-0 truncate whitespace-nowrap">
+              {pageTitle}
+            </h1>
             {/* テスト環境のときだけ、見出しの横に控えめな識別ラベルを出す（操作不可） */}
             {isTestMode && (
               <span
                 aria-label="テスト環境"
-                className="inline-flex h-[18px] select-none items-center rounded border border-amber-300/70 bg-amber-50 px-1.5 text-[10px] font-medium leading-none tracking-[0.08em] text-amber-800"
+                className="inline-flex h-[20px] shrink-0 select-none items-center rounded border border-amber-300/70 bg-amber-50 px-1.5 text-[11px] font-medium leading-none tracking-[0.06em] text-amber-800"
               >
                 TEST
               </span>
             )}
-          </div>
+          </nav>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           {extras}
-          <AddProductMenu />
+          {showAddProduct && <AddProductMenu />}
           {aiHistory && (
             <button
               type="button"
@@ -177,7 +181,6 @@ export default function AdminHeader({
               )}
             </button>
           )}
-          <OperatingModeMenu />
           <AdminLockButton />
         </div>
       </div>

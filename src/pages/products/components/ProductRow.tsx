@@ -46,10 +46,9 @@ interface ProductRowProps {
 // 寸法とドメイン色は index.css の .st-badge / .st-* に集約し、画面ごとに色を作らない。
 const badgeBase = "st-badge";
 
-// 行右端の操作アイコン共通スタイル（36px のクリック領域・薄いグレー枠線・角丸8px・16pxアイコン）。
-// 商品詳細への遷移と編集はどちらもこの見た目で並べ、アイコンとアクセシブル名で区別する。
-const actionIconBase =
-  "flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-background-300 bg-white text-base text-foreground-500 transition-colors hover:border-background-400 hover:bg-background-100 hover:text-foreground-800 focus:outline-none focus-visible:border-primary-400 focus-visible:ring-2 focus-visible:ring-primary-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-background-300 disabled:hover:bg-white";
+// 行右端の操作アイコン（36px のクリック領域・角丸8px）。
+// 寸法・枠線・ホバー・フォーカスは index.css の .bis-icon-btn に共通化する。
+const actionIconBase = "bis-icon-btn";
 
 // 色は「ドメイン」で固定する（index.css の .st-* を参照）。
 // 公開状態 = 控えめな緑（公開中のみ）/ 在庫 = ニュートラル / 照合 = 緑・アンバー / 連携 = 緑。

@@ -1,18 +1,19 @@
 interface ProductLoadErrorStateProps {
   onRetry: () => void;
+  // 画面ごとに短い見出しを差し替えられるようにする（省略時は従来の文言）。
+  title?: string;
 }
 
 // 商品一覧の取得に失敗した場合のエラー状態。
 // 既存の再取得処理（retry）をそのまま使う。
 export default function ProductLoadErrorState({
   onRetry,
+  title = "商品を読み込めませんでした",
 }: ProductLoadErrorStateProps) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 py-24 text-center">
       <i className="ri-error-warning-line text-3xl text-foreground-300 w-8 h-8 flex items-center justify-center"></i>
-      <p className="text-sm font-medium text-foreground-800">
-        商品を読み込めませんでした
-      </p>
+      <p className="text-sm font-medium text-foreground-800">{title}</p>
       <p className="text-sm text-foreground-500">
         時間をおいて再度お試しください
       </p>

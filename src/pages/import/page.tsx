@@ -64,8 +64,12 @@ export default function ImportPage() {
 
   return (
     <AdminShell
-      pageTitle={isPokeca ? "ポケカ素地取込" : "画像だけ取込"}
-      backLink={{ to: "/products", label: "すべての商品" }}
+      pageTitle={isPokeca ? "ポケカ素地取込" : "画像取込"}
+      breadcrumbs={
+        isPokeca
+          ? [{ label: "Pokémon Card", to: "/pokeka" }]
+          : [{ label: "商品管理", to: "/products" }]
+      }
       mainClassName="page-fade mx-auto w-full max-w-5xl px-4 py-4 md:px-6"
     >
         {/* 左：作業（説明・セット一覧）／右：固定サマリーの2カラム。

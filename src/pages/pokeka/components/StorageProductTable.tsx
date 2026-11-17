@@ -7,20 +7,18 @@ import {
   type AdminProduct,
 } from "@/pages/products/types";
 import {
-  formatStoragePosition,
   parseStoragePosition,
-  resolveReferencePrice,
+  resolveReferencePriceWithSource,
   type PokecaLightInfoMap,
 } from "@/pages/pokeka/lib/rawStorage";
 
 // 列幅は「商品情報（可変）」以外を固定し、長い商品名でも隣の列に重ならないようにする。
-// 狭い画面では参考価格・保管場所を段階的に畳み、横スクロールを出さない。
-const COL_PRICE = "hidden w-[96px] shrink-0 text-right sm:block";
-const COL_STORAGE = "hidden w-[108px] shrink-0 lg:block";
-const COL_STATUS = "w-[104px] shrink-0";
+// 参考価格は常に表示し、保管場所と状態は狭い画面で段階的に畳む
+// （狭い画面では保管場所を商品名の下の補助情報として出す）。
+const COL_PRICE = "w-[100px] shrink-0 text-right";
+const COL_STORAGE = "hidden w-[92px] shrink-0 lg:block";
+const COL_STATUS = "hidden w-[96px] shrink-0 md:block";
 const HEAD_TEXT = "text-[11px] font-medium text-foreground-500";
-
-const EMPTY = "—";
 
 interface StorageProductTableProps {
   products: AdminProduct[];
@@ -48,6 +46,7 @@ function formatPrice(value: number | null): string {
  * 情報は「商品情報 / 参考価格 / 保管場所 / 状態」の4列に整理し、
  * カード番号・作家は商品情報セルの中に補助情報としてまとめる。
  * 値が無い項目は空欄のままにし、記号を並べない（データ自体は変更しない）。
+ * 1画面で確認できる件数を増やすため、画像は40px・行の上下余白は最小限にしている。
  */
 export default function StorageProductTable({
   products,
@@ -63,30 +62,11 @@ export default function StorageProductTable({
 }: StorageProductTableProps) {
   return (
     <div className="ui-card w-full overflow-hidden rounded-lg">
-      <div className="product-table-head hidden items-center border-b border-background-200 bg-white py-2.5 lg:flex">
-        <div className="flex w-10 shrink-0 items-center justify-center">
-          <label className="product-checkbox">
-            <input
-              ref={selectAllRef}
-              type="checkbox"
-              checked={allSelected}
-              disabled={disabled || products.length === 0}
-              onChange={onToggleAll}
-              aria-label="表示中をすべて選択"
-            />
-            <span className="product-checkbox-box" aria-hidden="true">
-              <i
-                className={
-                  partlySelected ? "ri-subtract-line" : "ri-check-line"
-                }
-              ></i>
-            </span>
-          </label>
-        </div>
-        <div className="flex min-w-0 flex-1 items-center gap-3 px-3">
-          <span className="min-w-0 flex-1 pl-[68px] text-xs font-medium text-foreground-500">
-            商品情報
-          </span>
+      <div className="product-table-head flex items-center border-b border-background-200 bg-white py-2">
+        <div className="w-10 shrink-0" aria-hidden="true"></div>
+        <div className="flex min-w-0 flex-1 items-center gap-3 px-2">
+          <span className="w-10 shrink-0" aria-hidden="true"></span>
+          <span className={`min-w-0 flex-1 ${HEAD_TEXT}`}>商品情報</span>
           <span className={`${COL_PRICE} ${HEAD_TEXT}`}>参考価格</span>
           <span className={`${COL_STORAGE} ${HEAD_TEXT}`}>保管場所</span>
           <span className={`${COL_STATUS} ${HEAD_TEXT}`}>状態</span>
@@ -98,7 +78,10 @@ export default function StorageProductTable({
         const info = infoMap.get(product.product_id);
         const cardNumber = info?.cardNumber?.trim() ?? "";
         const author = info?.illustrator?.trim() ?? "";
-        const price = formatPrice(resolveReferencePrice(product, info));
+        const priceInfo = resolveReferencePriceWithSource(product, info);
+        const price = formatPrice(priceInfo.value);
+        // 参考価格（AI候補価格）が未取得のときは、登録済みの販売価格を「販売」と添えて出す。
+        const isSalePrice = priceInfo.source === "sale";
         const publishLabel =
           PUBLISH_STATUS_LABELS[product.publish_status] ??
           product.publish_status ??
@@ -109,6 +92,7 @@ export default function StorageProductTable({
           "";
         const isPublished = product.publish_status === "published";
         const { box, branch } = parseStoragePosition(product.storage_location);
+        const positionLabel = box ? (branch ? `${box} / ${branch}` : box) : "";
 
         return (
           <div
@@ -135,75 +119,80 @@ export default function StorageProductTable({
             <Link
               to={`/products/${product.product_id}`}
               state={detailLinkState}
-              className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 px-3 py-2 transition-colors hover:bg-background-50"
+              className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 px-2 py-1.5 transition-colors hover:bg-background-50"
             >
-              <span className="w-14 shrink-0">
+              <span className="w-10 shrink-0">
                 <ProductThumbnail
                   src={product.main_image_display_url}
                   alt={`${product.product_name || "商品"}のサムネイル`}
-                  size="sm"
+                  size="xs"
                 />
               </span>
 
               <span className="min-w-0 flex-1">
                 <span
-                  className="block truncate text-[13px] font-medium leading-snug text-foreground-950 sm:text-sm"
+                  className="block truncate text-[13px] font-medium leading-snug text-foreground-950"
                   title={product.product_name || undefined}
                 >
                   {product.product_name || "（商品名なし）"}
                 </span>
-                <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] leading-none">
+                <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] leading-none">
                   <span className="admin-numeric shrink-0 text-foreground-400">
                     {product.product_id}
                   </span>
                   {cardNumber && (
-                    <>
-                      <span
-                        className="shrink-0 text-foreground-300"
-                        aria-hidden="true"
-                      >
+                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                      <span className="text-foreground-300" aria-hidden="true">
                         ·
                       </span>
                       <span className="admin-numeric shrink-0 text-foreground-600">
                         {cardNumber}
                       </span>
-                    </>
+                    </span>
                   )}
                   {author && (
-                    <>
-                      <span
-                        className="shrink-0 text-foreground-300"
-                        aria-hidden="true"
-                      >
+                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                      <span className="text-foreground-300" aria-hidden="true">
                         ·
                       </span>
                       <span
-                        className="min-w-0 truncate text-foreground-600"
+                        className="min-w-0 max-w-[160px] truncate text-foreground-600"
                         title={author}
                       >
                         {author}
                       </span>
-                    </>
+                    </span>
+                  )}
+                  {/* 保管場所の列を畳む幅では、箱番・枝番をここに出す */}
+                  {positionLabel && (
+                    <span className="inline-flex min-w-0 items-center gap-1.5 lg:hidden">
+                      <span className="text-foreground-300" aria-hidden="true">
+                        ·
+                      </span>
+                      <span className="admin-numeric shrink-0 tabular-nums text-foreground-500">
+                        {positionLabel}
+                      </span>
+                    </span>
                   )}
                 </span>
               </span>
 
               <span className={`${COL_PRICE} admin-numeric`}>
                 {price ? (
-                  <span className="text-[12px] font-medium tabular-nums text-foreground-900">
+                  <span className="whitespace-nowrap text-[12px] font-medium tabular-nums text-foreground-900">
+                    {isSalePrice && (
+                      <span className="mr-1 text-[10px] font-normal text-foreground-400">
+                        販売
+                      </span>
+                    )}
                     {price}
                   </span>
-                ) : (
-                  <span className="text-[12px] text-foreground-300">{EMPTY}</span>
-                )}
+                ) : null}
               </span>
 
               <span className={`${COL_STORAGE} min-w-0`}>
-                {box ? (
-                  <span
-                    className="admin-numeric flex items-baseline gap-1 truncate text-[12px] tabular-nums"
-                    title={`箱番 ${box}${branch ? ` / 枝番 ${branch}` : ""}`}
-                  >
+                {box && (
+                  <span className="admin-numeric flex items-baseline gap-1 truncate text-[12px] tabular-nums">
                     <span className="font-medium text-foreground-800">{box}</span>
                     {branch && (
                       <>
@@ -217,31 +206,25 @@ export default function StorageProductTable({
                       </>
                     )}
                   </span>
-                ) : (
-                  <span className="text-[12px] text-foreground-300">
-                    {formatStoragePosition(product.storage_location)}
-                  </span>
                 )}
               </span>
 
               {/* 公開状態と在庫状態は別の意味を持つため、判定・データは統合せず
                   中黒で並べるだけにする（通常状態は強調しない）。 */}
               <span
-                className={`${COL_STATUS} flex items-center gap-1.5 whitespace-nowrap text-[11px] leading-none`}
+                className={`${COL_STATUS} min-w-0 whitespace-nowrap text-[11px] leading-none`}
               >
                 {publishLabel && (
                   <span
                     className={
-                      isPublished
-                        ? "text-foreground-600"
-                        : "text-foreground-400"
+                      isPublished ? "text-foreground-600" : "text-foreground-400"
                     }
                   >
                     {publishLabel}
                   </span>
                 )}
                 {publishLabel && inventoryLabel && (
-                  <span className="text-foreground-300" aria-hidden="true">
+                  <span className="mx-1 text-foreground-300" aria-hidden="true">
                     ·
                   </span>
                 )}
