@@ -22,7 +22,8 @@ const RELOAD_BUTTON_CLASS =
 /**
  * 作業状況。仕入照合とAI生成を、1枚のカードの中で行として並べる。
  * 数値は既存の取得結果だけを使い、取得できない場合は
- * 「集計情報なし」とだけ表示してダッシュ記号を並べない。
+ * 件数を出さずに「仕入・書類」への導線だけを残す。
+ * 取得が返らないまま読み込み表示が残り続けないよう、取得側で打ち切りを入れている。
  */
 export default function HomeWorkStatus({
   documentState,
@@ -65,6 +66,11 @@ export default function HomeWorkStatus({
     ? currentCounts || "実行中"
     : "実行中の処理なし";
 
+  const canShowDocumentCounts =
+    documentState === "success" &&
+    documents.total !== null &&
+    documents.pending !== null;
+
   return (
     <div className="divide-y divide-background-200">
       {/* 仕入照合 */}
@@ -78,13 +84,21 @@ export default function HomeWorkStatus({
               件数を取得できませんでした
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onReloadDocuments}
-            className={RELOAD_BUTTON_CLASS}
-          >
-            再読み込み
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            <Link
+              to="/documents"
+              className="cursor-pointer whitespace-nowrap rounded-md px-2 py-1 text-[12px] font-medium text-foreground-600 transition-colors hover:bg-background-100 hover:text-foreground-900"
+            >
+              仕入・書類
+            </Link>
+            <button
+              type="button"
+              onClick={onReloadDocuments}
+              className={RELOAD_BUTTON_CLASS}
+            >
+              再読み込み
+            </button>
+          </div>
         </div>
       ) : (
         <Link
@@ -96,16 +110,16 @@ export default function HomeWorkStatus({
               仕入照合
             </p>
             <p className="mt-1 text-[12px] text-foreground-500">
-              {documentState === "success" && documents.total !== null
-                ? `全 ${formatCount(documents.total)} 件`
-                : "読み込み中"}
+              {canShowDocumentCounts
+                ? `全 ${formatCount(documents.total ?? 0)} 件`
+                : "取得中"}
             </p>
           </div>
-          {documentState === "success" && documents.pending !== null && (
+          {canShowDocumentCounts && (
             <p className="flex shrink-0 items-baseline gap-1.5">
               <span className="text-[12px] text-foreground-500">未完了</span>
               <span className="admin-numeric text-[24px] font-semibold leading-none text-foreground-950">
-                {formatCount(documents.pending)}
+                {formatCount(documents.pending ?? 0)}
               </span>
               <span className="text-[12px] text-foreground-500">件</span>
             </p>

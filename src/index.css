@@ -486,6 +486,35 @@ body {
   background-color: #1b2026;
 }
 
+/* 売却済みの行（ダーク）。通常の行よりわずかに沈ませ、文字・画像は暗くしない。
+   ホバー・選択は後段の規則が優先されるため、この行に置くだけで順序が保たれる。 */
+.is-test-dark .product-row.is-sold {
+  background-color: #232a32;
+}
+
+/* カテゴリ一覧の売却済み行（ダーク）。カード面（#20262D）より一段沈め、
+   文字とのコントラストは保つ（薄くしない）。 */
+.is-test-dark .row-sold {
+  background-color: #232a32;
+}
+
+.is-test-dark .row-sold:hover {
+  background-color: #2c343d;
+}
+
+/* 売却済み行の文字（ダーク）。暗い面では foreground-500 が明るすぎて
+   在庫ありの行と見分けにくいため、1段だけ落としたグレーにする。
+   画像・行の opacity・打ち消し線は使わない。 */
+.is-test-dark .product-row.is-sold :is(.text-foreground-950, .text-foreground-900, .text-foreground-800, .text-foreground-700, .text-foreground-600),
+.is-test-dark .row-sold :is(.text-foreground-950, .text-foreground-900, .text-foreground-800, .text-foreground-700, .text-foreground-600) {
+  color: #9ba6b4;
+}
+
+.is-test-dark .product-row.is-sold .text-foreground-500,
+.is-test-dark .row-sold .text-foreground-500 {
+  color: #8b96a3;
+}
+
 .is-test-dark .product-row:hover {
   background-color: #272e36;
 }
@@ -923,6 +952,63 @@ button:disabled.bg-accent-500:hover {
 /* 選択中にホバーしても選択背景を消さず、一段だけ沈める */
 .product-row.is-selected:hover {
   background-color: oklch(var(--background-200) / 0.75);
+}
+
+/* 売却済みの行（在庫状態が sold）。
+   在庫ありの行との違いは「面のごく薄いグレー」だけで示す。
+   文字色・画像・価格は下げず、行全体の opacity も使わない。
+   優先順位: キーボードフォーカス > 選択 > ホバー > 売却済み > 通常。
+   売却済みの面は選択（background-100）より淡くし、選択状態が埋もれないようにする。 */
+.product-row.is-sold {
+  background-color: oklch(var(--background-100) / 0.75);
+}
+
+.product-row.is-sold:hover {
+  background-color: oklch(var(--background-200) / 0.6);
+}
+
+.product-row.is-sold.is-selected {
+  background-color: oklch(var(--background-200) / 0.85);
+}
+
+.product-row.is-sold.is-selected:hover {
+  background-color: oklch(var(--background-200));
+}
+
+/* キーボード操作で行にフォーカスがある間は、売却済みでもフォーカス面を優先する */
+.product-row.is-sold:has(a:focus-visible) {
+  background-color: oklch(var(--background-50));
+}
+
+/* 売却済みの行は文字をニュートラルなグレーに落ち着かせる。
+   商品名・価格・ID などを一律に薄くするのではなく、
+   主情報 → foreground-500、補助情報 → foreground-400 の2段だけに寄せる。
+   画像・行の opacity・打ち消し線・行の高さは変更しない。
+   売却済みの背景（淡いグレー）に乗せても読み取れる濃さを保つ。 */
+.product-row.is-sold :is(.text-foreground-950, .text-foreground-900, .text-foreground-800),
+.row-sold :is(.text-foreground-950, .text-foreground-900, .text-foreground-800) {
+  color: oklch(var(--foreground-500));
+}
+
+.product-row.is-sold :is(.text-foreground-700, .text-foreground-600),
+.row-sold :is(.text-foreground-700, .text-foreground-600) {
+  color: oklch(var(--foreground-500));
+}
+
+.product-row.is-sold .text-foreground-500,
+.row-sold .text-foreground-500 {
+  color: oklch(var(--foreground-400));
+}
+
+/* カテゴリ一覧（行全体がリンクになっている表）の売却済み行。
+   /products の .product-row.is-sold と同じ明るさに揃え、画面ごとの差を作らない。
+   ホバー時はワンストップだけ沈め、行のクリック応答は通常行と同じに保つ。 */
+.row-sold {
+  background-color: oklch(var(--background-100) / 0.75);
+}
+
+.row-sold:hover {
+  background-color: oklch(var(--background-200) / 0.6);
 }
 
 /* インライン編集中の行。

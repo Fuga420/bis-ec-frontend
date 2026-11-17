@@ -904,6 +904,27 @@
 - 不変更：`/products`・`/pokeka`・`/home`・`/documents` の列構成、商品詳細（`/products/:id`）の仕入価格表示、API・DB・バックエンド・GAS、商品マスターと仕入価格の保存、仕入原価の計算・優先順位、仕入書類の照合処理、検索・絞り込み・並び替え・ページ送り、認証・ログアウト、通常／テストモードの分離。
 - 状態：ビルド成功。実データでの一覧と商品詳細の突き合わせ、ライト／ダーク表示、モバイルでの折り返しはスタッフが実画面で確認する。公開（Publish）は行わない。
 
+### フェーズ6追加：ホーム画面の情報拡充・ダッシュボード再設計（2026-11-17 実装・フロントのみ）
+- 目的：ホームを、日常業務で使える情報（カテゴリ別の件数・要確認・最近の商品）を持つダッシュボードへ整える。グラフ・強い色のKPIカードは作らない。
+- 追加・変更ファイル
+  - `src/pages/home/lib/homeData.ts`（新規・集計条件の組み立て、件数取得、最近の商品の取得、日時・件数の書式）
+  - `src/pages/home/hooks/useHomeSummary.ts`（カテゴリ別／要確認／最近の商品を追加。各指標は独立して失敗を許容）
+  - `src/pages/home/components/HomeCategoryStats.tsx` / `HomeAttentionStatus.tsx` / `HomeRecentProducts.tsx`（新規）
+  - `src/pages/home/components/HomeWorkStatus.tsx`（取得中の表記、失敗時に「仕入・書類」リンクを残す）
+  - `src/pages/home/components/HomeQuickAccess.tsx`（コンパクトな小ボタンへ）
+  - `src/pages/home/page.tsx`（最大幅 `max-w-[1200px]`、上段＝商品概要／中段＝カテゴリ別／中段＝要確認＋作業状況／下段＝最近の商品／下部＝クイックアクセス）
+- 集計の定義（新しい集計APIは作らない）
+  - すべて既存の商品一覧API（`mode=admin`・ページ分割モード）を `page_size=1` で呼び、応答の `count` だけを使う。`record_status=active`・`is_test`（通常/テスト分離）は各ページと同じ。
+  - 商品概要：商品＝旧裏ストレージを除く全件（`exclude_storage_location_prefix=旧裏ストレージ/`）、下書き／公開中＝同じ条件＋`publish_status`。旧裏ストレージ＝同じ応答の `excluded_count`（合算しない）。従来の定義を変更していない。
+  - カテゴリ別：Pokémon Card＝`category=pokemon_card`（リンク先 `/pokeca`）、Sneakers＝`category=sneaker`、Chrome Hearts＝`search=Chrome Hearts`（ブランド部分一致。専用カテゴリ値は存在しない）、Apparel＝`category=apparel`。いずれもカテゴリページと同じパラメータで、除外条件は付けない。
+  - 要確認項目：`inventory_status=in_stock` / `sold` の件数のみ（商品概要と同じ範囲）。販売価格未設定は既存APIで絞り込めないため表示しない。
+  - 最近の商品：`sort=created_desc`・`page_size=5`。応答の `sort` が要求と異なる場合、登録日時が読めない場合、新しい順になっていない場合は「順序を保証できない」と判断しセクションごと表示しない。
+- 仕入照合の読み込み状態：従来の全ページ取得（`list_documents`）に20秒の打ち切りを入れ、失敗時は件数を出さず「件数を取得できませんでした」＋再読み込み＋`/documents` リンクにする（0件と誤表示しない）。原因は応答が返らない場合に読み込み状態を終了させる処理が無かったこと。
+- 表示：未設定は `—`（0件は `0` と表示）、3桁区切り・`tabular-nums`、ホーム全体はモノトーン・アイコンなし・カードの入れ子なし。
+- 不変更：API・DB・バックエンド・GAS、products マスター、カテゴリ／ブランドの判定、商品一覧・詳細・登録・取込・ポケカ・書類・設定の各画面、AI生成の実行処理、認証・ログアウト、通常／テストモードの分離。
+- 制約・残課題：ホームの負荷は件数取得10回（各1件）＋最近の商品1回。全て並列・独立で、失敗した指標だけを非表示にする。`/pokeca` の一覧は旧裏ストレージのみのため、Pokémon Card の件数（カテゴリ全件）とは一致しない（ユーザー確認済み）。
+- 状態：ビルド成功。実データでの件数一致・最近の商品の順序・ライト／ダーク表示の実画面確認はスタッフが実施する。公開（Publish）は行わない。
+
 ### フェーズ6追加：Chrome Hearts・Sneakers・Apparelの仕入価格ソート（2026-11-17 実装・フロントのみ）
 - 目的：既存の「並び替え」セレクトに「仕入価格：安い順／高い順」を追加し、3カテゴリで仕入価格の安い順・高い順に確認できるようにする。UI・API・保存処理・価格の優先順位は変更しない。
 - 変更ファイル
@@ -922,3 +943,30 @@
 - 制約：全件取得は最大60ページ（`page_size=100`）＝約6,000件まで。これを超える件数のカテゴリでは全件ソートが不完全になる（通常運用の規模では到達しない）。一覧APIが仕入価格ソートに対応していないため、この上限を超える場合はAPI側対応が必要。
 - 不変更：`/products`・`/pokeka`・`/home`・`/documents`・`/products/:id`、商品登録・取込、商品データ、仕入価格の保存・計算・優先順位、販売価格、AI生成、仕入照合、外部連携、認証・ログアウト、通常／テストモードの分離。
 - 状態：ビルド成功。実データでの並び順・未設定の末尾表示・同額の安定性・ページ送り・詳細からの復元・ライト／ダーク表示の実画面確認はスタッフが実施する。公開（Publish）は行わない。
+
+### フェーズ6追加：売却済み商品の行背景を薄いグレーに統一（2026-11-17 実装・フロントのみ）
+- 目的：商品一覧で売却済みの行を視覚的に識別しやすくする。行背景の追加だけを行い、文字・画像・価格・行の高さ・列幅・遷移・在庫状態の判定は変更しない。
+- 変更ファイル
+  - `src/index.css`（`.product-row.is-sold` と `.row-sold` の行背景、ダークテーマ用の値、フォーカス優先の規則を追加）
+  - `src/pages/products/components/ProductRow.tsx`（`is-sold` クラスの付与）
+  - `src/pages/pokeka/components/StorageProductTable.tsx`（`is-sold` クラスの付与）
+  - `src/pages/chrome-hearts/components/ChromeHeartsProductRow.tsx` / `src/pages/sneakers/components/SneakersProductRow.tsx` / `src/pages/apparel/components/ApparelProductRow.tsx`（`row-sold` クラスの付与）
+- 売却済み判定：既存の `product.inventory_status === "sold"` のみ。在庫数0・非公開・アーカイブ（`record_status = archived`）は売却済みとして扱わない。新しいフィールド・判定ロジックは追加していない。
+- 背景色（ライト）：売却済み＝`background-100` の75%（#F6F7F9相当）、ホバー＝`background-200` の60%、選択＝`background-200` の85%、選択ホバー＝`background-200`。選択（`background-100`）より淡くして選択状態が埋もれないようにした。
+- 背景色（ダーク）：売却済み＝`#232A32`、ホバー＝`#2C343D`（カテゴリ一覧の `.row-sold`）。`/products` の `.product-row.is-sold` は後段のホバー・選択規則が優先される。
+- 優先順位：キーボードフォーカス（`.product-row.is-sold:has(a:focus-visible)`）＞選択＞ホバー＞売却済み＞通常。行全体の `opacity` は使わず、文字色・画像・価格（打ち消し線なし）を変更しない。
+- 対象画面：`/products`・`/pokeka`（ストレージ一覧）・`/sneakers`・`/chrome-hearts`・`/apparel`。アーカイブ一覧は `/products` と同じ `ProductRow` を使うため、売却済みの行だけに同じ規則が適用される。
+- 不変更：在庫状態の定義・保存処理、商品データ、商品詳細、検索・フィルター・並び替え・ページング・一括操作、列幅・行の高さ、API・DB・バックエンド、認証、通常／テストモードの分離。
+
+### フェーズ6追加：売却済み商品の行の文字色をグレーに調整（2026-11-17 実装・フロントのみ）
+- 目的：売却済みの行を背景だけでなく文字色でも控えめに示す。行背景の規則は前項のまま維持し、文字色だけを調整する。
+- 変更ファイル：`src/index.css` のみ（行コンポーネントは変更していない）。
+- 適用方法：`.product-row.is-sold` と `.row-sold` の内側にある既存の文字色クラスを、２段のグレーへ寄せる。
+  - 主情報（`text-foreground-950/900/800`）→ `foreground-500`
+  - 補助情報（`text-foreground-700/600`）→ `foreground-500`
+  - さらに淡い補助（`text-foreground-500`）→ `foreground-400`
+- ダーク：`.is-test-dark` では主情報・補助情報を `#9BA6B4`、淡い補助を `#8B96A3` に固定（背景 `#232A32` 上でコントラストを確保）。
+- 不変更：图像・サムネイル、行全体の `opacity`、価格の打ち消し線、行の高さ、列幅、売却済みの判定、ホバー・選択・フォーカスの背景優先順位、行クリックの遷移、`bis-icon-btn`（行右端の操作アイコン）の色。
+- 対象画面：`/products`・`/pokeka`（ストレージ一覧）・`/sneakers`・`/chrome-hearts`・`/apparel`（アーカイブ一覧も `/products` の行部品を共用）。
+- 状態：ビルド成功。実データでの文字の見え方（ライト／ダーク）はスタッフが実画面で確認する。公開（Publish）は行わない。
+- 状態：ビルド成功。実データでの見え方（売却済みと在庫ありの差、ホバー・選択、ライト／ダーク）の実画面確認はスタッフが実施する。公開（Publish）は行わない。

@@ -99,6 +99,9 @@ export default function StorageProductTable({
             key={product.product_id}
             className={`product-row flex items-center border-b border-background-200 last:border-b-0 ${
               selected ? "is-selected" : ""
+            } ${
+              // 売却済みは既存の在庫状態だけで判定する（アーカイブ・在庫0とは区別する）
+              product.inventory_status === "sold" ? "is-sold" : ""
             }`}
           >
             <div className="flex w-10 shrink-0 items-center justify-center self-stretch">

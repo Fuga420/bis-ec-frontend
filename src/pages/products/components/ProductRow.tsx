@@ -138,6 +138,9 @@ export default function ProductRow({
     (product.inventory_status || "—");
   const inventoryClass =
     inventoryStyles[product.inventory_status] ?? "st-inventory-off";
+  // 売却済みは既存の在庫状態（inventory_status = "sold"）だけで判定する。
+  // 在庫数0や非公開・アーカイブは売却済みとして扱わない（新しい判定は作らない）。
+  const isSold = product.inventory_status === "sold";
   // 価格が未設定の行は「情報が無い」ことが伝わるよう、グレー＋少し小さい文字で控えめに置く。
   const hasPrice = Boolean(
     product.planned_sale_price && product.planned_sale_price > 0
@@ -319,7 +322,7 @@ export default function ProductRow({
       <div
         className={`product-row group/row flex items-stretch ${
           isSelected ? "is-selected" : ""
-        } ${isEditing ? "is-editing" : ""}`}
+        } ${isEditing ? "is-editing" : ""} ${isSold ? "is-sold" : ""}`}
       >
         {/* チェックボックスは Link の外に配置し、操作時に詳細へ遷移しないようにする */}
         <div className="flex w-11 shrink-0 items-center justify-center">

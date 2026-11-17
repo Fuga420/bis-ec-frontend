@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchProductsReadApi } from "@/config/productsApi";
 import { fetchDocumentList } from "@/pages/documents/lib/documentLedgerApi";
 import { summarizeLedger } from "@/pages/documents/lib/ledgerSummary";
-import { POKECA_RAW_STORAGE_PREFIX } from "@/pages/products/lib/pokecaRawStorage";
-import type { AdminProductListResponse } from "@/pages/products/types";
+import type { AdminProduct } from "@/pages/products/types";
+import {
+  HOME_ATTENTION_METRICS,
+  HOME_CATEGORIES,
+  fetchHomeCount,
+  fetchRecentProducts,
+  type HomeRecentLoadState,
+} from "@/pages/home/lib/homeData";
 
 export type HomeDataState = "loading" | "success" | "error";
 
@@ -12,7 +17,7 @@ export interface HomeProductSummary {
   total: number | null;
   draft: number | null;
   published: number | null;
-  /** 旧裏ストレージの商品数 */
+  /** 旧裏ストレージの商品数（商品一覧の集計外。合算しない） */
   rawStorage: number | null;
 }
 
@@ -22,9 +27,18 @@ export interface HomeDocumentSummary {
   pending: number | null;
 }
 
-interface CountResult {
-  count: number;
-  excluded: number;
+export interface HomeCategoryCount {
+  key: string;
+  label: string;
+  to: string;
+  /** 取得できなかった場合は null（0件と区別する） */
+  count: number | null;
+}
+
+export interface HomeAttentionCount {
+  key: string;
+  label: string;
+  count: number | null;
 }
 
 /**
@@ -53,38 +67,6 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
 }
 
 /**
- * 既存の商品一覧API（GET ?mode=admin）で件数だけを取得する。
- * 新しい集計APIは使わず、page_size=1 で count だけを読む。
- * 商品一覧画面と同じ除外条件（旧裏ストレージを隠す）を付け、
- * 一覧の「全 N 件」と数字が食い違わないようにする。
- */
-async function fetchProductCount(
-  isTestMode: boolean,
-  publishStatus: string | null
-): Promise<CountResult> {
-  const params = new URLSearchParams();
-  params.set("mode", "admin");
-  params.set("page", "1");
-  params.set("page_size", "1");
-  params.set("record_status", "active");
-  params.set("is_test", isTestMode ? "true" : "false");
-  if (publishStatus) params.set("publish_status", publishStatus);
-  params.set("exclude_storage_location_prefix", POKECA_RAW_STORAGE_PREFIX);
-
-  const response = await fetchProductsReadApi(params.toString());
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
-  }
-  const data = (await response.json()) as AdminProductListResponse;
-  if (!data || data.success !== true) {
-    throw new Error("Invalid response");
-  }
-  const count =
-    typeof data.count === "number" ? data.count : data.products?.length ?? 0;
-  return { count, excluded: Math.max(0, data.excluded_count ?? 0) };
-}
-
-/**
  * ホームの概要表示用データ。
  *
  * 表示するのは既存APIから取得できる値だけに限定する。
@@ -100,6 +82,32 @@ export function useHomeSummary(isTestMode: boolean) {
     rawStorage: null,
   });
 
+  const [categoryState, setCategoryState] =
+    useState<HomeDataState>("loading");
+  const [categories, setCategories] = useState<HomeCategoryCount[]>(() =>
+    HOME_CATEGORIES.map((category) => ({
+      key: category.key,
+      label: category.label,
+      to: category.to,
+      count: null,
+    }))
+  );
+
+  const [attentionState, setAttentionState] =
+    useState<HomeDataState>("loading");
+  const [attention, setAttention] = useState<HomeAttentionCount[]>(() =>
+    HOME_ATTENTION_METRICS.map((metric) => ({
+      key: metric.key,
+      label: metric.label,
+      count: null,
+    }))
+  );
+
+  const [recentState, setRecentState] = useState<
+    HomeRecentLoadState | "loading"
+  >("loading");
+  const [recentProducts, setRecentProducts] = useState<AdminProduct[]>([]);
+
   const [documentState, setDocumentState] =
     useState<HomeDataState>("loading");
   const [documents, setDocuments] = useState<HomeDocumentSummary>({
@@ -107,30 +115,48 @@ export function useHomeSummary(isTestMode: boolean) {
     pending: null,
   });
 
-  // 商品概要と仕入照合は別々の取得なので、再取得のきっかけも分ける
+  // 商品系の集計と仕入照合は別々の取得なので、再取得のきっかけも分ける
   // （片方の失敗で、もう片方を不必要に取り直さない）。
   const [productReloadKey, setProductReloadKey] = useState(0);
   const [documentReloadKey, setDocumentReloadKey] = useState(0);
 
+  // 商品概要（商品・下書き・公開中）と旧裏ストレージの件数。
+  // 旧裏ストレージは商品一覧の集計外なので、合算せず別の値として持つ。
   useEffect(() => {
     let cancelled = false;
     setProductState("loading");
 
     const load = async () => {
       try {
-        const [all, draft, published] = await Promise.all([
-          fetchProductCount(isTestMode, null),
-          fetchProductCount(isTestMode, "draft"),
-          fetchProductCount(isTestMode, "published"),
+        const results = await Promise.allSettled([
+          fetchHomeCount(isTestMode, { excludeRawStorage: true }),
+          fetchHomeCount(isTestMode, {
+            publishStatus: "draft",
+            excludeRawStorage: true,
+          }),
+          fetchHomeCount(isTestMode, {
+            publishStatus: "published",
+            excludeRawStorage: true,
+          }),
         ]);
         if (cancelled) return;
-        setProducts({
-          total: all.count,
-          draft: draft.count,
-          published: published.count,
-          rawStorage: all.excluded,
-        });
-        setProductState("success");
+
+        const first = results[0];
+        const countAt = (index: number): number | null => {
+          const result = results[index];
+          return result.status === "fulfilled" ? result.value.count : null;
+        };
+        const total = countAt(0);
+        const draft = countAt(1);
+        const published = countAt(2);
+        const rawStorage = first.status === "fulfilled" ? first.value.excluded : null;
+
+        setProducts({ total, draft, published, rawStorage });
+        setProductState(
+          total === null && draft === null && published === null
+            ? "error"
+            : "success"
+        );
       } catch {
         if (cancelled) return;
         setProducts({
@@ -149,13 +175,107 @@ export function useHomeSummary(isTestMode: boolean) {
     };
   }, [isTestMode, productReloadKey]);
 
+  // カテゴリ別商品。各カテゴリの取得は独立しており、
+  // 失敗したカテゴリだけを null（＝未取得）のまま残す。
+  useEffect(() => {
+    let cancelled = false;
+    setCategoryState("loading");
+
+    const load = async () => {
+      const results = await Promise.allSettled(
+        HOME_CATEGORIES.map((category) =>
+          fetchHomeCount(isTestMode, category.filter)
+        )
+      );
+      if (cancelled) return;
+
+      const next = HOME_CATEGORIES.map((category, index) => {
+        const result = results[index];
+        return {
+          key: category.key,
+          label: category.label,
+          to: category.to,
+          count: result.status === "fulfilled" ? result.value.count : null,
+        };
+      });
+      setCategories(next);
+      setCategoryState(
+        next.some((category) => category.count !== null) ? "success" : "error"
+      );
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [isTestMode, productReloadKey]);
+
+  // 要確認項目（在庫あり・売却済み）。既存の在庫状態の定義をそのまま使う。
+  useEffect(() => {
+    let cancelled = false;
+    setAttentionState("loading");
+
+    const load = async () => {
+      const results = await Promise.allSettled(
+        HOME_ATTENTION_METRICS.map((metric) =>
+          fetchHomeCount(isTestMode, metric.filter)
+        )
+      );
+      if (cancelled) return;
+
+      const next = HOME_ATTENTION_METRICS.map((metric, index) => {
+        const result = results[index];
+        return {
+          key: metric.key,
+          label: metric.label,
+          count: result.status === "fulfilled" ? result.value.count : null,
+        };
+      });
+      setAttention(next);
+      setAttentionState(
+        next.some((metric) => metric.count !== null) ? "success" : "error"
+      );
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [isTestMode, productReloadKey]);
+
+  // 最近の商品。全体の登録日時順を保証できない場合は unsupported になり、
+  // 画面側はセクション自体を表示しない（一部から選んだ5件を見せない）。
+  useEffect(() => {
+    let cancelled = false;
+    setRecentState("loading");
+
+    const load = async () => {
+      try {
+        const result = await fetchRecentProducts(isTestMode);
+        if (cancelled) return;
+        setRecentProducts(result.products);
+        setRecentState(result.state);
+      } catch {
+        if (cancelled) return;
+        setRecentProducts([]);
+        setRecentState("error");
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [isTestMode, productReloadKey]);
+
+  // 仕入照合。既存の書類一覧取得（全ページ分）をそのまま使い、
+  // 応答が無い場合だけ打ち切る（読み込み表示が残り続けないようにする）。
   useEffect(() => {
     let cancelled = false;
     setDocumentState("loading");
 
     const load = async () => {
       try {
-        // 既存の書類一覧取得（全ページ分）をそのまま使い、応答が無い場合だけ打ち切る。
         const list = await withTimeout(
           fetchDocumentList(),
           DOCUMENT_FETCH_TIMEOUT_MS
@@ -194,6 +314,12 @@ export function useHomeSummary(isTestMode: boolean) {
   return {
     productState,
     products,
+    categoryState,
+    categories,
+    attentionState,
+    attention,
+    recentState,
+    recentProducts,
     documentState,
     documents,
     reloadProducts,

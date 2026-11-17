@@ -61,12 +61,17 @@ export default function ChromeHeartsProductRow({
     INVENTORY_STATUS_LABELS[product.inventory_status] ?? "";
   const priceText = formatPrice(product.planned_sale_price);
   const purchasePriceText = formatPurchasePrice(product.purchase_price);
+  // 売却済みは既存の在庫状態（inventory_status = "sold"）だけで判定する
+  // （在庫数0・非公開・アーカイブは売却済み扱いにしない）。
+  const isSold = product.inventory_status === "sold";
 
   return (
     <Link
       to={`/products/${product.product_id}`}
       state={detailLinkState}
-      className="flex cursor-pointer items-center gap-3 border-b border-background-200 px-3 py-2 last:border-b-0 transition-colors hover:bg-background-50 focus:outline-none focus-visible:bg-background-50"
+      className={`flex cursor-pointer items-center gap-3 border-b border-background-200 px-3 py-2 last:border-b-0 transition-colors hover:bg-background-50 focus:outline-none focus-visible:bg-background-50 ${
+        isSold ? "row-sold" : ""
+      }`}
     >
       <ProductThumbnail
         src={product.main_image_display_url}
