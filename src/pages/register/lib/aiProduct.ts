@@ -382,7 +382,9 @@ export interface PokemonCardConfirmedData {
   card_number: string;
   rarity: string;
   language: string;
-  grading_status: "graded" | "ungraded";
+  // graded: グレード付き鑑定済み / authenticated: 真贋鑑定のみ / ungraded: 未鑑定
+  // 受け取った値をそのまま保持し、authenticated を ungraded へ潰さない。
+  grading_status: "graded" | "authenticated" | "ungraded";
   grader: string;
   grade: string;
   certification_number: string;

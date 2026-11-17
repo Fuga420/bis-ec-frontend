@@ -211,9 +211,11 @@ export function buildProductSpecItems(
         value:
           product.pokemon_card?.grading_status === "graded"
             ? "鑑定済み"
-            : product.pokemon_card?.grading_status === "ungraded"
-              ? "未鑑定"
-              : "",
+            : product.pokemon_card?.grading_status === "authenticated"
+              ? "真贋鑑定済"
+              : product.pokemon_card?.grading_status === "ungraded"
+                ? "未鑑定"
+                : "",
       }
     );
 
@@ -226,6 +228,18 @@ export function buildProductSpecItems(
           value: product.pokemon_card?.certification_number ?? "",
         }
       );
+    } else if (product.pokemon_card?.grading_status === "authenticated") {
+      // 真贋鑑定のみ：鑑定機関と認証番号は表示し、グレードは入力がある時だけ表示する。
+      items.push(
+        { label: "鑑定会社", value: product.pokemon_card?.grader ?? "" },
+        {
+          label: "鑑定番号",
+          value: product.pokemon_card?.certification_number ?? "",
+        }
+      );
+      if (hasText(product.pokemon_card?.grade ?? "")) {
+        items.push({ label: "グレード", value: product.pokemon_card?.grade ?? "" });
+      }
     } else {
       items.push({
         label: "カード状態",
@@ -270,7 +284,7 @@ export default function ProductSpecGrid({ product, cost }: ProductSpecGridProps)
 
   const showCardConditionNote =
     product.category === "pokemon_card" &&
-    product.pokemon_card?.grading_status !== "graded" &&
+    product.pokemon_card?.grading_status === "ungraded" &&
     product.pokemon_card?.card_condition === "A";
 
   return (

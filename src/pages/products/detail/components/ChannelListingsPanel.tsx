@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import CataloguePanelHeading from "@/pages/products/detail/components/CataloguePanelHeading";
+import CatalogueSubHeading from "@/pages/products/detail/components/CatalogueSubHeading";
 import {
   CHANNEL_DEFINITIONS,
   CHANNEL_STATUS_LABELS,
@@ -188,8 +188,8 @@ export default function ChannelListingsPanel({
 
   return (
     <section>
-      <CataloguePanelHeading
-        title="出品チャネル"
+      <CatalogueSubHeading
+        title="チャネル別の出品状況"
         right={
           loadState === "success" ? (
             <span className="whitespace-nowrap text-[11px] leading-none text-foreground-400">

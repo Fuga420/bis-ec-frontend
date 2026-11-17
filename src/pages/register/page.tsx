@@ -467,6 +467,14 @@ export default function RegisterPage() {
         if (!pokemonCard.grade.trim()) {
           next.pokemonCardGrade = "グレードを入力してください";
         }
+      } else if (pokemonCard.grading_status === "authenticated") {
+        // 真贋鑑定のみ：鑑定機関と認証番号は必須、グレードは任意。
+        if (!pokemonCard.grader) {
+          next.pokemonCardGrader = "鑑定会社を選択してください";
+        }
+        if (!pokemonCard.certification_number.trim()) {
+          next.pokemonCardCertification = "認証番号を入力してください";
+        }
       } else if (pokemonCard.grading_status === "ungraded") {
         if (!pokemonCard.card_condition) {
           next.pokemonCardCondition = "カード状態を選択してください";
@@ -492,6 +500,7 @@ export default function RegisterPage() {
         "pokemonCardLanguage",
         "pokemonCardGrader",
         "pokemonCardGrade",
+        "pokemonCardCertification",
         "pokemonCardCondition",
       ]),
     };
@@ -562,6 +571,8 @@ export default function RegisterPage() {
 
     if (category === "pokemon_card") {
       const isGraded = pokemonCard.grading_status === "graded";
+      const isAuthenticated = pokemonCard.grading_status === "authenticated";
+      const isCertified = isGraded || isAuthenticated;
       payload.pokemon_card = {
         card_name: pokemonCard.card_name.trim(),
         set_name: pokemonCard.set_name.trim(),
@@ -569,10 +580,12 @@ export default function RegisterPage() {
         rarity: pokemonCard.rarity,
         language: pokemonCard.language,
         grading_status: pokemonCard.grading_status,
-        grader: isGraded ? pokemonCard.grader : "",
-        grade: isGraded ? pokemonCard.grade : "",
-        certification_number: isGraded ? pokemonCard.certification_number : "",
-        card_condition: isGraded ? "" : pokemonCard.card_condition,
+        grader: isCertified ? pokemonCard.grader : "",
+        grade: isCertified ? pokemonCard.grade : "",
+        certification_number: isCertified
+          ? pokemonCard.certification_number
+          : "",
+        card_condition: isCertified ? "" : pokemonCard.card_condition,
       };
     }
 
@@ -1026,6 +1039,7 @@ export default function RegisterPage() {
                 languageError={errors.pokemonCardLanguage}
                 graderError={errors.pokemonCardGrader}
                 gradeError={errors.pokemonCardGrade}
+                certificationError={errors.pokemonCardCertification}
                 conditionError={errors.pokemonCardCondition}
                 onChange={(patch) => {
                   setPokemonCard((prev) => ({ ...prev, ...patch }));
@@ -1035,6 +1049,7 @@ export default function RegisterPage() {
                     delete next.pokemonCardLanguage;
                     delete next.pokemonCardGrader;
                     delete next.pokemonCardGrade;
+                    delete next.pokemonCardCertification;
                     delete next.pokemonCardCondition;
                     return next;
                   });

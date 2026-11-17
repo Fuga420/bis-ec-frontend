@@ -46,7 +46,7 @@ import EditForm from "./components/EditForm";
 import ProductDetailSkeleton from "./components/ProductDetailSkeleton";
 import ImageEditor, { type ImageSavePayload } from "./components/ImageEditor";
 import ImageLightbox from "./components/ImageLightbox";
-import ExternalIntegrationPanel from "./components/ExternalIntegrationPanel";
+import SalesChannelsPanel from "./components/SalesChannelsPanel";
 import ProductDocumentSection, {
   hasAttachedDocument,
 } from "./components/ProductDocumentSection";
@@ -63,7 +63,6 @@ import ProductDetailTabs, {
   type ProductDetailTabKey,
 } from "./components/ProductDetailTabs";
 import SalesManagementPanel from "./components/SalesManagementPanel";
-import ChannelListingsPanel from "./components/ChannelListingsPanel";
 import ProductDangerDialogs from "./components/ProductDangerDialogs";
 import SaveStatusMessage from "@/components/base/SaveStatusMessage";
 import BisImagePlaceholder from "@/components/base/BisImagePlaceholder";
@@ -269,7 +268,7 @@ export default function ProductDetailPage() {
   // メイン画像の拡大表示（ライトボックス）の開閉（表示専用・保存はしない）
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
 
-  // 管理タブ（販売管理 / 仕入・書類 / 外部連携）の選択状態。
+  // 管理タブ（販売管理 / 仕入・書類 / 出品チャネル）の選択状態。
   // 基本情報（商品スペック・説明・備考）はタブから独立して常時表示する。
   // 画面内の表示切り替えのみで、URLやデータ取得には影響しない。
   const [activeTab, setActiveTab] = useState<ProductDetailTabKey>("sales");
@@ -1235,12 +1234,12 @@ export default function ProductDetailPage() {
               />
             )}
 
-            {/* 管理タブ（販売管理 / 仕入・書類 / 外部連携） */}
+            {/* 管理タブ（販売管理 / 仕入・書類 / 出品チャネル） */}
             {isEditing ? (
               <p className="mt-4 flex items-start gap-1.5 rounded-lg border border-background-200 bg-background-100 px-3 py-2 text-[12px] leading-relaxed text-foreground-500">
                 <i className="ri-information-line mt-0.5 w-4 h-4 flex items-center justify-center shrink-0"></i>
                 <span className="min-w-0 flex-1">
-                  商品情報を編集中です。保存またはキャンセルすると、商品説明・備考と、販売管理・仕入／書類・外部連携の管理タブが表示されます。
+                  商品情報を編集中です。保存またはキャンセルすると、商品説明・備考と、販売管理・仕入／書類・出品チャネルの管理タブが表示されます。
                 </span>
               </p>
             ) : (
@@ -1342,17 +1341,10 @@ export default function ProductDetailPage() {
                   </div>
                 )}
 
-                {/* 出品チャネル（Mercari Shops / eBay / スニーカーダンク） */}
+                {/* 出品チャネル（Square連携 / Mercari Shops / eBay / スニーカーダンク） */}
                 {activeTab === "channels" && (
                   <div className="tab-fade">
-                    <ChannelListingsPanel productId={product.product_id} />
-                  </div>
-                )}
-
-                {/* 外部連携（販売チャネル単位。現時点ではSquareのみ） */}
-                {activeTab === "integration" && (
-                  <div className="tab-fade">
-                    <ExternalIntegrationPanel
+                    <SalesChannelsPanel
                       product={product}
                       onRefreshed={refreshProduct}
                     />

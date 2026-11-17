@@ -38,7 +38,7 @@ export interface PokemonCardData {
   card_number: string;
   rarity: string;
   language: string;
-  grading_status: "graded" | "ungraded";
+  grading_status: "graded" | "authenticated" | "ungraded";
   grader: string;
   grade: string;
   certification_number: string;

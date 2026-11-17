@@ -12,7 +12,8 @@ export interface PokemonCardValues {
   card_number: string;
   rarity: string;
   language: string;
-  grading_status: "graded" | "ungraded";
+  // graded: グレード付き鑑定済み / authenticated: 真贋鑑定のみ / ungraded: 未鑑定
+  grading_status: "graded" | "authenticated" | "ungraded";
   grader: string;
   grade: string;
   certification_number: string;
@@ -25,9 +26,18 @@ interface PokemonCardFieldsProps {
   languageError?: string;
   graderError?: string;
   gradeError?: string;
+  certificationError?: string;
   conditionError?: string;
   onChange: (patch: Partial<PokemonCardValues>) => void;
 }
+
+type GradingStatus = PokemonCardValues["grading_status"];
+
+const GRADING_STATUS_OPTIONS: { value: GradingStatus; label: string }[] = [
+  { value: "ungraded", label: "未鑑定" },
+  { value: "graded", label: "鑑定済み" },
+  { value: "authenticated", label: "真贋鑑定のみ" },
+];
 
 export default function PokemonCardFields({
   values,
@@ -35,22 +45,26 @@ export default function PokemonCardFields({
   languageError,
   graderError,
   gradeError,
+  certificationError,
   conditionError,
   onChange,
 }: PokemonCardFieldsProps) {
   const isGraded = values.grading_status === "graded";
+  const isAuthenticated = values.grading_status === "authenticated";
+  const isCertified = isGraded || isAuthenticated;
 
-  const handleGradingStatusChange = (status: "graded" | "ungraded") => {
-    if (status === "graded") {
-      onChange({ grading_status: "graded", card_condition: "" });
-    } else {
+  const handleGradingStatusChange = (status: GradingStatus) => {
+    if (status === "ungraded") {
       onChange({
         grading_status: "ungraded",
         grader: "",
         grade: "",
         certification_number: "",
       });
+      return;
     }
+    // 鑑定済み / 真贋鑑定のみ ではカード状態（A/B/C）を使わない。
+    onChange({ grading_status: status, card_condition: "" });
   };
 
   return (
@@ -118,33 +132,29 @@ export default function PokemonCardFields({
       </div>
 
       <FormField label="鑑定状態" required>
-        <div className="inline-flex items-center gap-1 rounded-full bg-background-100 p-1">
-          <button
-            type="button"
-            onClick={() => handleGradingStatusChange("ungraded")}
-            className={`whitespace-nowrap rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-              values.grading_status === "ungraded"
-                ? "bg-white text-foreground-950"
-                : "text-foreground-600 hover:text-foreground-900"
-            }`}
-          >
-            未鑑定
-          </button>
-          <button
-            type="button"
-            onClick={() => handleGradingStatusChange("graded")}
-            className={`whitespace-nowrap rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-              values.grading_status === "graded"
-                ? "bg-white text-foreground-950"
-                : "text-foreground-600 hover:text-foreground-900"
-            }`}
-          >
-            鑑定済み
-          </button>
+        <div className="inline-flex flex-wrap items-center gap-1 rounded-full bg-background-100 p-1">
+          {GRADING_STATUS_OPTIONS.map((option) => {
+            const selected = values.grading_status === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => handleGradingStatusChange(option.value)}
+                aria-pressed={selected}
+                className={`cursor-pointer whitespace-nowrap rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                  selected
+                    ? "bg-white text-foreground-950"
+                    : "text-foreground-600 hover:text-foreground-900"
+                }`}
+              >
+                {option.label}
+              </button>
+            );
+          })}
         </div>
       </FormField>
 
-      {isGraded ? (
+      {isCertified ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FormField label="鑑定会社" required error={graderError}>
             <select
@@ -161,7 +171,12 @@ export default function PokemonCardFields({
             </select>
           </FormField>
 
-          <FormField label="グレード" required error={gradeError}>
+          <FormField
+            label="グレード"
+            required={isGraded}
+            error={gradeError}
+            hint={isAuthenticated ? "真贋鑑定のみの場合は任意です" : undefined}
+          >
             <input
               className={inputClass}
               type="text"
@@ -171,7 +186,11 @@ export default function PokemonCardFields({
             />
           </FormField>
 
-          <FormField label="鑑定番号">
+          <FormField
+            label={isAuthenticated ? "認証番号" : "鑑定番号"}
+            required={isAuthenticated}
+            error={certificationError}
+          >
             <input
               className={inputClass}
               type="text"

@@ -54,7 +54,7 @@ export default function CatalogueSpecPanel({
 
   const showCardConditionNote =
     product.category === "pokemon_card" &&
-    product.pokemon_card?.grading_status !== "graded" &&
+    product.pokemon_card?.grading_status === "ungraded" &&
     product.pokemon_card?.card_condition === "A";
 
   return (

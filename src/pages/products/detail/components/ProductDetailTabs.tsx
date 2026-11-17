@@ -1,10 +1,6 @@
 import { useRef, type KeyboardEvent } from "react";
 
-export type ProductDetailTabKey =
-  | "sales"
-  | "purchase"
-  | "channels"
-  | "integration";
+export type ProductDetailTabKey = "sales" | "purchase" | "channels";
 
 interface ProductDetailTabsProps {
   activeTab: ProductDetailTabKey;
@@ -15,7 +11,6 @@ const TABS: Array<{ key: ProductDetailTabKey; label: string }> = [
   { key: "sales", label: "販売管理" },
   { key: "purchase", label: "仕入・書類" },
   { key: "channels", label: "出品チャネル" },
-  { key: "integration", label: "外部連携" },
 ];
 
 /**

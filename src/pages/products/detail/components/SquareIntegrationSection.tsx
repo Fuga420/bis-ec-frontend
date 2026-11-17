@@ -357,22 +357,26 @@ export default function SquareIntegrationSection({
   ].filter((item) => Boolean(item.value));
   const hasTechInfo = techIds.length > 0 || hasProdCheckoutUrl;
 
-  // 連携に必要な条件（済／未済を一目で分かるようにする）
+  // 連携に必要な条件（済／未達を一目で分かるようにする）
   const requirements = [
     {
       key: "published",
-      label: "公開中である",
+      label: "公開中であること",
       met: product.publish_status === "published",
+      reason:
+        product.publish_status === "draft" ? "下書き" : "現在は非公開",
     },
     {
       key: "active",
-      label: "レコードが有効（アーカイブでない）",
+      label: "レコードが有効であること",
       met: product.record_status === "active",
+      reason: "アーカイブ済み",
     },
     {
       key: "image",
-      label: "商品画像が1枚以上ある",
+      label: "商品画像が1枚以上あること",
       met: (product.images?.length ?? 0) > 0,
+      reason: "画像なし",
     },
   ];
 
@@ -380,25 +384,13 @@ export default function SquareIntegrationSection({
     <div>
       {/* サービス単位の小見出し（将来メルカリShops・スニダン等を追加する場合も同じ体裁で並べる） */}
       <CatalogueSubHeading
-        title="Square 連携"
+        title="Square"
         right={
-          isProdLinked ? (
-            <span className="st-badge st-publish">
-              <i className="ri-check-line text-[11px] leading-none"></i>
-              連携済み
-            </span>
-          ) : (
-            <span className="st-badge st-muted">
-              <i className="ri-error-warning-line text-[11px] leading-none"></i>
-              未連携
-            </span>
-          )
+          <span className="inline-flex h-[20px] items-center whitespace-nowrap rounded border border-background-300 bg-white px-1.5 text-[10.5px] leading-none text-foreground-600">
+            {isProdLinked ? "連携済み" : "未連携"}
+          </span>
         }
       />
-
-      <p className="mt-1.5 text-[12px] leading-relaxed text-foreground-500">
-        本番環境の商品情報・在庫・決済リンクを連携します。
-      </p>
 
       {isTestProduct && (
         <p className="mt-3 flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11.5px] leading-relaxed text-amber-900">
@@ -409,47 +401,40 @@ export default function SquareIntegrationSection({
         </p>
       )}
 
-      {/* 未連携のときは、何が揃えば連携できるかをチェックリストで示す */}
-      {!isProdLinked && (
-        <div className="mt-3 rounded-md bg-background-50 px-3 py-2.5">
-          <p className="text-[11px] font-medium text-foreground-600">
-            連携に必要な条件
-          </p>
-          <ul className="mt-1.5 flex flex-col gap-1.5">
-            {requirements.map((req) => (
-              <li
-                key={req.key}
-                className="flex items-baseline gap-2 text-[12px] leading-relaxed"
-              >
-                <i
-                  className={`${
-                    req.met ? "ri-check-line" : "ri-subtract-line"
-                  } w-3.5 h-3.5 flex shrink-0 items-center justify-center text-[12px] ${
-                    req.met ? "text-primary-700" : "text-foreground-400"
-                  }`}
-                  aria-hidden="true"
-                ></i>
+      {/* 連携条件（満たさない項目は理由を併記する） */}
+      <div className="mt-3">
+        <p className="text-[11px] font-medium text-foreground-500">連携条件</p>
+        <ul className="mt-1.5 flex flex-col gap-1">
+          {requirements.map((req) => (
+            <li
+              key={req.key}
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 text-[12px] leading-relaxed"
+            >
+              <span className="min-w-0 break-words">
                 <span
                   className={
-                    req.met
-                      ? "text-foreground-600"
-                      : "font-medium text-foreground-900"
+                    req.met ? "text-foreground-600" : "text-foreground-900"
                   }
                 >
                   {req.label}
                 </span>
-                <span
-                  className={`whitespace-nowrap text-[11px] font-medium ${
-                    req.met ? "text-primary-700" : "text-amber-700"
-                  }`}
-                >
-                  {req.met ? "済" : "未済"}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+                {!req.met && (
+                  <span className="ml-2 text-[11px] text-amber-800">
+                    {req.reason}
+                  </span>
+                )}
+              </span>
+              <span
+                className={`whitespace-nowrap text-[11px] font-medium leading-relaxed ${
+                  req.met ? "text-foreground-500" : "text-amber-800"
+                }`}
+              >
+                {req.met ? "済" : "未達"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
 
       {/*
         Sandbox（MVPでは無効化）
@@ -471,12 +456,9 @@ export default function SquareIntegrationSection({
       */}
 
       {hasProdCheckoutUrl && (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="st-badge st-publish">
-            <i className="ri-secure-payment-line text-[11px] leading-none"></i>
-            決済リンク生成済み
-          </span>
-        </div>
+        <p className="mt-3 text-[11px] leading-none text-foreground-500">
+          決済リンク 生成済み
+        </p>
       )}
 
         {/* 復元後は Square が停止したままである旨の注意（自動再開はされない） */}
@@ -499,10 +481,9 @@ export default function SquareIntegrationSection({
                 setIsProdConfirmOpen(true);
               }}
               disabled={prodSyncState === "saving" || isProdReflectDisabled}
-              className="inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary-500 px-3.5 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:bg-background-200 disabled:text-foreground-400"
+              className="inline-flex h-8 cursor-pointer items-center justify-center whitespace-nowrap rounded-md border border-foreground-400 bg-white px-3.5 text-[12px] font-semibold text-foreground-900 transition-colors hover:bg-background-100 disabled:cursor-not-allowed disabled:border-background-300 disabled:text-foreground-400 disabled:hover:bg-white"
             >
-              <i className="ri-store-2-line w-3.5 h-3.5 flex items-center justify-center"></i>
-              Square本番へ反映
+              {prodSyncState === "saving" ? "反映中" : "Square本番へ反映"}
             </button>
           )}
 
@@ -512,19 +493,9 @@ export default function SquareIntegrationSection({
                 type="button"
                 onClick={handleGenerateSquarePaymentLink}
                 disabled={paymentLinkState === "saving" || isPaymentLinkDisabled}
-                className="inline-flex min-w-[140px] cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-primary-300 bg-white px-3.5 py-1.5 text-[12px] font-semibold text-primary-700 transition-colors hover:bg-primary-50 disabled:cursor-not-allowed disabled:border-background-300 disabled:bg-white disabled:text-foreground-400"
+                className="inline-flex h-8 min-w-[140px] cursor-pointer items-center justify-center whitespace-nowrap rounded-md border border-background-300 bg-white px-3.5 text-[12px] font-medium text-foreground-800 transition-colors hover:bg-background-100 disabled:cursor-not-allowed disabled:border-background-300 disabled:text-foreground-400 disabled:hover:bg-white"
               >
-                {paymentLinkState === "saving" ? (
-                  <>
-                    <i className="ri-loader-4-line animate-spin w-3.5 h-3.5 flex items-center justify-center"></i>
-                    生成中...
-                  </>
-                ) : (
-                  <>
-                    <i className="ri-link w-3.5 h-3.5 flex items-center justify-center"></i>
-                    決済リンクを生成
-                  </>
-                )}
+                {paymentLinkState === "saving" ? "生成中" : "決済リンクを生成"}
               </button>
               <p className="text-[11px] leading-relaxed text-foreground-500">
                 決済リンクが未生成です。復旧用に生成できます。
@@ -573,7 +544,7 @@ export default function SquareIntegrationSection({
       {/* 技術的なIDと決済リンクは折りたたみ（通常は状態と操作だけを見せる） */}
       {!hasTechInfo ? (
         <p className="mt-3 border-t border-background-200 pt-2 text-[11px] leading-relaxed text-foreground-500">
-          未連携のため、該当する情報はない
+          登録済みのID・決済リンクはありません
         </p>
       ) : (
         <DetailDisclosure
@@ -632,9 +603,8 @@ export default function SquareIntegrationSection({
                       href={product.square_checkout_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary-500 px-2.5 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-primary-600"
+                      className="inline-flex cursor-pointer items-center justify-center whitespace-nowrap rounded-md border border-background-300 bg-white px-2.5 py-1.5 text-[11px] font-medium text-foreground-800 transition-colors hover:bg-background-100"
                     >
-                      <i className="ri-external-link-line w-3.5 h-3.5 flex items-center justify-center"></i>
                       開く
                     </a>
                   </div>
@@ -712,16 +682,9 @@ export default function SquareIntegrationSection({
                 type="button"
                 onClick={handleSyncSquareProduction}
                 disabled={prodSyncState === "saving"}
-                className="inline-flex min-w-[124px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-primary-500 px-4 py-2 text-sm font-bold text-background-50 transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex min-w-[124px] items-center justify-center whitespace-nowrap rounded-lg border border-foreground-400 bg-white px-4 py-2 text-sm font-semibold text-foreground-950 transition-colors hover:bg-background-100 disabled:cursor-not-allowed disabled:border-background-300 disabled:text-foreground-400 disabled:hover:bg-white"
               >
-                {prodSyncState === "saving" ? (
-                  <>
-                    <i className="ri-loader-4-line animate-spin w-4 h-4 flex items-center justify-center"></i>
-                    反映中...
-                  </>
-                ) : (
-                  "本番へ反映する"
-                )}
+                {prodSyncState === "saving" ? "反映中" : "本番へ反映する"}
               </button>
             </div>
           </div>

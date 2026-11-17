@@ -81,7 +81,11 @@ const initialPokemonCard = (p: AdminProductDetail): PokemonCardValues => ({
   rarity: p.pokemon_card?.rarity ?? "",
   language: p.pokemon_card?.language ?? "Japanese",
   grading_status:
-    p.pokemon_card?.grading_status === "graded" ? "graded" : "ungraded",
+    p.pokemon_card?.grading_status === "authenticated"
+      ? "authenticated"
+      : p.pokemon_card?.grading_status === "graded"
+        ? "graded"
+        : "ungraded",
   grader: p.pokemon_card?.grader ?? "",
   grade: p.pokemon_card?.grade ?? "",
   certification_number: p.pokemon_card?.certification_number ?? "",
@@ -155,6 +159,11 @@ export default function EditForm({
   const [pokemonCard, setPokemonCard] = useState<PokemonCardValues>(
     initialPokemonCard(product)
   );
+  // 真贋鑑定のみ（authenticated）の必須入力チェック用。graded / ungraded の検証は従来どおり行わない。
+  const [pokemonErrors, setPokemonErrors] = useState<{
+    grader?: string;
+    certification?: string;
+  }>({});
 
   const brandOptions = useMemo(() => {
     let base: string[] = [];
@@ -244,6 +253,8 @@ export default function EditForm({
 
     if (category === "pokemon_card") {
       const isGraded = pokemonCard.grading_status === "graded";
+      const isAuthenticated = pokemonCard.grading_status === "authenticated";
+      const isCertified = isGraded || isAuthenticated;
       payload.pokemon_card = {
         card_name: pokemonCard.card_name.trim(),
         set_name: pokemonCard.set_name.trim(),
@@ -251,10 +262,12 @@ export default function EditForm({
         rarity: pokemonCard.rarity,
         language: pokemonCard.language,
         grading_status: pokemonCard.grading_status,
-        grader: isGraded ? pokemonCard.grader : "",
-        grade: isGraded ? pokemonCard.grade : "",
-        certification_number: isGraded ? pokemonCard.certification_number : "",
-        card_condition: isGraded ? "" : pokemonCard.card_condition,
+        grader: isCertified ? pokemonCard.grader : "",
+        grade: isCertified ? pokemonCard.grade : "",
+        certification_number: isCertified
+          ? pokemonCard.certification_number
+          : "",
+        card_condition: isCertified ? "" : pokemonCard.card_condition,
       };
     }
 
@@ -262,6 +275,20 @@ export default function EditForm({
   };
 
   const handleSubmit = () => {
+    if (category === "pokemon_card") {
+      if (pokemonCard.grading_status === "authenticated") {
+        const next: { grader?: string; certification?: string } = {};
+        if (!pokemonCard.grader) next.grader = "鑑定機関を選択してください";
+        if (!pokemonCard.certification_number.trim()) {
+          next.certification = "認証番号を入力してください";
+        }
+        if (Object.keys(next).length > 0) {
+          setPokemonErrors(next);
+          return;
+        }
+      }
+      setPokemonErrors({});
+    }
     onSave(buildPayload());
   };
 
@@ -391,9 +418,17 @@ export default function EditForm({
           <FormSection title="ポケモンカード詳細" headingLevel="h3">
             <PokemonCardFields
               values={pokemonCard}
-              onChange={(patch) =>
-                setPokemonCard((prev) => ({ ...prev, ...patch }))
-              }
+              graderError={pokemonErrors.grader}
+              certificationError={pokemonErrors.certification}
+              onChange={(patch) => {
+                setPokemonCard((prev) => ({ ...prev, ...patch }));
+                setPokemonErrors((prev) => {
+                  const next = { ...prev };
+                  if (patch.grader) delete next.grader;
+                  if (patch.certification_number) delete next.certification;
+                  return next;
+                });
+              }}
             />
           </FormSection>
         </>
