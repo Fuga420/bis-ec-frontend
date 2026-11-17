@@ -261,9 +261,17 @@ export default function DocumentDetailPage() {
     }
   };
 
+  // パンくずの末尾（＝現在地）に出す名称。
+  // 既存データの書類名を使い、無い場合は書類番号、どちらも無ければ「書類詳細」に留める。
+  // 存在しない書類名は生成しない。
+  const pageTitle =
+    (doc?.file_name ?? "").trim() ||
+    (doc?.document_number ?? "").trim() ||
+    "書類詳細";
+
   return (
     <AdminShell
-      pageTitle="書類詳細"
+      pageTitle={pageTitle}
       breadcrumbs={[{ label: "仕入・書類", to: "/documents" }]}
       mainClassName="page-fade mx-auto w-full max-w-5xl px-4 py-4 md:px-6"
     >
@@ -295,9 +303,9 @@ export default function DocumentDetailPage() {
             <section className="ui-card rounded-lg p-4 md:p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
-                  <h1 className="break-words text-lg font-semibold leading-snug text-foreground-950">
+                  <h2 className="break-words text-lg font-semibold leading-snug text-foreground-950">
                     {doc.file_name || "（ファイル名なし）"}
-                  </h1>
+                  </h2>
                   <p className="mt-1 font-mono text-xs text-foreground-500">
                     {doc.document_id}
                   </p>

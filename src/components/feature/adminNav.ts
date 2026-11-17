@@ -38,13 +38,13 @@ export const ADMIN_NAV_PRIMARY: AdminNavItem[] = [
 
 /**
  * カテゴリ別の入口（独立したまとまり）。
- * Chrome Hearts / Apparel は専用画面が未提供のため、従来どおり「準備中」表示のまま。
+ * Chrome Hearts はブランド、Apparel は商品種別（カテゴリ）で対象を絞る別々の入口。
  */
 export const ADMIN_NAV_CATEGORIES: AdminNavItem[] = [
   { label: "Pokémon Card", to: "/pokeka" },
   { label: "Sneakers", to: "/sneakers" },
-  { label: "Chrome Hearts" },
-  { label: "Apparel" },
+  { label: "Chrome Hearts", to: "/chrome-hearts" },
+  { label: "Apparel", to: "/apparel" },
 ];
 
 /**

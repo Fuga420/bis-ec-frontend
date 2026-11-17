@@ -714,3 +714,192 @@
 - ログアウト：入口はヘッダー右端の `AdminLockButton` のみ。設定ページの「セッション」セクションはログアウトが無くなり空になるため、見出しごと削除。環境切り替えなどの他設定は維持。`useAdminAuth().lock` の処理（確認・保持削除・別タブ通知・ロック画面復帰・モード分離）は変更なし。
 - 不変更：ルーティング、API・DB・バックエンド・GAS、商品一覧・詳細・登録・取込、Pokémon Card の分類・検索、Sneakers、仕入書類、AI生成、認証・ログアウト処理、通常／テストモードの分離、新しい状態管理ライブラリ。
 - 状態：ビルド成功。実画面での遷移・開閉保持・ログアウト（ヘッダーのみ）・ライト／ダーク表示の確認はスタッフが実施する。公開（Publish）は行わない。
+
+### フェーズ6追加：Chrome Hearts専用ページ（`/chrome-hearts`）2026-11-17 実装・フロントのみ
+- 目的：共通商品マスターのうち Chrome Hearts に該当する商品だけを扱う専用ビューを作る。専用の商品マスター・専用詳細ページ・専用登録フォームは作らない。
+- 調査結果（対象判定の根拠）
+  - 既存の商品カテゴリ値は `sneaker` / `jewelry` / `pokemon_card` / `apparel` / `fashion_goods` / `other` のみで、**Chrome Hearts 専用のカテゴリ値は存在しない**。ブランドは `brand` 列で別管理されている。
+  - 既存の商品一覧API（`mode=admin`）の `search` は「商品名・商品ID・ブランドの部分一致」であるため、ブランド名で対象を絞れる。新しいカテゴリ・ブランドマスター・検索APIは追加しない。
+  - したがって対象は「ブランド名が `Chrome Hearts` の商品」とする。商品名だけの一致やカテゴリ値からの推測はしない。
+- 変更ファイル
+  - `src/pages/chrome-hearts/page.tsx`（新規・一覧本体）
+  - `src/pages/chrome-hearts/lib/chromeHearts.ts`（新規・判定条件とページ設定の定数）
+  - `src/pages/chrome-hearts/hooks/useChromeHeartsProductList.ts`（新規・取得）
+  - `src/pages/chrome-hearts/components/ChromeHeartsFilterBar.tsx`（新規・検索と絞り込み）
+  - `src/pages/chrome-hearts/components/ChromeHeartsProductRow.tsx`（新規・一覧の行）
+  - `src/pages/chrome-hearts/components/chromeHeartsTableColumns.ts`（新規・列幅）
+  - `src/lib/productOrigin.ts`（遷移元に `source:"chrome-hearts"` を追加。ポケカ・スニーカーの扱いは不変）
+  - `src/router/config.tsx`（`/chrome-hearts` を新ページへ。URLは不変）
+  - `src/components/feature/adminNav.ts`（カテゴリの Chrome Hearts を `/chrome-hearts` に接続。Apparel は準備中のまま）
+  - `src/pages/category/ChromeHeartsPage.tsx`（旧・汎用一覧の入口。置き換えのため削除）
+- 取得：既存の商品一覧API（`mode=admin`・ページ分割モード・`page_size=50`・`is_test`）をそのまま利用。検索語は固定の `Chrome Hearts` と利用者の入力語を空白区切りANDで併用し、種別（`category`）・公開状態・在庫状態・並び順・ページ番号も既存パラメータのみを送る。
+- 表示：画像（40px）／商品名（`getProductDisplayTitle` の既存ルール）／ブランド・商品ID・種別の補助情報／種別（既存カテゴリのラベル）／公開状態（`lg` 以上）／在庫状態／販売価格。狭い画面では種別を商品名下、在庫状態を価格の下へ移し、横スクロールを出さない。行クリックで既存の `/products/:id`。
+- 検索・フィルター・並び替え：検索（商品名・商品ID・ブランド）、種別（既存カテゴリ値のみ）、公開状態、在庫状態、並び替え（既存APIが対応する7キー）、ページ送り。条件変更時は1ページ目に戻し、URL（`?q=&type=&publish=&inventory=&sort=&page=`）へ `replace` で反映する。
+- 空状態の区別：取得失敗＝「商品を取得できませんでした」＋再読み込み、正常0件＝「商品がありません」（対象判定の条件を1行だけ添える）、条件0件＝「条件に一致する商品がありません」＋条件クリア。
+- 遷移元の復元：`productOrigin` に `source:"chrome-hearts"`（検索・種別・公開状態・在庫状態・並び順・ページ）を載せ、商品詳細のパンくずを `Chrome Hearts › 商品詳細`、戻り先を `/chrome-hearts?…` にする。サイドナビは Chrome Hearts を選択中にする。
+- 不変更：API・DB・バックエンド・GAS、products マスターとデータ構造、ブランド・カテゴリの定義、商品保存・更新・削除、Pokémon Card・Sneakers 固有の処理、AI生成、仕入照合、認証・ログアウト、通常／テストモードの分離。
+- 残課題：ブランドが未登録（空欄）の商品や、ブランド欄と異なる表記（例 `CHROME HEARTS` 以外の揺れ）で登録された商品は対象に含まれない。一覧APIに「ブランド完全一致」の絞り込みが無いため、種別を絞らずに母集団を確認する手段は画面側では持たない。
+- 状態：ビルド成功。実データでの件数・検索・絞り込み・詳細からの復元・ライト／ダーク表示の確認はスタッフが実画面で実施する。公開（Publish）は行わない。
+
+### フェーズ6追加：Apparel専用ページ（`/apparel`）2026-11-17 実装・フロントのみ
+- 目的：共通商品マスターのうちアパレル（商品種別 `apparel`）だけを扱う専用ビューを作る。専用の商品マスター・専用詳細ページ・専用登録フォーム・サイズ／ブランドマスターは作らない。
+- 調査結果（対象判定の根拠）
+  - 既存の商品カテゴリ値に `apparel`（表示名「アパレル」）が存在し、`CATEGORY_LABELS` と登録画面の選択肢にも定義済み。アパレルは**商品ジャンル（カテゴリ）**として保存されている。
+  - Chrome Hearts は**ブランド名**（`brand`）で判定する別軸の入口であり、カテゴリの意味・構造は変更しない。既存データ上は Chrome Hearts の商品が `category=apparel` を持つ可能性があり、その場合は両方の一覧に表示される（データ上の重複であり、片方から除外する操作はしない）。
+  - 一覧API（`mode=admin`）の応答項目は 画像・商品名・商品ID・ブランド・カテゴリ・販売価格・公開状態・在庫状態・保管場所・スニーカーサイズ（`sneaker_size`）・SKU のみ。**アパレル用のサイズ・カラー項目は存在しない**。
+- 変更ファイル
+  - `src/pages/apparel/page.tsx`（新規・一覧本体）
+  - `src/pages/apparel/lib/apparel.ts`（新規・判定条件とページ設定の定数）
+  - `src/pages/apparel/hooks/useApparelProductList.ts`（新規・取得）
+  - `src/pages/apparel/components/ApparelFilterBar.tsx`（新規・検索と絞り込み）
+  - `src/pages/apparel/components/ApparelProductRow.tsx`（新規・一覧の行）
+  - `src/pages/apparel/components/apparelTableColumns.ts`（新規・列幅）
+  - `src/lib/productOrigin.ts`（遷移元に `source:"apparel"` を追加。ポケカ・スニーカー・Chrome Hearts の扱いは不変）
+  - `src/router/config.tsx`（`/apparel` を新ページへ。URLは不変）
+  - `src/components/feature/adminNav.ts`（カテゴリの Apparel を `/apparel` に接続し「準備中」を解除）
+  - `src/pages/category/`（旧・汎用カテゴリ一覧。置き換えのため削除）
+- 取得：既存の商品一覧API（`mode=admin`・ページ分割モード・`page_size=50`・`is_test`）をそのまま利用し、`category=apparel` を固定送信する。検索語・公開状態・在庫状態・並び順・ページ番号も既存パラメータのみ。
+- 表示：画像（40px）／商品名（`getProductDisplayTitle` の既存ルール）／ブランド・商品ID／公開状態（`lg` 以上）／在庫状態／販売価格。行クリックで既存の `/products/:id`。
+- 検索・フィルター・並び替え：検索（商品名・商品ID・ブランド）、公開状態、在庫状態、並び替え（既存APIが対応する7キー）、ページ送り。条件変更時は1ページ目に戻し、URL（`?q=&publish=&inventory=&sort=&page=`）へ `replace` で反映する。
+- 空状態の区別：取得失敗＝「商品を取得できませんでした」＋再読み込み、正常0件＝「商品がありません」（対象判定の条件を1行だけ添える）、条件0件＝「条件に一致する商品がありません」＋条件クリア。
+- 遷移元の復元：`productOrigin` に `source:"apparel"`（検索・公開状態・在庫状態・並び順・ページ）を載せ、商品詳細のパンくずを `Apparel › 商品詳細`、戻り先を `/apparel?…` にする。サイドナビは Apparel を選択中にする。
+- 未対応（理由）
+  - サイズの列・絞り込み：アパレル用のサイズ項目が既存データに無い（`sneaker_size` はスニーカー専用のため流用しない）。
+  - カラー：保存項目が存在しないため UI を追加しない。
+  - 商品種別の絞り込み：このページでは種別が `apparel` 固定のため選択肢にしない（Tシャツ／フーディー等の細分類も既存データに無い）。
+  - ブランドの絞り込み：一覧APIにブランド完全一致のパラメータが無いため、選択肢による絞り込みは置かない（ブランド名は検索対象に含まれる）。
+  - 専用登録・専用詳細・サイズ自動変換・カラー自動判定・AI生成・外部チャネル連携：今回の対象外。
+- 不変更：API・DB・バックエンド・GAS、products マスターとデータ構造、カテゴリ・ブランドの定義、商品保存・更新・削除、Pokémon Card・Sneakers・Chrome Hearts の既存処理、AI生成、仕入照合、認証・ログアウト、通常／テストモードの分離。
+- 状態：ビルド成功。実データでの件数・検索・絞り込み・詳細からの復元・ライト／ダーク表示の確認はスタッフが実画面で実施する。公開（Publish）は行わない。
+
+### フェーズ6追加：商品一覧「旧裏ストレージを隠す」トグルの撤去（2026-11-17 実装・フロントのみ）
+- 目的：トグルを廃止し、商品一覧（`/products`）で旧裏ストレージ商品も含めて全商品を表示する。ユーザー確認済み（撤去と同時に非表示処理も撤去）。
+- 変更ファイル
+  - `src/pages/products/page.tsx`（トグル・非表示件数表示・非表示による0件時の復帰導線・URL/状態への保存を削除）
+  - `src/pages/products/hooks/useProductList.ts`（`hidePokecaRawStorage` 状態、`exclude_storage_location_prefix` の付与、`hiddenCount` を削除）
+  - `src/pages/products/lib/listViewState.ts`（保存項目 `hidePokecaRawStorage` を削除。未保存の古いデータは無視）
+  - `src/pages/products/components/PokecaRawStorageToggle.tsx`（削除）
+- 挙動：一覧は常にサーバー側ページ分割（50件）で取得し、除外条件を付けない。件数・ページ数は応答の `count` / `total_pages` をそのまま使用。
+- 不変更：一覧API・GAS・DB・バックエンド、商品データ、検索・絞り込み・並び替え・一括操作、商品詳細、Pokémon Card・Sneakers・Chrome Hearts・Apparel、仕入書類、AI生成、認証、通常／テストモードの分離。
+- 残課題：ホームの「商品件数」は従来どおり `exclude_storage_location_prefix` で旧裏ストレージを除外して集計しているため、商品一覧の総件数と一致しない。定義を揃えるかは別途判断。
+- 状態：ビルド成功。実画面での件数・ページ送りの確認はスタッフが実施する。公開（Publish）は行わない。
+
+### フェーズ6追加：カテゴリ横断の整合性確認と表示状態の修正（2026-11-17 実装・フロントのみ）
+- 目的：共通商品一覧と4つのカテゴリ専用ページ（`/pokeka` / `/sneakers` / `/chrome-hearts` / `/apparel`）の分類・件数・検索・遷移の整合性を確認し、フロント側の不具合だけを直す。新しいカテゴリ・新しい分類軸・新しいAPIは追加しない。
+- 確認した分類条件（既存実装のまま）
+  - Pokémon Card：`storage_location` が `旧裏ストレージ/` で始まる商品（`isPokecaRawStorageProduct`）。グレード有無は一覧APIが返さないため判定せず、「グレードあり」は件数表示のみ。
+  - Sneakers：`category = sneaker`。
+  - Chrome Hearts：ブランド名（既存APIの `search` に固定語 `Chrome Hearts` を併用）。専用カテゴリ値は存在しない。
+  - Apparel：`category = apparel`（Chrome Hearts とは別軸のため、両方に表示される商品は正当な重複）。
+- 修正内容
+  - `src/pages/sneakers/hooks/useSneakerProductList.ts` / `src/pages/chrome-hearts/hooks/useChromeHeartsProductList.ts` / `src/pages/apparel/hooks/useApparelProductList.ts`：通常モード／テストモード切替時に前モードの商品・件数を保持したまま表示していたため、切替直後に一覧を空にしてスケルトンへ戻す（`/products` と同じ扱いに統一）。
+  - `src/pages/pokeka/hooks/usePokekaRawStorageList.ts`：同上（切替時に `items` / `allItems` を空へ）。
+  - `src/pages/pokeka/page.tsx`：件数表示を取得成功時のみに限定。取得中は「読み込み中」、失敗時は「件数を取得できませんでした」と表示し、取得できていない 0 件を「対象0件」と誤表示しない。0件文言を仕様どおり「商品がありません」に統一。
+  - `src/lib/productOrigin.ts`：URLから復元する商品種別を、実在するカテゴリ値（`CATEGORY_LABELS` の自前キー）だけに限定（`constructor` 等のプロトタイプキーを受理しない）。
+- 報告のみ（未修正・要判断）
+  - Chrome Hearts はブランド完全一致のパラメータが無いため、`search` の仕様上「商品名に Chrome Hearts を含む他ブランド商品」が混入し得る。ブランド未登録商品は対象外。フロントのみでの厳密化は件数・ページングを壊すため行っていない。
+  - `/products` の「旧裏ストレージ」絞り込みは `import_mode` パラメータで行っており、一覧API契約（`PRODUCT_LIST_PAGINATION_API_CONTRACT.md`）に記載が無い。`/pokeka` の判定（`storage_location` 前方一致）とは基準が異なるため、両画面の件数が一致する保証はない。
+  - `/products` のカテゴリ絞り込みは契約書の許容値に `apparel` / `fashion_goods` が無い（実装は送信している）。API側の実対応は未検証。
+  - Pokémon Card のグレードあり商品、`category=pokemon_card` かつ旧裏ストレージ外の商品は一覧に出ない（一覧APIが鑑定情報を返さないため）。
+  - ホームの商品件数と `/products` の総件数の不一致（前回の残課題）は未対応。
+- 不変更：API・DB・バックエンド・GAS、products マスターとデータ構造、カテゴリ・ブランドの定義、商品保存・更新・削除、AI生成の対象判定、仕入照合、認証・ログアウト、通常／テストモードの分離、デザイン。
+- 状態：ビルド成功。実データでの件数・検索・絞り込み・詳細からの復元・ライト／ダーク表示の実画面確認はスタッフが実施する（コード確認とビルドまで）。公開（Publish）は行わない。
+
+### フェーズ6追加：商品登録のカテゴリ選択と登録後の表示先の整合（2026-11-17 実装・フロントのみ）
+- 目的：カテゴリ別ページから登録画面を開いたとき、遷移元が分かるようにし、既存のカテゴリ値と一意に対応する場合だけカテゴリを事前選択する。保存値・保存処理・カテゴリ定義・登録フォームの作りは変更しない。
+- 変更ファイル
+  - `src/pages/register/lib/registerOrigin.ts`（新規・遷移元の検証、カテゴリ初期値、登録後の一覧リンク）
+  - `src/pages/register/page.tsx`（`?from=` の読み取り、カテゴリ初期値、パンくず、登録完了時の一覧リンク）
+  - `src/components/feature/addProductOptions.ts`（カテゴリ配下では通常の商品登録に `?from=` を付与）
+  - `src/pages/sneakers/page.tsx` / `src/pages/apparel/page.tsx`（0件時にカテゴリを事前選択した登録導線を追加）
+- 遷移元の保持：既存のルーティングのまま `/register?from=sneakers|apparel|pokeka|chrome-hearts` を付ける。登録画面はこの値だけを読み、パンくず（`商品管理 › <カテゴリ> › 商品登録`）とカテゴリの初期値に使う。想定外の値は遷移元なしとして扱う。
+- 事前選択の範囲（保存形式と一意に対応する場合のみ）
+  - Sneakers → `sneaker` / Apparel → `apparel` / Pokémon Card → `pokemon_card`（いずれも既存のカテゴリ値）
+  - Chrome Hearts → 事前選択しない。ブランド名の入口であり、カテゴリ（商品種別）は `apparel` / `jewelry` / `fashion_goods` / `other` など複数に分かれるため、遷移元だけを根拠に保存値を決めない。パンくずのみ遷移元を表示する。
+  - 事前選択はセレクトの初期値のみで、ユーザーが自由に変更できる。ブランドは初期選択しない（ブランド選択肢はカテゴリに依存するため）。
+- 登録完了後：既存の完了フロー（成功モーダル・商品詳細へのリンク・「別の商品を登録」）は変更しない。保存したカテゴリ／ブランドから一覧を一意に決められる場合だけ、モーダル下部に `Sneakers 一覧` / `Apparel 一覧` / `Chrome Hearts 一覧` のテキストリンクを追加する。Pokémon Card は一覧の対象が保管場所（旧裏ストレージ）判定のため、一般登録した商品が必ず出るとは限らずリンクに含めない。
+- 一覧への反映：カテゴリ別一覧はマウント時に一覧APIから取得しており、フロント側のキャッシュを持たないため、遷移し直すと最新の登録内容が反映される。新しいAPI・キャッシュ機構は追加していない。
+- 不変更：API・DB・バックエンド・GAS、products マスターとカテゴリ／ブランドの定義、商品IDの生成、画像保存、保存・更新・削除の処理、登録の必須条件と入力検証、ポケカ専用取込（`/import?mode=pokeca_raw_storage`）、画像だけ取込、AI生成、仕入照合、認証・ログアウト、通常／テストモードの分離、他ページのURL。
+- 残課題：`category=pokemon_card` でも `storage_location` が旧裏ストレージ外の商品は `/pokeka` の一覧に出ない（既存の分類仕様）。Chrome Hearts はブランド完全一致の絞り込みが無いため、登録後に `/chrome-hearts` へ出るにはブランドを `Chrome Hearts` で保存する必要がある。
+- 状態：ビルド成功。実画面での事前選択・パンくず・登録後の一覧表示は未検証（テスト登録を行っていない）。公開（Publish）は行わない。
+
+### フェーズ6追加：商品追加メニュー・登録・取込の導線整理（2026-11-17 実装・フロントのみ）
+- 目的：ヘッダーの「商品を追加」メニューから、既存の3つの登録・取込へ迷わず到達できるようにし、登録・取込画面から元の一覧へ戻れるようにする。登録・取込の処理自体は変更しない。
+- 前提（調査結果）：`/drive-bulk-import` という画面・ルートはこのプロジェクトに存在しない。ポケカ専用の取込は既存の `/import?mode=pokeca_raw_storage`（箱番・枝番の素地取込）のみで、これが唯一の入口。ユーザー確認のうえ**新しいルートは作らず、既存画面をそのまま「ポケカ一括取込」の名称で使う**方針とした（仕入書類の Drive 一括取込は別機能のため流用しない）。
+- 変更ファイル
+  - `src/lib/addProductReturn.ts`（新規・戻り先の受け渡しと検証）
+  - `src/components/feature/addProductOptions.ts`（項目名を `商品登録` / `画像だけ取込` / `ポケカ一括取込` に整理し、補助文を短く）
+  - `src/components/feature/AddProductMenu.tsx`（戻り先 state の付与、メニューの高さ制限とスクロール）
+  - `src/pages/register/page.tsx`（パンくずの親階層に開いた一覧の状態付きURLを使用）
+  - `src/pages/import/page.tsx`（画面名を `画像だけ取込` / `ポケカ一括取込` に整理し、パンくずの戻り先を同じ仕組みに統一）
+- メニューの表示条件：`AdminShell` の既存判定のまま、商品を扱う画面（`/products`・`/products/:id`・`/pokeka`・`/sneakers`・`/chrome-hearts`・`/apparel`）でのみ表示。`ポケカ一括取込` は `/pokeka` 配下でのみ表示し、他カテゴリには出さない。
+- 遷移先：`商品登録` → `/register`（カテゴリ配下では `/register?from=…`）、`画像だけ取込` → `/import`、`ポケカ一括取込` → `/import?mode=pokeca_raw_storage`。既存のパラメータ・処理は無変更。
+- 戻り先の復元：メニューを開いた時点の `pathname + search` を react-router の `state` で渡し、登録・取込画面のパンくずの親階層に使う。一覧の検索・絞り込み・ページ番号は既存のURLクエリの仕組みをそのまま再利用し、受け取る側で許可した一覧パスだけを検証する（想定外の値は従来の戻り先）。
+- 操作性：クリックで開閉、外側クリック・Escape で閉じてフォーカスをボタンへ戻す、↑↓/Home/End で移動、Tab で閉じる、開いた直後に先頭項目へフォーカス。`max-h-[calc(100vh-5rem)]` と `overflow-y-auto`、`max-w-[calc(100vw-2rem)]` で画面外にはみ出さない。
+- 不変更：ルーティング、API・DB・バックエンド・GAS、商品登録フォームの入力項目・保存処理・商品ID生成・画像アップロード、Drive連携、AI生成、カテゴリ／ブランドの定義、Pokémon Card の分類（旧裏ストレージ判定）、フィルター・検索・並び替え、認証・ログアウト、通常／テストモードの分離。
+- 状態：ビルド成功。実画面でのメニュー操作（キーボード・モバイル）、戻り先からの復元、ライト／ダーク表示は未検証。公開（Publish）は行わない。
+
+### フェーズ6追加：パンくずの階層・商品名表示・遷移元の統一（2026-11-17 実装・フロントのみ）
+- 目的：詳細画面のパンくず末尾を汎用名（商品詳細・書類詳細）から実際の商品名・書類名へ変え、一覧・カテゴリ・登録・取込の階層表記を統一する。パンくずと遷移処理以外は変更しない。
+- 変更ファイル
+  - `src/components/feature/AdminHeader.tsx`（`aria-label="パンくず"`、現在地の `aria-current="page"`、長い名称の1行省略＋`title` による全文確認、親階層リンクのフォーカスリング）
+  - `src/pages/products/detail/page.tsx`（ページタイトル＝取得した商品名。未取得・取得失敗時は `商品詳細`。遷移元が無い場合の親階層を `すべての商品` に）
+  - `src/pages/documents/detail/page.tsx`（ページタイトル＝書類名。無ければ書類番号、どちらも無ければ `書類詳細`。本文の同名見出しは h2 へ）
+  - `src/pages/register/page.tsx`（`すべての商品 › 商品登録`。カテゴリから開いた場合は `<カテゴリ> › 商品登録`）
+  - `src/pages/import/page.tsx`（既定の親階層を `すべての商品` に）
+  - `src/lib/addProductReturn.ts`（`/products` の戻り先ラベルを `すべての商品` に）
+- 商品詳細のパンくず：`すべての商品 › 商品名`（一覧から）／`Pokémon Card › グレードなし › 旧裏 › 商品名`（ポケカのストレージ）／`Sneakers › 商品名`／`Chrome Hearts › 商品名`／`Apparel › 商品名`。階層は既存の `productOrigin`（ルーティング state）だけを根拠にし、カテゴリ・ブランドからの推測は行わない。直接アクセス・リロードで state が失われた場合は `すべての商品 › 商品名`。
+- 書類詳細：`仕入・書類 › 書類名`。存在しない書類名は生成しない。
+- 最上位ページ（ホーム／すべての商品／Pokémon Card／Sneakers／Chrome Hearts／Apparel／仕入・書類／設定）は従来どおりページ名のみ（パンくず階層を追加しない）。
+- 不変更：ルーティング・URL構造、API・DB・バックエンド・GAS、商品取得・保存・分類、AI生成、仕入照合、認証・ログアウト、共通ヘッダーの高さ・ロゴ・右側操作、サイドナビの開閉、通常／テストモードの分離。
+- 残課題：`/products` のページタイトルは既存の `商品管理` のまま（パンくずは仕様どおり `すべての商品`）。表記を揃えるかは別途判断。商品詳細・書類詳細の実表示（長い名称の省略、ライト／ダーク、戻る・進む）は未検証。公開（Publish）は行わない。
+
+### フェーズ6追加：長い商品名・書類名に対応したヘッダー表示（2026-11-17 実装・フロントのみ）
+- 目的：商品名・書類名が長い場合でもヘッダーが1行に収まり、右側の操作（商品を追加・AI生成履歴・ログアウト）が重ならない・画面外へ出ないようにする。第137弾のパンくず階層と遷移元判定は変更しない。
+- 変更ファイル：`src/components/feature/AdminHeader.tsx` のみ。
+- ヘッダーの幅配分
+  - 左（メニュー / BISロゴ / 区切り線）は `shrink-0` で必要幅を確保。ロゴは縮めない。
+  - 中央（パンくず＋現在地）は `min-w-0 flex-1` で唯一縮む領域。
+  - 右（操作ボタン群）は `shrink-0 flex-nowrap`。折り返しと縮小を行わない。
+  - ヘッダー行は `flex-nowrap` にし、`min-h-[60px]` の1行を維持（2行にならない）。
+- 省略方法
+  - 現在地（商品名・書類名）は固定の最大幅を廃止し、`min-w-0 shrink truncate` で実際に残った横幅に合わせて末尾を省略する（文字数による打ち切りはしない）。
+  - 省略対象は現在地のテキストのみ。ロゴ・親階層・右側の操作は対象外で、無条件に全体を切り取らない。
+  - 親階層のリンクも `min-w-0` ＋ 最大180px（`md` 以上220px）で個別に省略し、階層が多くても中央領域を圧迫しすぎないようにした。
+  - 全文は既存の `title` 属性で確認でき、商品詳細・書類詳細の本文見出しは従来どおり全文表示（データは短縮しない）。
+
+### フェーズ6追加：Chrome Hearts一覧への仕入価格表示（2026-11-17 実装・フロントのみ）
+- 目的：Chrome Hearts の一覧で仕入価格と販売価格を並べて確認できるようにする。表示の追加だけで、保存・計算・分類は変更しない。
+- 変更ファイル
+  - `src/pages/chrome-hearts/components/chromeHeartsTableColumns.ts`（`purchase` 列 幅96px を追加）
+  - `src/pages/chrome-hearts/components/ChromeHeartsProductRow.tsx`（仕入価格の表示、列順の変更、モバイルは商品名下に「仕入 ¥…」を表示）
+  - `src/pages/chrome-hearts/page.tsx`（列見出しを 種別 → 仕入価格 → 販売価格 → 公開状態 → 在庫状態 の順に変更）
+- 使用した既存フィールド：一覧API（`admin-product-list-v3`）が返す `purchase_price`（＝商品マスタの手入力の仕入価格）。新しいフィールド・API・DB変更はなし。
+- 取得元と優先順位
+  - 商品詳細の上部サマリーは「① 確定済みの仕入紐付けがあり台帳原価がある → 仕入原価（台帳・概算）／② 台帳なしで手入力の `purchase_price` → 仕入価格（手入力）／③ どちらも無い → 未設定」の順（第106弾の `ProductSpecGrid` のまま）。
+  - 一覧は上記のうち **手入力の `purchase_price` のみ**を表示する。台帳原価（`get_product_cost`）は商品ごとの個別取得が必要で、一覧で大量に呼ぶ実装は禁止事項のため行っていない。
+- 制約：仕入紐付けがあり台帳原価が確定している商品では、商品詳細が「仕入原価（台帳・概算）」を表示するため、一覧の手入力値と一致しない場合がある（手入力が未設定なら一覧は「未設定」）。一覧APIに台帳原価が含まれないための制約で、推測値は表示しない。
+- 表示形式：`¥67,496`（`toLocaleString("ja-JP")`）で右揃え・`tabular-nums`・販売価格と同じ13.5px。販売価格の左隣に配置し、強調しない（`font-semibold` を使わない）。
+- 未設定と0円：`null` / `undefined` / 空文字 / 数値でない値は「未設定」、`0` は有効な金額として `¥0` を表示する（`formatPurchasePrice`）。
+- レスポンシブ：`md` 以上で専用の仕入価格列、`md` 未満は商品名の下に「仕入 ¥…／仕入 未設定」を表示して画像・商品名・仕入価格・販売価格を優先。商品列は `flex-1` のまま、価格列は96px固定で商品名と重ならない。他カテゴリ（`/products`・`/pokeka`・`/sneakers`・`/apparel`）の列構成は変更していない。
+- 不変更：API・DB・バックエンド・GAS、商品マスターと仕入価格の保存、仕入原価の計算・優先順位、仕入書類の照合処理、検索・絞り込み・並び替え・ページ送り、商品詳細、認証・ログアウト、通常／テストモードの分離。
+- 状態：ビルド成功。実データでの一覧と商品詳細の突き合わせ、ライト／ダーク表示、モバイルでの折り返しはスタッフが実画面で確認する。公開（Publish）は行わない。
+- 狭い画面：中間階層を畳む既存挙動（現在地の1つ上だけ残す）を維持し、畳んだことを示す控えめな「…」を追加（`sm` 未満のみ表示）。親階層への戻りリンクは残す。
+- サイドバーとの関係：ヘッダーはサイドナビの外側（全幅）にあり、開閉でメイン本文だけが狭くなる構成のため、ヘッダーの省略幅はサイドバーの開閉に影響されない（レイアウトは崩れない）。
+- 取得中・取得エラー：商品詳細は取得できるまで `商品詳細` を表示し、取得後に商品名へ置き換わる。右側の操作は固定幅のため、名称の長さで位置が動かない。
+- 不変更：パンくずの階層判定・遷移元の保持、ページタイトル（20px / 600）・ロゴ（セリフ体）・ヘッダー高さ・右側の操作、サイドナビ、商品データ・保存処理、認証・ログアウト、通常／テストモードの分離。
+- 状態：ビルド成功。長い名称での実表示（省略位置・ホバーでの全文確認・ライト／ダーク・モバイル）は未検証（スタッフが実画面で確認する）。公開（Publish）は行わない。
+
+### フェーズ6追加：Sneakers・Apparelへの仕入価格表示（2026-11-17 実装・フロントのみ）
+- 目的：Chrome Hearts と同じ仕入価格の列を Sneakers・Apparel にも追加し、3カテゴリで「仕入価格 → 販売価格」を横並びで確認できるようにする。表示の追加だけで、保存・計算・分類は変更しない。
+- 変更ファイル
+  - `src/pages/sneakers/components/sneakerTableColumns.ts` / `src/pages/apparel/components/apparelTableColumns.ts`（`purchase` 列 幅96px を追加）
+  - `src/pages/sneakers/components/SneakersProductRow.tsx` / `src/pages/apparel/components/ApparelProductRow.tsx`（仕入価格の表示、列順の変更、モバイルは商品名下に「仕入 ¥…」を表示）
+  - `src/pages/sneakers/page.tsx` / `src/pages/apparel/page.tsx`（列見出しを 画像 → 商品 →（サイズ）→ 仕入価格 → 販売価格 → 公開状態 → 在庫状態 の順に変更）
+- 使用した既存フィールド：3ページとも一覧API（`admin-product-list-v3`）が返す `purchase_price`（＝商品マスタの手入力の仕入価格）。Chrome Hearts と同じフィールド・同じ `formatPurchasePrice`（各ページ内の同じ実装）を使い、カテゴリごとに異なる価格判定は作っていない。
+- 取得元と優先順位：商品詳細の「① 台帳原価（確定紐付けあり）／② 手入力の `purchase_price`／③ 未設定」は変更なし。一覧は①が一覧APIに含まれないため②のみを表示し、推測値・0円への丸めは行わない。
+- 未設定と0円：`null` / `undefined` / 空文字 / 数値でない値は「未設定」（淡い文字色）、`0` は有効な金額として `¥0` を表示する。
+- 表示形式：`¥67,496`（3桁区切り）・右揃え・`tabular-nums`・販売価格と同じ13.5px。販売価格の左隣に置き、`font-semibold` は使わない（強調しない）。
+- 列幅・レスポンシブ：商品列は `flex-1` のまま、価格列は96px固定。`md` 以上で専用の仕入価格列、`md` 未満は商品名の下に「仕入 ¥…／仕入 未設定」を出して画像・商品名・仕入価格・販売価格を優先。ページ全体の横スクロールは発生させない。
+- 不変更：`/products`・`/pokeka`・`/home`・`/documents` の列構成、商品詳細（`/products/:id`）の仕入価格表示、API・DB・バックエンド・GAS、商品マスターと仕入価格の保存、仕入原価の計算・優先順位、仕入書類の照合処理、検索・絞り込み・並び替え・ページ送り、認証・ログアウト、通常／テストモードの分離。
+- 状態：ビルド成功。実データでの一覧と商品詳細の突き合わせ、ライト／ダーク表示、モバイルでの折り返しはスタッフが実画面で確認する。公開（Publish）は行わない。

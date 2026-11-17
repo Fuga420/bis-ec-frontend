@@ -191,6 +191,15 @@ export default function ProductDetailPage() {
   const originTrail = useMemo(() => buildProductOriginTrail(origin), [origin]);
   // パンくずの親階層・「一覧へ戻る」の戻り先（絞り込み条件とページ番号は遷移元のURLで再現する）
   const returnPath = originTrail?.listPath ?? listPath;
+  /**
+   * パンくずの親階層。
+   * 実際に開いた一覧の階層があればそれを使い、無い場合（直接アクセス・リロード）は
+   * カテゴリを推測せず「すべての商品」だけを親にする。
+   */
+  const breadcrumbs = useMemo(
+    () => originTrail?.ancestors ?? [{ label: "すべての商品", to: listPath }],
+    [originTrail, listPath]
+  );
 
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [product, setProduct] = useState<AdminProductDetail | null>(null);
@@ -1085,14 +1094,16 @@ export default function ProductDetailPage() {
     product && product.planned_sale_price != null && product.planned_sale_price > 0
   );
 
+  // パンくずの末尾（＝現在地）に出す名称。
+  // 商品名を取得できた場合だけ商品名を表示し、取得中・取得失敗時は「商品詳細」に留める
+  // （存在しない名前を作らない）。
+  const pageTitle = (product?.product_name ?? "").trim() || "商品詳細";
+
   return (
     <AdminShell
-      pageTitle="商品詳細"
-      breadcrumbs={originTrail?.ancestors}
+      pageTitle={pageTitle}
+      breadcrumbs={breadcrumbs}
       activeNavTo={originTrail?.navActiveTo}
-      backLink={
-        originTrail ? undefined : { to: listPath, label: "商品管理" }
-      }
       rootClassName="catalogue"
       mainClassName="page-fade mx-auto w-full max-w-5xl px-4 pb-10 pt-4 md:px-6 md:pt-5"
     >

@@ -1,6 +1,10 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
+  buildAddProductReturn,
+  buildAddProductReturnState,
+} from "@/lib/addProductReturn";
+import {
   getAddProductOptions,
   type AddProductOption,
 } from "./addProductOptions";
@@ -17,7 +21,7 @@ import {
  * - 画面端ではみ出さないよう max-width を画面幅に制限する
  */
 export default function AddProductMenu() {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const options = getAddProductOptions(pathname);
 
   const [open, setOpen] = useState(false);
@@ -106,6 +110,10 @@ export default function AddProductMenu() {
     <Link
       key={option.key}
       to={option.to}
+      // 一覧の検索・絞り込み・ページ番号は戻り先URLとして既存のクエリをそのまま渡す。
+      state={buildAddProductReturnState(
+        buildAddProductReturn(pathname, search)
+      )}
       role="menuitem"
       ref={(el) => {
         itemRefs.current[index] = el;
@@ -150,7 +158,7 @@ export default function AddProductMenu() {
           role="menu"
           aria-label="商品を追加"
           onKeyDown={handleMenuKeyDown}
-          className="absolute right-0 top-full z-40 mt-1.5 w-[272px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-background-200 bg-white py-1.5"
+          className="absolute right-0 top-full z-40 mt-1.5 max-h-[calc(100vh-5rem)] w-[272px] max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain rounded-lg border border-background-200 bg-white py-1.5"
         >
           {options.map(renderItem)}
         </div>

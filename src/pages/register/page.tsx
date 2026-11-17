@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import ImageUpload, {
   MAX_IMAGE_SIZE,
   ALLOWED_IMAGE_TYPES,
@@ -29,6 +29,11 @@ import PublishSquareOptions from "./components/PublishSquareOptions";
 import RegisterProgress from "./components/RegisterProgress";
 import SaveStatusMessage from "@/components/base/SaveStatusMessage";
 import AdminShell from "@/components/feature/AdminShell";
+import {
+  getSavedProductListLinks,
+  readRegisterOrigin,
+} from "./lib/registerOrigin";
+import { readAddProductReturn } from "@/lib/addProductReturn";
 import {
   runSquareProductionSync,
   type SquareProductionStep,
@@ -120,8 +125,25 @@ const initialPokemonCard: PokemonCardValues = {
 };
 
 export default function RegisterPage() {
+  // カテゴリ別ページから開いた場合の遷移元（?from=）。
+  // 入力欄の初期値とパンくずにだけ使い、保存値や保存処理には影響させない。
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
+  // どの一覧から開いたか（検索・絞り込み・ページ番号つきのURL）。
+  // メニューから来た場合だけ state に入っている。無ければ従来の遷移元表示。
+  const returnTarget = useMemo(
+    () => readAddProductReturn(location.state),
+    [location.state]
+  );
+  const origin = useMemo(
+    () => readRegisterOrigin(searchParams.get("from")),
+    [searchParams]
+  );
+
   const [images, setImages] = useState<File[]>([]);
-  const [category, setCategory] = useState<CategoryId | "">("");
+  const [category, setCategory] = useState<CategoryId | "">(
+    () => origin?.initialCategory ?? ""
+  );
   const [name, setName] = useState("");
   const [brand, setBrand] = useState("");
   const [description, setDescription] = useState("");
@@ -148,6 +170,17 @@ export default function RegisterPage() {
   const [aiSelectedImageIndexes, setAiSelectedImageIndexes] = useState<number[]>(
     []
   );
+
+  // 同じ登録画面のまま遷移元が変わった場合（別カテゴリのページから開き直した場合）は、
+  // そのカテゴリに対応する値だけを初期値として入れ直す。
+  // 既に入力済みのカテゴリを勝手に書き換えないよう、遷移元が変わったときだけ反映する。
+  const appliedOriginRef = useRef(origin?.source ?? "");
+  useEffect(() => {
+    const nextSource = origin?.source ?? "";
+    if (nextSource === appliedOriginRef.current) return;
+    appliedOriginRef.current = nextSource;
+    if (origin?.initialCategory) setCategory(origin.initialCategory);
+  }, [origin]);
 
   // 公開・Square連携オプション（既定はどちらもOFF）
   // 登録した瞬間に公開・Square本番公開が走らないよう、利用者が明示的にオンにした時だけ有効にする。
@@ -400,6 +433,12 @@ export default function RegisterPage() {
     if (brand && !base.includes(brand)) return [...base, brand];
     return base;
   }, [category, brand]);
+
+  // 登録後に確認できるカテゴリ別一覧（保存する値から一意に決まる場合だけ）
+  const savedListLinks = useMemo(
+    () => getSavedProductListLinks({ category, brand }),
+    [category, brand]
+  );
 
   const updateSneaker = (patch: Partial<SneakerValues>) => {
     setSneaker((prev) => ({ ...prev, ...patch }));
@@ -846,7 +885,11 @@ export default function RegisterPage() {
   return (
     <AdminShell
       pageTitle="商品登録"
-      breadcrumbs={[{ label: "商品管理", to: "/products" }]}
+      breadcrumbs={
+        origin
+          ? [{ label: origin.label, to: returnTarget?.to ?? origin.listPath }]
+          : [{ label: "すべての商品", to: returnTarget?.to ?? "/products" }]
+      }
       mainClassName="page-fade mx-auto w-full max-w-5xl px-4 py-4 md:px-6"
     >
         {/* 商品画像 */}
@@ -912,7 +955,15 @@ export default function RegisterPage() {
         >
         <div className="mb-4 flex flex-col gap-4 md:flex-row">
           <div className="min-w-0 flex-1">
-            <FormField label="カテゴリー" error={errors.category}>
+            <FormField
+              label="カテゴリー"
+              error={errors.category}
+              hint={
+                origin?.initialCategory
+                  ? `${origin.label} から開きました`
+                  : undefined
+              }
+            >
               <select
                 className={inputClass}
                 value={category}
@@ -1404,6 +1455,20 @@ export default function RegisterPage() {
                 </div>
               )}
             </div>
+
+            {savedListLinks.length > 0 && (
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
+                {savedListLinks.map((link) => (
+                  <Link
+                    key={link.to}
+                    to={link.to}
+                    className="text-xs text-foreground-600 underline-offset-2 transition-colors hover:text-foreground-900 hover:underline"
+                  >
+                    {link.label} 一覧
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

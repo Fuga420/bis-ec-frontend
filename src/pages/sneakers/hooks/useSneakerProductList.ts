@@ -49,6 +49,18 @@ export function useSneakerProductList({
   // 古い応答が新しい検索結果を上書きしないための通番ガード。
   const requestSeqRef = useRef(0);
 
+  // 通常モード／テストモードを切り替えた直後は、前のモードの商品・件数を残さない。
+  // 取得中の一瞬だけ別モードの商品が混ざって見えるのを防ぐ（一覧はスケルトン表示に戻す）。
+  const prevIsTestModeRef = useRef(isTestMode);
+  useEffect(() => {
+    if (prevIsTestModeRef.current === isTestMode) return;
+    prevIsTestModeRef.current = isTestMode;
+    setProducts([]);
+    setCount(0);
+    setTotalPages(0);
+    setLoadState("loading");
+  }, [isTestMode]);
+
   useEffect(() => {
     const seq = requestSeqRef.current + 1;
     requestSeqRef.current = seq;

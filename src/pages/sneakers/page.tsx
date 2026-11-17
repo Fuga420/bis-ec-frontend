@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import AdminShell from "@/components/feature/AdminShell";
 import { useOperatingMode } from "@/context/OperatingModeProvider";
 import ProductListSkeleton from "@/pages/products/components/ProductListSkeleton";
@@ -20,6 +20,7 @@ import SneakersProductRow from "@/pages/sneakers/components/SneakersProductRow";
 import { SNEAKER_COL } from "@/pages/sneakers/components/sneakerTableColumns";
 import { useSneakerProductList } from "@/pages/sneakers/hooks/useSneakerProductList";
 import { hasSneakerSize } from "@/pages/sneakers/lib/size";
+import { buildRegisterPath } from "@/pages/register/lib/registerOrigin";
 
 // 連続入力による通信を防ぐ検索のデバウンス時間（商品一覧・カテゴリ別一覧と同じ）。
 const SEARCH_DEBOUNCE_MS = 400;
@@ -219,7 +220,7 @@ export default function SneakersPage() {
                   ? "条件に一致する商品がありません"
                   : "商品がありません"}
               </p>
-              {hasFilter && (
+              {hasFilter ? (
                 <button
                   type="button"
                   onClick={clearFilters}
@@ -227,6 +228,13 @@ export default function SneakersPage() {
                 >
                   条件をクリア
                 </button>
+              ) : (
+                <Link
+                  to={buildRegisterPath("sneakers")}
+                  className="bis-btn bis-btn-sm bis-btn-secondary mt-3 whitespace-nowrap"
+                >
+                  商品を登録
+                </Link>
               )}
             </div>
           ) : (
@@ -250,6 +258,16 @@ export default function SneakersPage() {
                   </span>
                 )}
                 <span
+                  className={`text-right text-[11px] font-medium text-foreground-500 ${SNEAKER_COL.purchase}`}
+                >
+                  仕入価格
+                </span>
+                <span
+                  className={`text-right text-[11px] font-medium text-foreground-500 ${SNEAKER_COL.price}`}
+                >
+                  販売価格
+                </span>
+                <span
                   className={`hidden text-right text-[11px] font-medium text-foreground-500 lg:block ${SNEAKER_COL.publish}`}
                 >
                   公開状態
@@ -258,11 +276,6 @@ export default function SneakersPage() {
                   className={`text-right text-[11px] font-medium text-foreground-500 ${SNEAKER_COL.inventory}`}
                 >
                   在庫状態
-                </span>
-                <span
-                  className={`text-right text-[11px] font-medium text-foreground-500 ${SNEAKER_COL.price}`}
-                >
-                  販売価格
                 </span>
               </div>
 

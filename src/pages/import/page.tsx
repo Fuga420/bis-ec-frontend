@@ -1,4 +1,4 @@
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import IndeterminateProgressBar from "@/components/base/IndeterminateProgressBar";
 import ImportSetCard from "@/pages/import/components/ImportSetCard";
 import ImportBatchSection from "@/pages/import/components/ImportBatchSection";
@@ -8,6 +8,7 @@ import {
   sameFiles,
 } from "@/pages/import/lib/multiImport";
 import AdminShell from "@/components/feature/AdminShell";
+import { readAddProductReturn } from "@/lib/addProductReturn";
 import { useMultiSetImport } from "@/pages/import/hooks/useMultiSetImport";import {
   useOperatingMode,
   useOperatingModeLock,
@@ -16,8 +17,17 @@ import { useMultiSetImport } from "@/pages/import/hooks/useMultiSetImport";impor
 export default function ImportPage() {
   // 同じ画面をモードで切り替える（画面・画像アップロード処理は複製しない）。
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const mode = parseImportMode(searchParams.get("mode"));
   const isPokeca = mode === POKECA_RAW_STORAGE_MODE;
+
+  // どの一覧から開いたか（検索・絞り込み・ページ番号つきのURL）。
+  // メニューから来た場合だけ state に入っている。無ければ従来の親階層へ戻す。
+  const returnTarget =
+    readAddProductReturn(location.state) ??
+    (isPokeca
+      ? { label: "Pokémon Card", to: "/pokeca" }
+      : { label: "すべての商品", to: "/products" });
 
   const { isTestMode } = useOperatingMode();
   const importer = useMultiSetImport(isTestMode, mode);
@@ -64,12 +74,8 @@ export default function ImportPage() {
 
   return (
     <AdminShell
-      pageTitle={isPokeca ? "ポケカ素地取込" : "画像取込"}
-      breadcrumbs={
-        isPokeca
-          ? [{ label: "Pokémon Card", to: "/pokeka" }]
-          : [{ label: "商品管理", to: "/products" }]
-      }
+      pageTitle={isPokeca ? "ポケカ一括取込" : "画像だけ取込"}
+      breadcrumbs={[{ label: returnTarget.label, to: returnTarget.to }]}
       mainClassName="page-fade mx-auto w-full max-w-5xl px-4 py-4 md:px-6"
     >
         {/* 左：作業（説明・セット一覧）／右：固定サマリーの2カラム。

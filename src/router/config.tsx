@@ -7,8 +7,8 @@ import HomePage from "@/pages/home/page";
 import ProductDetailPage from "@/pages/products/detail/page";
 import PokekaPage from "@/pages/pokeka/page";
 import SneakersPage from "@/pages/sneakers/page";
-import ChromeHeartsPage from "@/pages/category/ChromeHeartsPage";
-import ApparelPage from "@/pages/category/ApparelPage";
+import ChromeHeartsPage from "@/pages/chrome-hearts/page";
+import ApparelPage from "@/pages/apparel/page";
 import DocumentsPage from "@/pages/documents/page";
 import SettingsPage from "@/pages/settings/page";
 import DocumentDetailPage from "@/pages/documents/detail/page";
@@ -52,10 +52,12 @@ const routes: RouteObject[] = [
     element: <SneakersPage />,
   },
   {
+    // Chrome Hearts専用の商品一覧（ブランド名で対象を絞る）
     path: "/chrome-hearts",
     element: <ChromeHeartsPage />,
   },
   {
+    // Apparel専用の商品一覧（商品種別 apparel で対象を絞る）
     path: "/apparel",
     element: <ApparelPage />,
   },

@@ -23,7 +23,7 @@ interface UsePokekaRawStorageListParams {
 /**
  * 旧裏ストレージ商品（storage_location が「旧裏ストレージ/」で始まる商品）の全件取得。
  *
- * 既存の「旧裏ストレージを隠す」トグルと同じ方式:
+ * 既存の商品一覧と同じ方式:
  * 一覧APIをページ送りで全件取得 → storage_location で振り分け → 画面側で 50 件ずつページ表示。
  * 条件（モード）が変わらない間はキャッシュし、ページ移動で再取得しない。
  */
@@ -43,6 +43,18 @@ export function usePokekaRawStorageList({
     allItems: AdminProduct[];
   } | null>(null);
   const seqRef = useRef(0);
+
+  // 通常モード／テストモードを切り替えた直後は、前のモードの商品を残さない。
+  // 取得中の一瞬だけ別モードの商品が混ざって見えるのを防ぐ。
+  const prevIsTestModeRef = useRef(isTestMode);
+  useEffect(() => {
+    if (prevIsTestModeRef.current === isTestMode) return;
+    prevIsTestModeRef.current = isTestMode;
+    setItems([]);
+    setAllItems([]);
+    setErrorMessage("");
+    setLoadState("loading");
+  }, [isTestMode]);
 
   useEffect(() => {
     const seq = seqRef.current + 1;

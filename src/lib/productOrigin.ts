@@ -3,6 +3,7 @@ import {
   type ProductSortKey,
 } from "@/pages/products/lib/sort";
 import type { StorageSortKey } from "@/pages/pokeka/lib/rawStorage";
+import { CATEGORY_LABELS } from "@/pages/products/types";
 
 /**
  * 商品詳細（/products/:id）を「どこから開いたか」を表す遷移元情報。
@@ -85,8 +86,63 @@ export interface SneakersProductOrigin {
   page: number;
 }
 
+/** /chrome-hearts がURLから復元する一覧の状態 */
+export interface ChromeHeartsQueryState {
+  /** 商品名・商品ID・ブランドの検索語 */
+  search: string;
+  /** 商品種別（既存カテゴリ値。空＝すべて） */
+  category: string;
+  /** 公開状態（空＝すべて） */
+  publishStatus: string;
+  /** 在庫状態（空＝すべて） */
+  inventoryStatus: string;
+  /** 並び順キー */
+  sort: ProductSortKey;
+  /** ページ番号（1始まり） */
+  page: number;
+}
+
+/** 商品詳細をChrome Heartsページから開いたときの遷移元 */
+export interface ChromeHeartsProductOrigin {
+  source: "chrome-hearts";
+  search: string;
+  category: string;
+  publishStatus: string;
+  inventoryStatus: string;
+  sort: ProductSortKey;
+  page: number;
+}
+
+/** /apparel がURLから復元する一覧の状態 */
+export interface ApparelQueryState {
+  /** 商品名・商品ID・ブランドの検索語 */
+  search: string;
+  /** 公開状態（空＝すべて） */
+  publishStatus: string;
+  /** 在庫状態（空＝すべて） */
+  inventoryStatus: string;
+  /** 並び順キー */
+  sort: ProductSortKey;
+  /** ページ番号（1始まり） */
+  page: number;
+}
+
+/** 商品詳細をApparelページから開いたときの遷移元 */
+export interface ApparelProductOrigin {
+  source: "apparel";
+  search: string;
+  publishStatus: string;
+  inventoryStatus: string;
+  sort: ProductSortKey;
+  page: number;
+}
+
 /** 商品詳細を開いたときの遷移元（専用ページごとに形が異なる） */
-export type AnyProductOrigin = ProductOrigin | SneakersProductOrigin;
+export type AnyProductOrigin =
+  | ProductOrigin
+  | SneakersProductOrigin
+  | ChromeHeartsProductOrigin
+  | ApparelProductOrigin;
 
 /** /pokeka がURLから復元する一覧の状態 */
 export interface PokekaQueryState {
@@ -173,6 +229,16 @@ function toSort(value: unknown): ProductSortKey {
     : "default";
 }
 
+/** 既存のカテゴリ値だけを受け付ける（存在しない種別を作らない）
+ *  URL 由来の値なので、プロトタイプ上のキー（constructor 等）は受け付けない。
+ */
+function toCategory(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return Object.prototype.hasOwnProperty.call(CATEGORY_LABELS, value)
+    ? value
+    : "";
+}
+
 function toPage(value: unknown): number {
   const num =
     typeof value === "number"
@@ -213,6 +279,35 @@ export function buildSneakersOrigin(
   };
 }
 
+/** 現在の一覧の状態から、商品詳細へ渡す遷移元情報を作る（Chrome Hearts） */
+export function buildChromeHeartsOrigin(
+  state: ChromeHeartsQueryState
+): ChromeHeartsProductOrigin {
+  return {
+    source: "chrome-hearts",
+    search: state.search,
+    category: state.category,
+    publishStatus: state.publishStatus,
+    inventoryStatus: state.inventoryStatus,
+    sort: state.sort,
+    page: state.page,
+  };
+}
+
+/** 現在の一覧の状態から、商品詳細へ渡す遷移元情報を作る（Apparel） */
+export function buildApparelOrigin(
+  state: ApparelQueryState
+): ApparelProductOrigin {
+  return {
+    source: "apparel",
+    search: state.search,
+    publishStatus: state.publishStatus,
+    inventoryStatus: state.inventoryStatus,
+    sort: state.sort,
+    page: state.page,
+  };
+}
+
 /** 遷移時に載せる state（キー名を1か所に閉じ込める） */
 export function buildProductDetailLinkState(
   origin: AnyProductOrigin
@@ -224,7 +319,7 @@ export function buildProductDetailLinkState(
  * ルーターの state から遷移元を取り出す。
  * 形が想定と違う場合は null（＝遷移元不明）として扱い、推測はしない。
  */
-export function readProductOrigin(state: unknown): ProductOrigin | null {
+export function readProductOrigin(state: unknown): AnyProductOrigin | null {
   if (!state || typeof state !== "object") return null;
   const raw = (state as { productOrigin?: unknown }).productOrigin;
   if (!raw || typeof raw !== "object") return null;
@@ -235,6 +330,31 @@ export function readProductOrigin(state: unknown): ProductOrigin | null {
     return {
       source: "sneakers",
       search: toText(src.search),
+      publishStatus: toText(src.publishStatus),
+      inventoryStatus: toText(src.inventoryStatus),
+      sort: toSort(src.sort),
+      page: toPage(src.page),
+    };
+  }
+
+  // Apparelページから開いた場合も、一覧の状態だけを復元する。
+  if (src.source === "apparel") {
+    return {
+      source: "apparel",
+      search: toText(src.search),
+      publishStatus: toText(src.publishStatus),
+      inventoryStatus: toText(src.inventoryStatus),
+      sort: toSort(src.sort),
+      page: toPage(src.page),
+    };
+  }
+
+  // Chrome Heartsページから開いた場合も、一覧の状態だけを復元する。
+  if (src.source === "chrome-hearts") {
+    return {
+      source: "chrome-hearts",
+      search: toText(src.search),
+      category: toCategory(src.category),
       publishStatus: toText(src.publishStatus),
       inventoryStatus: toText(src.inventoryStatus),
       sort: toSort(src.sort),
@@ -313,6 +433,87 @@ export function readSneakersQuery(
   };
 }
 
+/** /chrome-hearts のURLクエリ文字列を組み立てる（既定値は省略する） */
+export function buildChromeHeartsQueryString(
+  state: ChromeHeartsQueryState
+): string {
+  const params = new URLSearchParams();
+  if (state.search.trim()) params.set("q", state.search.trim());
+  if (state.category) params.set("type", state.category);
+  if (state.publishStatus) params.set("publish", state.publishStatus);
+  if (state.inventoryStatus) params.set("inventory", state.inventoryStatus);
+  if (state.sort !== "default") params.set("sort", state.sort);
+  if (state.page > 1) params.set("page", String(state.page));
+  return params.toString();
+}
+
+/** /chrome-hearts のURLクエリを読み取る（不正な値は既定値に落とす） */
+export function readChromeHeartsQuery(
+  searchParams: URLSearchParams
+): ChromeHeartsQueryState {
+  return {
+    search: toText(searchParams.get("q") ?? undefined),
+    category: toCategory(searchParams.get("type") ?? undefined),
+    publishStatus: toText(searchParams.get("publish") ?? undefined),
+    inventoryStatus: toText(searchParams.get("inventory") ?? undefined),
+    sort: toSort(searchParams.get("sort") ?? undefined),
+    page: toPage(searchParams.get("page") ?? undefined),
+  };
+}
+
+/** Chrome Heartsの一覧へ戻るためのURL（検索条件・ページ番号を含む） */
+export function buildChromeHeartsReturnPath(
+  origin: ChromeHeartsProductOrigin
+): string {
+  const query = buildChromeHeartsQueryString({
+    search: origin.search,
+    category: origin.category,
+    publishStatus: origin.publishStatus,
+    inventoryStatus: origin.inventoryStatus,
+    sort: origin.sort,
+    page: origin.page,
+  });
+  return query ? `/chrome-hearts?${query}` : "/chrome-hearts";
+}
+
+/** /apparel のURLクエリ文字列を組み立てる（既定値は省略する） */
+export function buildApparelQueryString(state: ApparelQueryState): string {
+  const params = new URLSearchParams();
+  if (state.search.trim()) params.set("q", state.search.trim());
+  if (state.publishStatus) params.set("publish", state.publishStatus);
+  if (state.inventoryStatus) params.set("inventory", state.inventoryStatus);
+  if (state.sort !== "default") params.set("sort", state.sort);
+  if (state.page > 1) params.set("page", String(state.page));
+  return params.toString();
+}
+
+/** /apparel のURLクエリを読み取る（不正な値は既定値に落とす） */
+export function readApparelQuery(
+  searchParams: URLSearchParams
+): ApparelQueryState {
+  return {
+    search: toText(searchParams.get("q") ?? undefined),
+    publishStatus: toText(searchParams.get("publish") ?? undefined),
+    inventoryStatus: toText(searchParams.get("inventory") ?? undefined),
+    sort: toSort(searchParams.get("sort") ?? undefined),
+    page: toPage(searchParams.get("page") ?? undefined),
+  };
+}
+
+/** Apparelの一覧へ戻るためのURL（検索条件・ページ番号を含む） */
+export function buildApparelReturnPath(
+  origin: ApparelProductOrigin
+): string {
+  const query = buildApparelQueryString({
+    search: origin.search,
+    publishStatus: origin.publishStatus,
+    inventoryStatus: origin.inventoryStatus,
+    sort: origin.sort,
+    page: origin.page,
+  });
+  return query ? `/apparel?${query}` : "/apparel";
+}
+
 /** スニーカーの一覧へ戻るためのURL（検索条件・ページ番号を含む） */
 export function buildSneakersReturnPath(
   origin: SneakersProductOrigin
@@ -350,6 +551,26 @@ export function buildProductOriginTrail(
   origin: AnyProductOrigin | null
 ): ProductOriginTrail | null {
   if (!origin) return null;
+
+  // Chrome Heartsも専用ページ1階層のみ（種別は絞り込みとして戻り先URLに含める）。
+  if (origin.source === "chrome-hearts") {
+    const listPath = buildChromeHeartsReturnPath(origin);
+    return {
+      ancestors: [{ label: "Chrome Hearts", to: listPath }],
+      listPath,
+      navActiveTo: "/chrome-hearts",
+    };
+  }
+
+  // Apparelも専用ページ1階層のみ（種別はページ自体で固定のため持たない）。
+  if (origin.source === "apparel") {
+    const listPath = buildApparelReturnPath(origin);
+    return {
+      ancestors: [{ label: "Apparel", to: listPath }],
+      listPath,
+      navActiveTo: "/apparel",
+    };
+  }
 
   // スニーカーは専用ページ1階層のみ（タブ・区分は持たない）。
   // 戻り先には検索・絞り込み・ページ番号を含め、一覧の表示を再現する。

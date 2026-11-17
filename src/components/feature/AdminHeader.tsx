@@ -70,9 +70,16 @@ export default function AdminHeader({
       ? [{ label: backLink.label, to: backLink.to }]
       : [];
 
+  // 2階層以上あるとき、狭い画面では中間階層を畳む（その分だけ「…」で示す）
+  const hasHiddenAncestors = ancestors.length > 1;
+
   return (
     <header className="border-b border-background-200 bg-white">
-      <div className="flex min-h-[60px] w-full flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-2.5 md:px-6 lg:px-8">
+      {/* 3領域レイアウト（左: ロゴ / 中央: パンくず・現在地 / 右: 操作）。
+          折り返すとヘッダーが2行になるため flex-nowrap を維持し、
+          幅が足りないときは中央（パンくず・商品名）だけが縮む。
+          右の操作ボタンとロゴは shrink-0 で必要幅を確保する。 */}
+      <div className="flex min-h-[60px] w-full flex-nowrap items-center justify-between gap-x-3 px-4 py-2.5 md:px-6 lg:px-8">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           {/* ナビゲーションを開く（タブレット・スマートフォンのみ。デスクトップは左のサイドバーで開閉する） */}
           <button
@@ -101,7 +108,7 @@ export default function AdminHeader({
           ></span>
 
           <nav
-            aria-label="パンくずリスト"
+            aria-label="パンくず"
             className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden"
           >
             {ancestors.map((crumb, index) => {
@@ -115,17 +122,28 @@ export default function AdminHeader({
                   } min-w-0 shrink items-center gap-1.5`}
                 >
                   {index > 0 && (
-                    <span
-                      aria-hidden="true"
-                      className="shrink-0 text-[12px] leading-none text-foreground-300"
-                    >
-                      ›
-                    </span>
+                    <>
+                      {/* 狭い画面で中間階層を畳んだときだけ、省略したことを控えめに示す */}
+                      {hasHiddenAncestors && (
+                        <span
+                          aria-hidden="true"
+                          className="shrink-0 text-[12px] leading-none text-foreground-300 sm:hidden"
+                        >
+                          …
+                        </span>
+                      )}
+                      <span
+                        aria-hidden="true"
+                        className="hidden shrink-0 text-[12px] leading-none text-foreground-300 sm:inline"
+                      >
+                        ›
+                      </span>
+                    </>
                   )}
                   <Link
                     to={crumb.to}
                     title={crumb.label}
-                    className="max-w-[200px] cursor-pointer truncate whitespace-nowrap text-[13px] font-normal text-foreground-500 transition-colors hover:text-foreground-900"
+                    className="min-w-0 max-w-[180px] cursor-pointer truncate whitespace-nowrap rounded-sm text-[13px] font-normal text-foreground-500 transition-colors hover:text-foreground-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 md:max-w-[220px]"
                   >
                     {crumb.label}
                   </Link>
@@ -141,8 +159,15 @@ export default function AdminHeader({
               </span>
             )}
             {/* ページタイトルは全画面共通（20px / 600）。
-                パンくずの有無で大きさを変えない。 */}
-            <h1 className="bis-page-title min-w-0 truncate whitespace-nowrap">
+                詳細画面では商品名・書類名がここに入る。
+                固定文字数ではなく、実際に残った横幅に合わせて1行で末尾を省略する
+                （省略対象はこのテキストだけ。ロゴ・親階層・右の操作は対象外）。
+                全文は title と商品詳細本文で確認できる。 */}
+            <h1
+              aria-current="page"
+              title={pageTitle}
+              className="bis-page-title min-w-0 shrink truncate whitespace-nowrap"
+            >
               {pageTitle}
             </h1>
             {/* テスト環境のときだけ、見出しの横に控えめな識別ラベルを出す（操作不可） */}
@@ -157,7 +182,8 @@ export default function AdminHeader({
           </nav>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        {/* 右の操作は折り返さず、幅も縮めない（ログアウト等が画面外へ出ないようにする） */}
+        <div className="flex shrink-0 flex-nowrap items-center gap-2">
           {extras}
           {showAddProduct && <AddProductMenu />}
           {aiHistory && (

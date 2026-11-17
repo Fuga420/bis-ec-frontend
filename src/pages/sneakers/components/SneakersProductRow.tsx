@@ -30,9 +30,22 @@ function normalizeForCompare(value: string): string {
 }
 
 /**
+ * 仕入価格（商品マスタの手入力値 purchase_price）の表示用フォーマット。
+ *
+ * - null / undefined / 空文字 / 数値でない → null（呼び出し側で「未設定」と表示）
+ * - 0 は「実際の0円」として有効な値なのでそのまま ¥0 と表示する（未設定と区別する）
+ */
+function formatPurchasePrice(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  const num = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(num)) return null;
+  return `¥${num.toLocaleString("ja-JP")}`;
+}
+
+/**
  * Sneakersページの1行。行全体が既存の商品詳細（/products/:id）へのリンク。
  *
- * 表示の優先順位は「画像 > 商品名 > 商品ID > ブランド > サイズ > 販売価格 > 在庫状態 > 公開状態」。
+ * 表示の優先順位は「画像 > 商品名 > 商品ID > ブランド > サイズ > 仕入価格 > 販売価格 > 在庫状態 > 公開状態」。
  * 実データが無い項目は空欄のままにし、存在しない項目の列は作らない。
  * サイズは保存値をそのまま表示し、単位の付与や換算は行わない。
  */
@@ -50,6 +63,7 @@ export default function SneakersProductRow({
   const priceText = formatPrice(product.planned_sale_price);
   const publishLabel = PUBLISH_STATUS_LABELS[product.publish_status] ?? "";
   const inventoryLabel = INVENTORY_STATUS_LABELS[product.inventory_status] ?? "";
+  const purchasePriceText = formatPurchasePrice(product.purchase_price);
 
   return (
     <Link
@@ -83,6 +97,12 @@ export default function SneakersProductRow({
               {sizeText}
             </span>
           )}
+          {/* 仕入価格は狭い画面では商品名の下、広い画面では専用の列に出す */}
+          <span className="whitespace-nowrap tabular-nums md:hidden">
+            {purchasePriceText !== null
+              ? `仕入 ${purchasePriceText}`
+              : "仕入 未設定"}
+          </span>
           <span className="shrink-0 tabular-nums text-foreground-400">
             {product.product_id}
           </span>
@@ -101,16 +121,15 @@ export default function SneakersProductRow({
         </span>
       )}
 
+      {/* 仕入価格（商品マスタの手入力値）。販売価格と比較しやすいよう右揃え・同じ文字サイズにする */}
       <span
-        className={`hidden truncate text-right text-[12px] text-foreground-500 lg:block ${SNEAKER_COL.publish}`}
+        className={`hidden whitespace-nowrap text-right text-[13.5px] tabular-nums md:block ${SNEAKER_COL.purchase} ${
+          purchasePriceText !== null
+            ? "text-foreground-700"
+            : "text-[11.5px] text-foreground-300"
+        }`}
       >
-        {publishLabel}
-      </span>
-
-      <span
-        className={`hidden truncate text-right text-[12px] text-foreground-600 sm:block ${SNEAKER_COL.inventory}`}
-      >
-        {inventoryLabel}
+        {purchasePriceText !== null ? purchasePriceText : "未設定"}
       </span>
 
       {/* 価格は常に表示。狭い画面では在庫状態を価格の下に置き、重要情報を優先する */}
@@ -128,6 +147,18 @@ export default function SneakersProductRow({
           {inventoryLabel}
         </span>
       </div>
+
+      <span
+        className={`hidden truncate text-right text-[12px] text-foreground-500 lg:block ${SNEAKER_COL.publish}`}
+      >
+        {publishLabel}
+      </span>
+
+      <span
+        className={`hidden truncate text-right text-[12px] text-foreground-600 sm:block ${SNEAKER_COL.inventory}`}
+      >
+        {inventoryLabel}
+      </span>
     </Link>
   );
 }

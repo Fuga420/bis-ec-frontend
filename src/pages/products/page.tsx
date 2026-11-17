@@ -18,7 +18,6 @@ import ProductFilterBar, {
   type ProductFilterValue,
 } from "./components/ProductFilterBar";
 import ProductPagination from "./components/ProductPagination";
-import PokecaRawStorageToggle from "./components/PokecaRawStorageToggle";
 import ProductListSkeleton from "./components/ProductListSkeleton";
 import ProductEmptyState from "./components/ProductEmptyState";
 import ProductFilterEmptyState from "./components/ProductFilterEmptyState";
@@ -415,9 +414,6 @@ export default function ProductsPage() {
     setSortKey,
     page,
     setPage,
-    hidePokecaRawStorage,
-    setHidePokecaRawStorage,
-    hiddenCount,
     fetchAllMatchingProducts,
   } = useProductList({
     isArchived,
@@ -450,10 +446,9 @@ export default function ProductsPage() {
       scrollY: window.scrollY,
       archived: isArchived,
       isTestMode,
-      hidePokecaRawStorage,
     });
     markProductListReturnPending(isArchived, isTestMode);
-  }, [filter, sortKey, page, isArchived, isTestMode, hidePokecaRawStorage]);
+  }, [filter, sortKey, page, isArchived, isTestMode]);
 
   // 一括選択・一括公開の状態（ページ移動しても選択を保持し、検索・並び替え・タブ切替で解除する）
   const [selectedMap, setSelectedMap] = useState<Map<string, AdminProduct>>(
@@ -604,11 +599,6 @@ export default function ProductsPage() {
     filter.inventoryStatus !== "" ||
     filter.importMode !== "";
 
-  // 旧裏ストレージを隠した結果、表示できる商品が0件になった状態。
-  // 「商品がまだ登録されていない」空状態とは区別する。
-  const isHiddenOnlyEmpty =
-    hidePokecaRawStorage && hiddenCount > 0 && count === 0;
-
   // 条件変更時は1ページ目に戻し、選択済みの商品を解除する。
   // ページ切替時は選択を維持し、50件超（複数ページ横断）の一括AI生成にも対応できるようにする。
   const handleFilterChange = (next: ProductFilterValue) => {
@@ -644,21 +634,6 @@ export default function ProductsPage() {
     setSelectedMap(new Map());
     setShowSelectedOnly(false);
     lastClickedIdRef.current = null;
-  };
-
-  // 「旧裏ストレージを隠す」の切り替え。条件変更と同じ扱いで1ページ目に戻し、選択を解除する。
-  const handleToggleHidePokeca = (next: boolean) => {
-    setHidePokecaRawStorage(next);
-    setPage(1);
-    setSelectedMap(new Map());
-    setShowSelectedOnly(false);
-    lastClickedIdRef.current = null;
-  };
-
-  // 旧裏ストレージを隠した結果0件になった場合の復帰操作（非表示を解除して条件もクリアする）
-  const handleRevealHiddenProducts = () => {
-    handleClearFilter();
-    setHidePokecaRawStorage(false);
   };
 
   // タブ（通常／アーカイブ）や動作モード（通常／テスト）を切り替えたら選択状態・編集状態を解除する
@@ -1127,8 +1102,7 @@ export default function ProductsPage() {
 
         {(loadState === "success" || isRefreshing) && (
           <>
-            {!isSelectionView &&
-              (count > 0 || hasFilter || hidePokecaRawStorage) && (
+            {!isSelectionView && (count > 0 || hasFilter) && (
               <>
                 <ProductFilterBar
                   value={filter}
@@ -1177,13 +1151,6 @@ export default function ProductsPage() {
                           （{page} / {totalPages} ページ）
                         </span>
                       )}
-                      {hidePokecaRawStorage && hiddenCount > 0 && (
-                        <span className="ml-1 text-foreground-400">
-                          ／ 旧裏ストレージ{" "}
-                          <span className="admin-numeric">{hiddenCount}</span>{" "}
-                          件を非表示
-                        </span>
-                      )}
                     </p>
                     {isRefreshing && (
                       <span className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-foreground-400">
@@ -1193,11 +1160,6 @@ export default function ProductsPage() {
                     )}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <PokecaRawStorageToggle
-                      checked={hidePokecaRawStorage}
-                      onChange={handleToggleHidePokeca}
-                      disabled={isAnyBulkBusy}
-                    />
                     {/* 表示中のページ全選択はヘッダーのチェックボックス。
                         こちらは検索条件に一致する全ページ分を選択する（対象件数を併記）。 */}
                     {count > 0 && (
@@ -1309,7 +1271,7 @@ export default function ProductsPage() {
             )}
 
             {viewProducts.length === 0 ? (
-              !hasFilter && count === 0 && !isHiddenOnlyEmpty ? (
+              !hasFilter && count === 0 ? (
                 isTestMode ? (
                   <div className="ui-card flex flex-col items-center justify-center rounded-lg px-6 py-14 text-center">
                     <i className="ri-flask-line mb-2 flex h-8 w-8 items-center justify-center text-xl text-foreground-400"></i>
@@ -1326,18 +1288,7 @@ export default function ProductsPage() {
                   <ProductEmptyState isArchived={isArchived} />
                 )
               ) : (
-                <ProductFilterEmptyState
-                  onClear={
-                    isHiddenOnlyEmpty
-                      ? handleRevealHiddenProducts
-                      : handleClearFilter
-                  }
-                  note={
-                    isHiddenOnlyEmpty
-                      ? "「旧裏ストレージを隠す」がONのため、表示できる商品がありません。「条件をクリア」で全件表示に戻せます。"
-                      : undefined
-                  }
-                />
+                <ProductFilterEmptyState onClear={handleClearFilter} />
               )
             ) : (
               <div

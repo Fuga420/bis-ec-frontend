@@ -89,7 +89,7 @@ export default function PokekaPage() {
   const [reloadKey, setReloadKey] = useState(0);
 
   // 旧裏ストレージ商品（storage_location が「旧裏ストレージ/」で始まる商品）を全件取得し、
-  // 画面側で50件ずつページ表示する（「旧裏ストレージを隠す」トグルと同じ方式）。
+  // 画面側で50件ずつページ表示する（商品一覧と同じ方式）。
   const { loadState, items, allItems, errorMessage } = usePokekaRawStorageList({
     isTestMode,
     reloadKey,
@@ -485,7 +485,7 @@ export default function PokekaPage() {
     ? "条件に一致する商品がありません"
     : isTestMode
       ? "テスト商品がありません"
-      : "商品が見つかりません";
+      : "商品がありません";
 
   return (
     <AdminShell
@@ -577,18 +577,28 @@ export default function PokekaPage() {
           />
 
           <div className="flex flex-wrap items-center gap-2">
-            <p className="admin-meta text-foreground-500">
-              {isAllScope ? "表示対象 " : "該当 "}
-              <span className="admin-numeric font-semibold text-foreground-950">
-                {filtered.length.toLocaleString("ja-JP")}
-              </span>{" "}
-              件
-              {totalPages > 1 && (
-                <span className="ml-1 text-foreground-400">
-                  （{page} / {totalPages} ページ）
-                </span>
-              )}
-            </p>
+            {/* 件数は取得できたときだけ数値で出す。
+                取得中・取得失敗の 0 件を「対象0件」と取り違えないようにする。 */}
+            {loadState === "success" ? (
+              <p className="admin-meta text-foreground-500">
+                {isAllScope ? "表示対象 " : "該当 "}
+                <span className="admin-numeric font-semibold text-foreground-950">
+                  {filtered.length.toLocaleString("ja-JP")}
+                </span>{" "}
+                件
+                {totalPages > 1 && (
+                  <span className="ml-1 text-foreground-400">
+                    （{page} / {totalPages} ページ）
+                  </span>
+                )}
+              </p>
+            ) : (
+              <p className="admin-meta text-foreground-500">
+                {loadState === "loading"
+                  ? "読み込み中"
+                  : "件数を取得できませんでした"}
+              </p>
+            )}
             {selectedProducts.length > 0 && (
               <p className="admin-meta text-foreground-500">
                 ／ 選択中{" "}
@@ -604,11 +614,6 @@ export default function PokekaPage() {
                   選択を解除
                 </button>
               </p>
-            )}
-            {loadState === "loading" && (
-              <span className="whitespace-nowrap text-xs text-foreground-400">
-                読み込み中
-              </span>
             )}
           </div>
 

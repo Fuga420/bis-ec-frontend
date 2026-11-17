@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
 import { fetchProductsReadApi } from "@/config/productsApi";
 import type { ProductFilterValue } from "@/pages/products/components/ProductFilterBar";
-import { POKECA_RAW_STORAGE_PREFIX } from "@/pages/products/lib/pokecaRawStorage";
 import type { ProductSortKey } from "@/pages/products/lib/sort";
 import type {
   AdminProduct,
@@ -45,7 +44,6 @@ interface UseProductListParams {
     filter: ProductFilterValue;
     sortKey: ProductSortKey;
     page: number;
-    hidePokecaRawStorage?: boolean;
   } | null;
 }
 
@@ -56,9 +54,7 @@ interface UseProductListParams {
  *   `page` を送信してページ分割モードで取得する。
  * - 検索・カテゴリ・公開状態・在庫状態・台帳状態・並び順はすべてGETパラメータでAPIへ送る。
  *   ブラウザ側で取得済み商品を再検索・再ソートはしない。
- * - 「旧裏ストレージを隠す」（既定ON）は `exclude_storage_location_prefix` を付けて
- *   サーバー側で除外する。件数・ページングは応答の count / total_pages をそのまま使い、
- *   非表示件数は応答の excluded_count を表示する（全件取得しない）。
+ * - 件数・ページングは応答の count / total_pages をそのまま使う（全件取得しない）。
  * - 検索入力はデバウンスし、古い応答が新しい結果を上書きしないよう通番でガードする。
  *
  * 互換対応（暫定）:
@@ -86,14 +82,6 @@ export function useProductList({
     initialState?.sortKey ?? "default"
   );
   const [page, setPage] = useState(initialState?.page ?? 1);
-
-  // 「旧裏ストレージを隠す」トグル。既定はON（隠す）。
-  // ONのときは一覧取得に除外条件を付け、サーバー側で除外・ページ分割を行う。
-  const [hidePokecaRawStorage, setHidePokecaRawStorage] = useState(
-    initialState?.hidePokecaRawStorage ?? true
-  );
-  // ONのときに隠している件数（応答の excluded_count。OFFのときは0）。
-  const [hiddenCount, setHiddenCount] = useState(0);
 
   // 検索入力のデバウンス値。入力中の連続通信を防ぐ。
   // 復元時は入力済みの検索文字列から始め、余分な取得を発生させない。
@@ -136,14 +124,6 @@ export function useProductList({
       params.set("record_status", isArchived ? "archived" : "active");
       params.set("is_test", isTestMode ? "true" : "false");
       params.set("sort", sortKey);
-      // 旧裏ストレージを隠す（既定ON）: 除外はサーバー側で行う。
-      // count / total_pages / excluded_count をそのまま使えるよう、全件取得はしない。
-      if (hidePokecaRawStorage) {
-        params.set(
-          "exclude_storage_location_prefix",
-          POKECA_RAW_STORAGE_PREFIX
-        );
-      }
       return params;
     },
     [
@@ -155,7 +135,6 @@ export function useProductList({
       isArchived,
       isTestMode,
       sortKey,
-      hidePokecaRawStorage,
     ]
   );
 
@@ -222,8 +201,7 @@ export function useProductList({
   }, [buildListParams]);
 
   /**
-   * 「条件に一致する全件を選択」用。表示中の一覧と同じ範囲を返す
-   * （旧裏ストレージを隠しているときは除外条件が付くため、隠れている商品は含まれない）。
+   * 「条件に一致する全件を選択」用。表示中の一覧と同じ範囲を返す。
    */
   const fetchAllMatchingProducts = useCallback(
     () => fetchAllFilteredProducts(),
@@ -253,7 +231,7 @@ export function useProductList({
 
     const load = async () => {
       try {
-        // 除外（旧裏ストレージを隠す）はサーバー側で行うため、常にページ単位で取得する。
+        // 一覧は常にページ単位で取得する（取得済みの一部を全件として扱わない）。
         const response = await fetchProductsReadApi(
           buildListParams(page).toString()
         );
@@ -273,15 +251,9 @@ export function useProductList({
           setProducts(list);
           setCount(typeof data.count === "number" ? data.count : list.length);
           setTotalPages(data.total_pages);
-          // 非表示件数は応答値を使う（画面側で数え直さない）。
-          setHiddenCount(
-            hidePokecaRawStorage ? Math.max(0, data.excluded_count ?? 0) : 0
-          );
           setLoadState("success");
           return;
         }
-
-        setHiddenCount(0);
 
         // 旧 v2 だが新パラメータを無視して全件を返してきた場合は、そのまま全件を表示する。
         const v2List = data.products ?? [];
@@ -336,7 +308,7 @@ export function useProductList({
     return () => {
       cancelled = true;
     };
-  }, [buildListParams, page, reloadKey, hidePokecaRawStorage]);
+  }, [buildListParams, page, reloadKey]);
 
   const resetFilter = useCallback(() => {
     setFilter(EMPTY_PRODUCT_FILTER);
@@ -355,10 +327,6 @@ export function useProductList({
     page,
     setPage,
     resetFilter,
-    // 「旧裏ストレージを隠す」トグル（既定ON）と、その状態
-    hidePokecaRawStorage,
-    setHidePokecaRawStorage,
-    hiddenCount,
     // 現在の絞り込み条件で全ページ分の商品を取得する（「全件を選択」用）。
     fetchAllMatchingProducts,
   };
