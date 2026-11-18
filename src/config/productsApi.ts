@@ -455,11 +455,12 @@ export async function updateDraftInventoryStatusViaApi(
 }
 
 /**
- * Phase 2 Unit 3: Square未連携の下書き商品のアーカイブ・復元（Cloud Run -> Supabase 正本更新 + Sheets互換ミラー）。
+ * Phase 2 Unit 3 / Square 連携第3弾: 商品のアーカイブ・復元（Cloud Run -> Square 在庫0・決済リンク無効化・Catalog アーカイブ同期 + Supabase 正本更新 + Sheets互換ミラー）。
  */
 export async function updateDraftRecordStatusViaApi(
   productId: string,
-  recordStatus: "active" | "archived"
+  recordStatus: "active" | "archived",
+  options?: { squareSync?: boolean }
 ): Promise<Response> {
   const id = productId.trim();
   if (!PRODUCTS_READ_API_URL) {
@@ -474,6 +475,7 @@ export async function updateDraftRecordStatusViaApi(
     });
   }
   const authHeaders = await getBackendWriteAuthHeaders();
+  const squareSync = options?.squareSync ?? true;
   return fetch(
     `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/record-status`,
     {
@@ -482,7 +484,10 @@ export async function updateDraftRecordStatusViaApi(
         "Content-Type": "application/json; charset=utf-8",
         ...authHeaders,
       },
-      body: JSON.stringify({ record_status: recordStatus }),
+      body: JSON.stringify({
+        record_status: recordStatus,
+        square_sync: squareSync,
+      }),
     }
   );
 }
@@ -876,6 +881,188 @@ export async function updateProductPublishStatusViaApi(
     }
   );
 }
+
+/**
+ * Square 連携第3弾: Square Production メイン画像同期（Cloud Run -> Google Drive 画像取得 + Square `/v2/catalog/images` アップロード・差し替え）。
+ */
+export async function syncSquareProductionImageViaApi(
+  productId: string
+): Promise<Response> {
+  const id = productId.trim();
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/square-image-sync`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...authHeaders,
+      },
+      body: JSON.stringify({ product_id: id }),
+    }
+  );
+}
+
+/**
+ * Square 連携第3弾: Square Production 在庫同期（Cloud Run -> BIS 状態に応じた目標数量の算出 + Square Inventory 更新）。
+ */
+export async function syncSquareProductionInventoryViaApi(
+  productId: string,
+  quantity?: number
+): Promise<Response> {
+  const id = productId.trim();
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/square-inventory-sync`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...authHeaders,
+      },
+      body: JSON.stringify({
+        product_id: id,
+        ...(quantity !== undefined ? { quantity } : {}),
+      }),
+    }
+  );
+}
+
+/**
+ * Square 連携第3弾: Square Production 価格同期（Cloud Run -> Square Catalog Variation 価格の version 付き upsert）。
+ */
+export async function updateSquareProductionPriceViaApi(
+  productId: string,
+  newPrice?: number
+): Promise<Response> {
+  const id = productId.trim();
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/square-price-sync`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...authHeaders,
+      },
+      body: JSON.stringify({
+        product_id: id,
+        ...(newPrice !== undefined ? { new_price: newPrice } : {}),
+      }),
+    }
+  );
+}
+
+/**
+ * Square 連携第3弾: Square Production 商品詳細同期（Cloud Run -> 表示ビルダー再生成 + Square Catalog Item/Variation の version 付き upsert）。
+ */
+export async function syncSquareProductionDetailsViaApi(
+  productId: string
+): Promise<Response> {
+  const id = productId.trim();
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/square-details-sync`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...authHeaders,
+      },
+      body: JSON.stringify({ product_id: id }),
+    }
+  );
+}
+
+/**
+ * Square 連携第3弾: Square Production カタログ商品のアーカイブ（`is_archived = true`、冪等）。
+ */
+export async function archiveSquareProductionProductViaApi(
+  productId: string
+): Promise<Response> {
+  const id = productId.trim();
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/square-archive`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...authHeaders,
+      },
+      body: JSON.stringify({ product_id: id }),
+    }
+  );
+}
+
+/**
+ * Square 連携第3弾: Square Production カタログ商品のアーカイブ解除（`is_archived = false`、冪等）。
+ */
+export async function unarchiveSquareProductionProductViaApi(
+  productId: string
+): Promise<Response> {
+  const id = productId.trim();
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/square-unarchive`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...authHeaders,
+      },
+      body: JSON.stringify({ product_id: id }),
+    }
+  );
+}
+
+/**
+ * Square 連携第3弾: Square Production カタログ商品の削除と BIS 側 Square ID 群のクリア（世代番号インクリメント）。
+ */
+export async function deleteSquareProductionProductViaApi(
+  productId: string
+): Promise<Response> {
+  const id = productId.trim();
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/square-delete`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...authHeaders,
+      },
+      body: JSON.stringify({ product_id: id }),
+    }
+  );
+}
+
+/**
+ * Square 連携第3弾: Square 実状態と BIS 状態の照合・修復（管理者認証）。
+ */
+export async function reconcileSquareProductStatusViaApi(
+  productId: string,
+  autoReconcile?: "complete_publish" | "stop_sales"
+): Promise<Response> {
+  const id = productId.trim();
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/square-reconcile-status`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...authHeaders,
+        ...getAdminReadHeaders(),
+      },
+      body: JSON.stringify({
+        product_id: id,
+        ...(autoReconcile ? { auto_reconcile: autoReconcile } : {}),
+      }),
+    }
+  );
+}
+
 
 
 

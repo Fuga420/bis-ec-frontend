@@ -7,6 +7,7 @@ import {
   fetchProductsReadApi,
   markDraftProductSyncedInSession,
   syncProductToReadDb,
+  syncSquareProductionDetailsViaApi,
   updateDraftInventoryStatusViaApi,
   updateDraftProductViaApi,
   updateDraftRecordStatusViaApi,
@@ -600,23 +601,13 @@ export default function ProductDetailPage() {
         product.square_payment_link_id ||
         product.square_checkout_url
     );
-    const useCloudRun =
-      canUseCloudRunDraftUpdate(product) && !regeneratePaymentLink;
 
     try {
-      const response = useCloudRun
-        ? await updateDraftRecordStatusViaApi(product.product_id, targetStatus)
-        : await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-            method: "POST",
-            headers: {
-              "Content-Type": "text/plain;charset=utf-8",
-            },
-            body: JSON.stringify({
-              action: "update_record_status",
-              product_id: product.product_id,
-              record_status: targetStatus,
-            }),
-          });
+      const response = await updateDraftRecordStatusViaApi(
+        product.product_id,
+        targetStatus,
+        { squareSync: true }
+      );
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
@@ -689,11 +680,7 @@ export default function ProductDetailPage() {
         });
       }
 
-      if (useCloudRun) {
-        markDraftProductSyncedInSession(product.product_id);
-      } else {
-        await syncProductToReadDb(product.product_id);
-      }
+      markDraftProductSyncedInSession(product.product_id);
       try {
         const updated = await loadProduct();
         setProduct(updated);
@@ -921,8 +908,14 @@ export default function ProductDetailPage() {
       // ブラウザから confirm_ai_product_draft を商品ごとに連続実行しない。
       // 編集後の確定指紋の同期もバックエンド側で行われる（フロントでは再確定しない）。
 
+      if (useDraftWriteApi) {
+        markDraftProductSyncedInSession(product.product_id);
+      } else {
+        await syncProductToReadDb(product.product_id);
+      }
+
       // update_product 成功後、Square連携済み（square_item_id / square_variation_id）なら
-      // 既存 action の sync_square_production_details で商品詳細情報を自動同期する。
+      // Cloud Run の syncSquareProductionDetailsViaApi で商品詳細情報を自動同期する。
       // 同期の成否は保存全体の成否には影響させない（update_product 成功は維持）。
       const squareLinkedProduct = Boolean(
         product.square_item_id || product.square_variation_id
@@ -930,16 +923,9 @@ export default function ProductDetailPage() {
       let squareSyncFailed = false;
       if (squareLinkedProduct) {
         try {
-          const syncResponse = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-            method: "POST",
-            headers: {
-              "Content-Type": "text/plain;charset=utf-8",
-            },
-            body: JSON.stringify({
-              action: "sync_square_production_details",
-              product_id: product.product_id,
-            }),
-          });
+          const syncResponse = await syncSquareProductionDetailsViaApi(
+            product.product_id
+          );
           const syncData = syncResponse.ok
             ? ((await syncResponse.json()) as SquareProductionDetailsSyncResponse)
             : null;
@@ -1021,11 +1007,7 @@ export default function ProductDetailPage() {
         });
       }
 
-      if (useDraftWriteApi) {
-        markDraftProductSyncedInSession(product.product_id);
-      } else {
-        await syncProductToReadDb(product.product_id);
-      }
+      markDraftProductSyncedInSession(product.product_id);
       try {
         const updated = await loadProduct();
         setProduct(updated);

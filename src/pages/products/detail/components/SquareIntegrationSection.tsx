@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
 import {
   createSquarePaymentLinkViaApi,
   createSquareProductionProductViaApi,
   markDraftProductSyncedInSession,
-  syncProductToReadDb,
+  syncSquareProductionImageViaApi,
+  syncSquareProductionInventoryViaApi,
 } from "@/config/productsApi";
 import type {
   AdminProductDetail,
@@ -21,7 +21,6 @@ type SquareSyncState = "idle" | "saving" | "success" | "error";
 type SquareSyncStep = "idle" | "product" | "image" | "inventory" | "paymentLink";
 
 // Square Production（本番環境）用のバックエンド action 名。
-// GAS側の実装名に合わせて、この1箇所だけ変更すればOK。
 const SQUARE_PRODUCTION_ACTIONS = {
   createProduct: "create_square_production_product",
   syncImage: "sync_square_production_image",
@@ -41,16 +40,12 @@ async function postSquareAction<T>(
   let response: Response;
   if (body.action === SQUARE_PRODUCTION_ACTIONS.createProduct) {
     response = await createSquareProductionProductViaApi(body.product_id || "");
-  } else if (body.action === SQUARE_PRODUCTION_ACTIONS.createPaymentLink) {
-    response = await createSquarePaymentLinkViaApi(body.product_id || "");
+  } else if (body.action === SQUARE_PRODUCTION_ACTIONS.syncImage) {
+    response = await syncSquareProductionImageViaApi(body.product_id || "");
+  } else if (body.action === SQUARE_PRODUCTION_ACTIONS.syncInventory) {
+    response = await syncSquareProductionInventoryViaApi(body.product_id || "");
   } else {
-    response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8",
-      },
-      body: JSON.stringify(body),
-    });
+    response = await createSquarePaymentLinkViaApi(body.product_id || "");
   }
   let data: T | null = null;
   try {
@@ -58,11 +53,7 @@ async function postSquareAction<T>(
   } catch {
     data = null;
   }
-  if (
-    response.ok &&
-    (body.action === SQUARE_PRODUCTION_ACTIONS.createProduct ||
-      body.action === SQUARE_PRODUCTION_ACTIONS.createPaymentLink)
-  ) {
+  if (response.ok) {
     markDraftProductSyncedInSession(body.product_id);
   }
   return { ok: response.ok, status: response.status, data };
@@ -165,12 +156,17 @@ export default function SquareIntegrationSection({
         product_id: product.product_id,
       });
       const imageError = imageRes.data?.error ?? "";
+      const imageStatus =
+        (imageRes.data as { status?: string } | null)?.status ?? "";
       if (!imageRes.ok || !imageRes.data || imageRes.data.success !== true) {
         if (imageError.includes("already has a Square image")) {
           imageResult = "existing";
         } else if (imageError.includes("does not support WebP")) {
           imageResult = "webp";
-        } else if (imageError.includes("main image not found")) {
+        } else if (
+          imageError.includes("main image not found") ||
+          imageError.includes("main image is required")
+        ) {
           imageResult = "noimage";
         } else {
           setProdMessage({
@@ -180,6 +176,8 @@ export default function SquareIntegrationSection({
           console.error("square production image failed:", imageError);
           return;
         }
+      } else if (imageStatus === "already_has_image") {
+        imageResult = "existing";
       }
 
       // 3. 在庫同期
@@ -207,7 +205,7 @@ export default function SquareIntegrationSection({
 
       // 4. 決済リンク生成（Payment Link）
       //    - すでに Checkout URL がある場合は再生成しない（冪等性維持）
-      //    - 未公開 / 売却済みの商品は GAS 側で弾かれるため、
+      //    - 未公開 / 売却済みの商品は弾かれるため、
       //      Catalog・画像・在庫を反映したうえで決済リンクのみスキップする
       let paymentLinkResult: "generated" | "existing" | "skipped" = "generated";
       let paymentLinkSkipNote = "";
@@ -215,7 +213,7 @@ export default function SquareIntegrationSection({
         // 既存の Checkout URL を尊重し、再生成しない
         paymentLinkResult = "existing";
       } else if (product.publish_status !== "published") {
-        // 未公開商品は決済リンクを生成できない（GAS側制約）。
+        // 未公開商品は決済リンクを生成できない。
         // 反映済みの Catalog・画像・在庫は作り直さず、決済リンクだけスキップする。
         paymentLinkResult = "skipped";
         paymentLinkSkipNote =
@@ -243,7 +241,7 @@ export default function SquareIntegrationSection({
             "square production payment link failed:",
             linkRes.data?.error
           );
-          await syncProductToReadDb(product.product_id);
+          markDraftProductSyncedInSession(product.product_id);
           await onRefreshed();
           return;
         }
@@ -272,7 +270,7 @@ export default function SquareIntegrationSection({
       }
       setProdMessage({ type: "success", text: successText });
 
-      await syncProductToReadDb(product.product_id);
+      markDraftProductSyncedInSession(product.product_id);
       await onRefreshed();
     } catch (err) {
       setProdMessage({
@@ -325,7 +323,7 @@ export default function SquareIntegrationSection({
         text: "決済リンクを生成しました",
       });
 
-      await syncProductToReadDb(product.product_id);
+      markDraftProductSyncedInSession(product.product_id);
       await onRefreshed();
     } catch (err) {
       setPaymentLinkMessage({

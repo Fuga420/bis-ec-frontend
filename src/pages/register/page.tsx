@@ -815,7 +815,7 @@ export default function RegisterPage() {
       const result = await runSquareProductionSync(newProductId, (step) => {
         setProgressIndex(stepIndexMap[step]);
       });
-      await syncProductToReadDb(newProductId);
+      markDraftProductSyncedInSession(newProductId);
 
       if (result.status === "success") {
         setCompletion({

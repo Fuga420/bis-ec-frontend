@@ -1,8 +1,9 @@
-import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
 import {
   createSquarePaymentLinkViaApi,
   createSquareProductionProductViaApi,
   markDraftProductSyncedInSession,
+  syncSquareProductionImageViaApi,
+  syncSquareProductionInventoryViaApi,
 } from "@/config/productsApi";
 import type {
   SquarePaymentLinkResponse,
@@ -12,7 +13,6 @@ import type {
 } from "@/pages/products/types";
 
 // Square Production（本番環境）用のバックエンド action 名。
-// GAS側の実装名に合わせて、この1箇所だけ変更すればOK。
 export const SQUARE_PRODUCTION_ACTIONS = {
   createProduct: "create_square_production_product",
   syncImage: "sync_square_production_image",
@@ -39,16 +39,12 @@ async function postSquareAction<T>(
   let response: Response;
   if (body.action === SQUARE_PRODUCTION_ACTIONS.createProduct) {
     response = await createSquareProductionProductViaApi(body.product_id || "");
-  } else if (body.action === SQUARE_PRODUCTION_ACTIONS.createPaymentLink) {
-    response = await createSquarePaymentLinkViaApi(body.product_id || "");
+  } else if (body.action === SQUARE_PRODUCTION_ACTIONS.syncImage) {
+    response = await syncSquareProductionImageViaApi(body.product_id || "");
+  } else if (body.action === SQUARE_PRODUCTION_ACTIONS.syncInventory) {
+    response = await syncSquareProductionInventoryViaApi(body.product_id || "");
   } else {
-    response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8",
-      },
-      body: JSON.stringify(body),
-    });
+    response = await createSquarePaymentLinkViaApi(body.product_id || "");
   }
   let data: T | null = null;
   try {
@@ -56,11 +52,7 @@ async function postSquareAction<T>(
   } catch {
     data = null;
   }
-  if (
-    response.ok &&
-    (body.action === SQUARE_PRODUCTION_ACTIONS.createProduct ||
-      body.action === SQUARE_PRODUCTION_ACTIONS.createPaymentLink)
-  ) {
+  if (response.ok) {
     markDraftProductSyncedInSession(body.product_id);
   }
   return { ok: response.ok, status: response.status, data };

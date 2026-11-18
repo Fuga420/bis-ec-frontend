@@ -2,7 +2,6 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
 import {
   PRODUCTS_READ_API_URL,
-  canUseCloudRunDraftUpdate,
   markDraftProductSyncedInSession,
   syncProductToReadDb,
   updateDraftRecordStatusViaApi,
@@ -53,9 +52,8 @@ type ArchiveOutcome =
   | { kind: "failed"; reason: string }
   | { kind: "uncertain" };
 
-function shouldUseCloudRunArchive(target: BulkArchiveTarget): boolean {
-  if (target.publish_status === undefined) return false;
-  return canUseCloudRunDraftUpdate(target);
+function shouldUseCloudRunArchive(_target: BulkArchiveTarget): boolean {
+  return Boolean(PRODUCTS_READ_API_URL);
 }
 
 async function requestArchive(
@@ -63,10 +61,11 @@ async function requestArchive(
   useCloudRun: boolean
 ): Promise<ArchiveOutcome> {
   try {
-    // Square未連携の下書き商品は Cloud Run + Supabase（正本）へ送信し、
-    // 公開中商品・Square連携済み商品は既存の GAS 経路で Square 側アーカイブ等と同期実行する。
+    // Cloud Run + Supabase（正本）へ送信し、Square連携済み商品の在庫0・決済リンク無効化・Catalogアーカイブも同期実行する。
     const response = useCloudRun
-      ? await updateDraftRecordStatusViaApi(productId, "archived")
+      ? await updateDraftRecordStatusViaApi(productId, "archived", {
+          squareSync: true,
+        })
       : await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
           method: "POST",
           headers: { "Content-Type": "text/plain;charset=utf-8" },
