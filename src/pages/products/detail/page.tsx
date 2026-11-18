@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
 import {
   canUseCloudRunDraftUpdate,
+  createSquarePaymentLinkViaApi,
   fetchProductsReadApi,
   markDraftProductSyncedInSession,
   syncProductToReadDb,
@@ -10,6 +11,7 @@ import {
   updateDraftProductViaApi,
   updateDraftRecordStatusViaApi,
   updateProductImagesViaApi,
+  updateProductPublishStatusViaApi,
 } from "@/config/productsApi";
 import type {
   AdminProduct,
@@ -479,17 +481,10 @@ export default function ProductDetailPage() {
     setSelectedStatus(targetStatus);
 
     try {
-      const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8",
-        },
-        body: JSON.stringify({
-          action: "update_publish_status",
-          product_id: product.product_id,
-          publish_status: targetStatus,
-        }),
-      });
+      const response = await updateProductPublishStatusViaApi(
+        product.product_id,
+        targetStatus
+      );
       let data: PublishStatusUpdateResponse | null = null;
       try {
         data = (await response.json()) as PublishStatusUpdateResponse;
@@ -501,7 +496,7 @@ export default function ProductDetailPage() {
           extractBackendError(data, "公開状態の更新に失敗しました")
         );
       }
-      await syncProductToReadDb(product.product_id);
+      markDraftProductSyncedInSession(product.product_id);
       setProduct({
         ...product,
         publish_status: data.publish_status ?? targetStatus,
@@ -653,16 +648,9 @@ export default function ProductDetailPage() {
       let paymentLinkFailed = false;
       if (targetStatus === "active" && regeneratePaymentLink && squareLinked) {
         try {
-          const linkResponse = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-            method: "POST",
-            headers: {
-              "Content-Type": "text/plain;charset=utf-8",
-            },
-            body: JSON.stringify({
-              action: "create_square_payment_link",
-              product_id: product.product_id,
-            }),
-          });
+          const linkResponse = await createSquarePaymentLinkViaApi(
+            product.product_id
+          );
           const linkData = linkResponse.ok
             ? ((await linkResponse.json()) as SquarePaymentLinkResponse)
             : null;
@@ -672,6 +660,8 @@ export default function ProductDetailPage() {
               "create_square_payment_link failed:",
               linkData?.error
             );
+          } else {
+            markDraftProductSyncedInSession(product.product_id);
           }
         } catch (err) {
           // 再有効化自体は成功しているため、決済リンクの失敗はwarning扱いにする

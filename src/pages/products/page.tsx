@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
-import { syncProductToReadDb } from "@/config/productsApi";
+import {
+  createSquarePaymentLinkViaApi,
+  createSquareProductionProductViaApi,
+  markDraftProductSyncedInSession,
+  syncProductToReadDb,
+  updateProductPublishStatusViaApi,
+} from "@/config/productsApi";
 import ProductRow from "./components/ProductRow";
 import ProductSelectionBar from "./components/ProductSelectionBar";
 import {
@@ -73,15 +79,10 @@ async function callUpdatePublishStatus(
   productId: string
 ): Promise<{ ok: boolean; message?: string }> {
   try {
-    const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({
-        action: "update_publish_status",
-        product_id: productId,
-        publish_status: "published",
-      }),
-    });
+    const response = await updateProductPublishStatusViaApi(
+      productId,
+      "published"
+    );
     let data: PublishStatusUpdateResponse | null = null;
     try {
       data = (await response.json()) as PublishStatusUpdateResponse;
@@ -89,6 +90,7 @@ async function callUpdatePublishStatus(
       data = null;
     }
     if (response.ok && data && data.success === true) {
+      markDraftProductSyncedInSession(productId);
       return { ok: true };
     }
     // バックエンドの安全なエラー理由を保持して表示する（汎用文で隠さない）
@@ -106,18 +108,15 @@ async function callUpdatePublishStatus(
 
 async function callCreateSquarePaymentLink(productId: string): Promise<boolean> {
   try {
-    const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({
-        action: "create_square_payment_link",
-        product_id: productId,
-      }),
-    });
+    const response = await createSquarePaymentLinkViaApi(productId);
     const data = response.ok
       ? ((await response.json()) as SquarePaymentLinkResponse)
       : null;
-    return Boolean(response.ok && data && data.success === true);
+    if (response.ok && data && data.success === true) {
+      markDraftProductSyncedInSession(productId);
+      return true;
+    }
+    return false;
   } catch (err) {
     console.error("create_square_payment_link failed:", err);
     return false;
@@ -131,14 +130,7 @@ async function callCreateSquareProductionProduct(
   productId: string
 ): Promise<{ ok: boolean; variationId?: string; message?: string }> {
   try {
-    const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({
-        action: "create_square_production_product",
-        product_id: productId,
-      }),
-    });
+    const response = await createSquareProductionProductViaApi(productId);
     let data: SquareProductionProductResponse | null = null;
     try {
       data = (await response.json()) as SquareProductionProductResponse;
@@ -146,6 +138,7 @@ async function callCreateSquareProductionProduct(
       data = null;
     }
     if (response.ok && data && data.success === true) {
+      markDraftProductSyncedInSession(productId);
       const variationId = (data.square_variation_id ?? "").toString().trim();
       return { ok: true, variationId };
     }

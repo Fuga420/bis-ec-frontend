@@ -762,4 +762,120 @@ export async function cancelAiBatchScheduleViaApi(
   );
 }
 
+/**
+ * Square 連携第2弾: Square Production 商品（Catalog Item / Variation）の新規作成（Cloud Run -> Square API + Supabase 保存）。
+ */
+export async function createSquareProductionProductViaApi(
+  productId: string
+): Promise<Response> {
+  const id = productId.trim();
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/square-product`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...authHeaders,
+      },
+      body: JSON.stringify({ product_id: id }),
+    }
+  );
+}
+
+/**
+ * Square 連携第2弾: Square Production Payment Link（決済URL）の生成（Cloud Run -> Square API + Supabase 保存）。
+ */
+export async function createSquarePaymentLinkViaApi(
+  productId: string,
+  options?: {
+    rollback_on_failure?: boolean;
+    existing_publish_status?: string;
+  }
+): Promise<Response> {
+  const id = productId.trim();
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/payment-link`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...authHeaders,
+      },
+      body: JSON.stringify({
+        product_id: id,
+        ...(options || {}),
+      }),
+    }
+  );
+}
+
+/**
+ * Square 連携第2弾: Square Production Payment Link（決済URL）状態の取得。
+ */
+export async function getSquarePaymentLinkViaApi(
+  productId: string
+): Promise<Response> {
+  const id = productId.trim();
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/payment-link`,
+    {
+      method: "GET",
+      headers: {
+        ...authHeaders,
+        ...getAdminReadHeaders(),
+      },
+    }
+  );
+}
+
+/**
+ * Square 連携第2弾: Square Production Payment Link（決済URL）の無効化（DELETE + 世代番号インクリメント）。
+ */
+export async function invalidateSquarePaymentLinkViaApi(
+  productId: string
+): Promise<Response> {
+  const id = productId.trim();
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/payment-link/invalidate`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...authHeaders,
+      },
+      body: JSON.stringify({ product_id: id }),
+    }
+  );
+}
+
+/**
+ * Square 連携第2弾: 公開状態（publish_status: draft / published / hidden）の更新（Cloud Run -> Square 在庫・Payment Link 同期 + Supabase 保存 + Sheets ミラー）。
+ */
+export async function updateProductPublishStatusViaApi(
+  productId: string,
+  publishStatus: string
+): Promise<Response> {
+  const id = productId.trim();
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(
+    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/publish-status`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...authHeaders,
+      },
+      body: JSON.stringify({
+        product_id: id,
+        publish_status: publishStatus,
+      }),
+    }
+  );
+}
+
+
 

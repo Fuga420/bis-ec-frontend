@@ -1,4 +1,9 @@
 import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
+import {
+  createSquarePaymentLinkViaApi,
+  createSquareProductionProductViaApi,
+  markDraftProductSyncedInSession,
+} from "@/config/productsApi";
 import type {
   SquarePaymentLinkResponse,
   SquareProductImageSyncResponse,
@@ -31,18 +36,32 @@ interface SquarePostResult<T> {
 async function postSquareAction<T>(
   body: Record<string, string>
 ): Promise<SquarePostResult<T>> {
-  const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "text/plain;charset=utf-8",
-    },
-    body: JSON.stringify(body),
-  });
+  let response: Response;
+  if (body.action === SQUARE_PRODUCTION_ACTIONS.createProduct) {
+    response = await createSquareProductionProductViaApi(body.product_id || "");
+  } else if (body.action === SQUARE_PRODUCTION_ACTIONS.createPaymentLink) {
+    response = await createSquarePaymentLinkViaApi(body.product_id || "");
+  } else {
+    response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain;charset=utf-8",
+      },
+      body: JSON.stringify(body),
+    });
+  }
   let data: T | null = null;
   try {
     data = (await response.json()) as T;
   } catch {
     data = null;
+  }
+  if (
+    response.ok &&
+    (body.action === SQUARE_PRODUCTION_ACTIONS.createProduct ||
+      body.action === SQUARE_PRODUCTION_ACTIONS.createPaymentLink)
+  ) {
+    markDraftProductSyncedInSession(body.product_id);
   }
   return { ok: response.ok, status: response.status, data };
 }
