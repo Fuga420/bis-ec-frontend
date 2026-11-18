@@ -1,4 +1,5 @@
-import { getSupabaseClient } from "@/lib/supabaseClient";
+import { PRODUCTS_READ_API_URL } from "@/config/productsApi";
+import { getAdminReadHeaders, notifyAdminUnauthorized } from "@/lib/adminAuth";
 import { fileToBase64 } from "@/pages/register/lib/aiProduct";
 import { resolveDocumentMime } from "@/pages/import/lib/productDocument";
 import {
@@ -13,19 +14,18 @@ import {
 } from "@/pages/documents/types";
 
 /**
- * 書類台帳API（documents-relay 接続）。
+ * 書類台帳API（Cloud Run products-api `/documents` 接続）。
  *
- * ブラウザは anon key + JWT で Edge Function `documents-relay` を呼ぶだけ。
- * service_role も GAS 管理者キーもブラウザには置かない（中継側で付与）。
+ * ブラウザは他の管理APIと同様に `X-Admin-Password` ヘッダーで Cloud Run `/documents` を呼ぶ。
+ * service_role も GAS 管理者キーもブラウザには置かない（Cloud Run 側で保持）。
  *
  * 使用Action（契約準拠）:
  *   import_document / list_documents / get_document / save_document_lines /
- *   delete_document_line / link_product_manual / unlink_product_manual / get_product_cost
+ *   delete_document_line / link_product_manual / unlink_product_manual /
+ *   get_product_cost / search_document_lines
  */
 
-const RELAY_FUNCTION = "documents-relay";
-
-// 書類台帳APIは接続済み（documents-relay 配信済み）。
+// 書類台帳APIは接続済み。
 export const DOCUMENT_LEDGER_API_READY = true;
 
 // 割当金額が未指定のときにバックエンドが返すエラーコード。
@@ -59,43 +59,56 @@ function asString(value: unknown): string {
   return String(value);
 }
 
-// 中継を呼び出し、失敗時は error_code を保持した例外に変換する。
+// Cloud Run `/documents` を呼び出し、失敗時は error_code を保持した例外に変換する。
 async function invokeRelay(body: RelayRecord): Promise<RelayRecord> {
-  const client = getSupabaseClient();
-  if (!client) {
+  if (!PRODUCTS_READ_API_URL) {
     throw new DocumentLedgerApiError(
       "BACKEND_NOT_CONNECTED",
       "バックエンドに接続されていません。"
     );
   }
 
-  const { data, error } = await client.functions.invoke(RELAY_FUNCTION, { body });
-
-  if (error) {
-    // 非2xxの場合、応答本文に error_code / message が入っている。
-    let code = "RELAY_INVOKE_FAILED";
-    let message = error.message || "書類台帳の中継呼び出しに失敗しました。";
-    const context = (error as { context?: Response }).context;
-    if (context && typeof context.json === "function") {
-      try {
-        const payload = (await context.json()) as RelayRecord;
-        code = asString(payload.error_code) || code;
-        message = asString(payload.message) || asString(payload.error) || message;
-      } catch {
-        // 応答本文が読めない場合は既定メッセージを使う。
-      }
-    }
-    throw new DocumentLedgerApiError(code, message);
+  let response: Response;
+  try {
+    response = await fetch(`${PRODUCTS_READ_API_URL}/documents`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...getAdminReadHeaders(),
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    const message =
+      err instanceof Error && err.message
+        ? err.message
+        : "書類台帳APIの呼び出しに失敗しました。";
+    throw new DocumentLedgerApiError("RELAY_INVOKE_FAILED", message);
   }
 
-  const result = (data ?? {}) as RelayRecord;
-  if (result.success !== true) {
+  if (response.status === 401) {
+    notifyAdminUnauthorized();
+  }
+
+  let payload: RelayRecord = {};
+  try {
+    payload = ((await response.json()) ?? {}) as RelayRecord;
+  } catch {
+    // 応答本文が JSON でない場合は空オブジェクトとして扱う
+  }
+
+  if (!response.ok || payload.success !== true) {
+    const fallbackCode = !response.ok ? "RELAY_INVOKE_FAILED" : "RELAY_ERROR";
+    const fallbackMessage = !response.ok
+      ? "書類台帳の中継呼び出しに失敗しました。"
+      : "書類台帳の処理に失敗しました。";
     throw new DocumentLedgerApiError(
-      asString(result.error_code) || "RELAY_ERROR",
-      asString(result.message) || asString(result.error) || "書類台帳の処理に失敗しました。"
+      asString(payload.error_code) || fallbackCode,
+      asString(payload.message) || asString(payload.error) || fallbackMessage
     );
   }
-  return result;
+
+  return payload;
 }
 
 // 明細行の応答を画面表示用に写像する。
@@ -311,17 +324,13 @@ export async function saveDocumentLines(
 // 仕入明細を探す（受付番号・ことばの横断検索）
 // ─────────────────────────────────────────────────────────────
 //
-// 一覧API（list_documents）は明細単位の検索を返さないため、
-// 読み取り専用で公開済みの document_lines / documents を直接検索する。
-// 書き込みは行わない（紐付け・保存は従来どおり documents-relay 経由）。
+// PostgREST 直接読みは廃止し、Cloud Run `/documents` の
+// `search_document_lines` アクション経由で検索する。
 
 // 1回の検索で画面に返す明細の上限。
 const LINE_SEARCH_LIMIT = 100;
 
-const LINE_SEARCH_SELECT =
-  "id, document_id, line_number, reception_number_raw, item_name_raw, brand_name_raw, transaction_type, item_amount, fee_amount, total_line_amount";
-
-// 検索条件に使えない記号を落とす（PostgREST の or 条件を壊さないため）。
+// 検索条件に使えない記号を落とす（バックエンドの or 条件を壊さないため）。
 function sanitizeSearchTerm(value: string): string {
   return value.replace(/[,()%]/g, " ").trim();
 }
@@ -336,171 +345,45 @@ function sanitizeSearchTerm(value: string): string {
 export async function searchDocumentLines(
   params: DocumentLineSearchParams
 ): Promise<DocumentLineSearchHit[]> {
-  const client = getSupabaseClient();
-  if (!client) {
-    throw new DocumentLedgerApiError(
-      "BACKEND_NOT_CONNECTED",
-      "バックエンドに接続されていません。"
-    );
-  }
-
   const receptionTerm = sanitizeSearchTerm(params.receptionNumber ?? "");
   const keywordTerm = sanitizeSearchTerm(params.keyword ?? "");
   if (receptionTerm === "" && keywordTerm === "") return [];
 
-  // 1) 受付番号に一致する明細（部分一致）
-  let receptionRows: RelayRecord[] = [];
-  if (receptionTerm !== "") {
-    const normalized = receptionTerm.toUpperCase().replace(/\s+/g, "");
-    const { data, error } = await client
-      .from("document_lines")
-      .select(LINE_SEARCH_SELECT)
-      .eq("is_deleted", false)
-      .or(
-        `reception_number_normalized.ilike.%${normalized}%,reception_number_raw.ilike.%${receptionTerm}%`
-      )
-      .limit(LINE_SEARCH_LIMIT);
-    if (error) {
-      throw new DocumentLedgerApiError("DB_QUERY_ERROR", error.message);
-    }
-    receptionRows = (data ?? []) as RelayRecord[];
-  }
+  const result = await invokeRelay({
+    action: "search_document_lines",
+    reception_number: receptionTerm,
+    keyword: keywordTerm,
+  });
 
-  // 2) ことばに一致する明細（明細側の項目）
-  let keywordRows: RelayRecord[] = [];
-  if (keywordTerm !== "") {
-    const { data: lineMatches, error: lineErr } = await client
-      .from("document_lines")
-      .select(LINE_SEARCH_SELECT)
-      .eq("is_deleted", false)
-      .or(
-        `item_name_raw.ilike.%${keywordTerm}%,brand_name_raw.ilike.%${keywordTerm}%`
-      )
-      .limit(LINE_SEARCH_LIMIT);
-    if (lineErr) {
-      throw new DocumentLedgerApiError("DB_QUERY_ERROR", lineErr.message);
-    }
+  const rawHits = Array.isArray(result.hits)
+    ? (result.hits as RelayRecord[])
+    : [];
 
-    // 書類側の項目（仕入先・書類名・書類番号）に一致する書類の明細
-    const { data: docMatches, error: docErr } = await client
-      .from("documents")
-      .select("id")
-      .eq("is_deleted", false)
-      .or(
-        `supplier_name.ilike.%${keywordTerm}%,file_name.ilike.%${keywordTerm}%,document_number.ilike.%${keywordTerm}%`
-      )
-      .limit(LINE_SEARCH_LIMIT);
-    if (docErr) {
-      throw new DocumentLedgerApiError("DB_QUERY_ERROR", docErr.message);
-    }
-
-    const matchedDocIds = ((docMatches ?? []) as RelayRecord[])
-      .map((row) => asString(row.id))
-      .filter((id) => id !== "");
-
-    let docLineRows: RelayRecord[] = [];
-    if (matchedDocIds.length > 0) {
-      const { data, error } = await client
-        .from("document_lines")
-        .select(LINE_SEARCH_SELECT)
-        .eq("is_deleted", false)
-        .in("document_id", matchedDocIds)
-        .limit(LINE_SEARCH_LIMIT);
-      if (error) {
-        throw new DocumentLedgerApiError("DB_QUERY_ERROR", error.message);
-      }
-      docLineRows = (data ?? []) as RelayRecord[];
-    }
-
-    const merged = new Map<string, RelayRecord>();
-    for (const row of [
-      ...((lineMatches ?? []) as RelayRecord[]),
-      ...docLineRows,
-    ]) {
-      merged.set(asString(row.id), row);
-    }
-    keywordRows = Array.from(merged.values());
-  }
-
-  // 3) 受付番号とことばの両方が指定されたら AND で絞り込む
-  let rows: RelayRecord[];
-  if (receptionTerm !== "" && keywordTerm !== "") {
-    const keywordIds = new Set(keywordRows.map((row) => asString(row.id)));
-    rows = receptionRows.filter((row) => keywordIds.has(asString(row.id)));
-  } else if (receptionTerm !== "") {
-    rows = receptionRows;
-  } else {
-    rows = keywordRows;
-  }
-  if (rows.length === 0) return [];
-
-  // 4) 書類情報・紐付け情報を補完する
-  const docIds = Array.from(
-    new Set(rows.map((row) => asString(row.document_id)).filter((id) => id !== ""))
-  );
-  const lineIds = rows.map((row) => asString(row.id)).filter((id) => id !== "");
-
-  const docMap = new Map<string, RelayRecord>();
-  if (docIds.length > 0) {
-    const { data: docs } = await client
-      .from("documents")
-      .select("id, file_name, supplier_name, issue_date, drive_file_url")
-      .in("id", docIds);
-    for (const doc of (docs ?? []) as RelayRecord[]) {
-      docMap.set(asString(doc.id), doc);
-    }
-  }
-
-  const linkedMap = new Map<string, string[]>();
-  if (lineIds.length > 0) {
-    const { data: linkRows } = await client
-      .from("document_product_links")
-      .select("document_line_id, product_id, status, is_deleted")
-      .in("document_line_id", lineIds)
-      .eq("is_deleted", false);
-    for (const link of (linkRows ?? []) as RelayRecord[]) {
-      const status = asString(link.status);
-      if (status !== "" && status !== "confirmed") continue;
-      const key = asString(link.document_line_id);
-      const productId = asString(link.product_id);
-      if (productId === "") continue;
-      const current = linkedMap.get(key) ?? [];
-      if (!current.includes(productId)) current.push(productId);
-      linkedMap.set(key, current);
-    }
-  }
-
-  const hits = rows.map((row) => {
-    const lineId = asString(row.id);
-    const doc = docMap.get(asString(row.document_id));
-    const lineNumber = toNumberOrNull(row.line_number);
+  const hits: DocumentLineSearchHit[] = rawHits.map((raw) => {
+    const lineNumber = toNumberOrNull(raw.line_number);
+    const linkedIds = Array.isArray(raw.linked_product_ids)
+      ? raw.linked_product_ids.map((id) => asString(id)).filter((id) => id !== "")
+      : [];
     return {
-      line_id: lineId,
-      document_id: asString(row.document_id),
+      line_id: asString(raw.line_id || raw.id),
+      document_id: asString(raw.document_id),
       line_number: lineNumber === null ? undefined : lineNumber,
-      document_file_name: doc ? asString(doc.file_name) : "",
-      supplier_name: doc ? asString(doc.supplier_name) : "",
-      issue_date: doc ? asString(doc.issue_date) : "",
-      reception_number: asString(row.reception_number_raw),
-      item_name: asString(row.item_name_raw),
-      brand_name: asString(row.brand_name_raw),
-      transaction_type: (asString(row.transaction_type) || "purchase") as TransactionType,
-      item_amount: toNumberOrNull(row.item_amount),
-      fee_amount: toNumberOrNull(row.fee_amount),
-      total_line_amount: toNumberOrNull(row.total_line_amount),
-      linked_product_ids: linkedMap.get(lineId) ?? [],
-      drive_url: doc ? asString(doc.drive_file_url) : "",
+      document_file_name: asString(raw.document_file_name),
+      supplier_name: asString(raw.supplier_name),
+      issue_date: asString(raw.issue_date),
+      reception_number: asString(raw.reception_number),
+      item_name: asString(raw.item_name),
+      brand_name: asString(raw.brand_name),
+      transaction_type: (asString(raw.transaction_type) ||
+        "purchase") as TransactionType,
+      item_amount: toNumberOrNull(raw.item_amount),
+      fee_amount: toNumberOrNull(raw.fee_amount),
+      total_line_amount: toNumberOrNull(raw.total_line_amount),
+      linked_product_ids: linkedIds,
+      drive_url: asString(raw.drive_url),
     };
   });
 
-  // 同じ書類の明細が並ぶよう、書類名→明細番号で並べ替える。
-  hits.sort((a, b) => {
-    const docCompare = a.document_file_name.localeCompare(b.document_file_name, "ja");
-    if (docCompare !== 0) return docCompare;
-    return (a.line_number ?? 0) - (b.line_number ?? 0);
-  });
-
-  // 明細が上限を超える場合は、並べ替え後の先頭100件に絞る。
   return hits.slice(0, LINE_SEARCH_LIMIT);
 }
 

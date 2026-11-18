@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { getSupabaseClient } from "@/lib/supabaseClient";
+import { PRODUCTS_READ_API_URL } from "@/config/productsApi";
+import { getAdminReadHeaders, notifyAdminUnauthorized } from "@/lib/adminAuth";
 
-// documents-relay の配信内容を「実リクエストの応答」で判定する一時的な検証画面。
+// 書類台帳API（Cloud Run `/documents`）の配信内容を「実リクエストの応答」で判定する一時的な検証画面。
 // バックエンド未対応の action は UNSUPPORTED_ACTION(400) を返す仕様なので、
 // 応答コードを見れば旧版 / 新版のどちらが動いているか確定できる。
 
-const RELAY_FUNCTION = "documents-relay";
 const AUTO_LINK_ACTION = "auto_link_product_by_item_number";
 
 type RelayCallResult = {
@@ -29,34 +29,28 @@ const EMPTY_PANEL: Panel = {
 };
 
 async function callRelay(payload: Record<string, unknown>): Promise<RelayCallResult> {
-  const client = getSupabaseClient();
-  if (!client) {
+  if (!PRODUCTS_READ_API_URL) {
     throw new Error("バックエンドに接続されていません（設定値が見つかりません）。");
   }
 
-  const { data, error } = await client.functions.invoke(RELAY_FUNCTION, {
-    body: payload,
+  const response = await fetch(`${PRODUCTS_READ_API_URL}/documents`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      ...getAdminReadHeaders(),
+    },
+    body: JSON.stringify(payload),
   });
 
-  if (error) {
-    const context = (error as { context?: Response }).context;
-    let httpStatus: number | null = null;
-    let body = error.message || "応答本文を取得できませんでした。";
-    if (context) {
-      httpStatus = context.status;
-      try {
-        body = await context.text();
-      } catch {
-        // 本文が読めない場合は error.message をそのまま使う
-      }
-    }
-    return { httpStatus, body, transportOk: false };
+  if (response.status === 401) {
+    notifyAdminUnauthorized();
   }
 
+  const text = await response.text();
   return {
-    httpStatus: 200,
-    body: JSON.stringify(data ?? {}, null, 2),
-    transportOk: true,
+    httpStatus: response.status,
+    body: text,
+    transportOk: response.ok,
   };
 }
 

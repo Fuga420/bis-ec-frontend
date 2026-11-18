@@ -1,9 +1,10 @@
-import { getSupabaseClient } from "@/lib/supabaseClient";
+import { PRODUCTS_READ_API_URL } from "@/config/productsApi";
+import { getAdminReadHeaders, notifyAdminUnauthorized } from "@/lib/adminAuth";
 
 /**
  * 仕入台帳の商品番号（auction_item_number）による自動照合。
  *
- * 呼び出し先は既存の documents-relay。
+ * 呼び出し先は Cloud Run products-api の `/documents`。
  *   { action: "auto_link_product_by_item_number", product_id, auction_item_number }
  * product_id は自動発行の TMP-... 商品IDで、auction_item_number とは別項目。
  * 番号は文字列のまま送る（先頭ゼロ・ハイフンを保持する）。
@@ -15,8 +16,6 @@ import { getSupabaseClient } from "@/lib/supabaseClient";
 export const AUTO_LINK_BY_ITEM_NUMBER_ENABLED = true;
 
 export const AUTO_LINK_ACTION = "auto_link_product_by_item_number";
-
-const RELAY_FUNCTION = "documents-relay";
 
 /**
  * auto_link_product_by_item_number の結果種別。
@@ -116,47 +115,58 @@ function defaultMessageOf(status: AutoLinkStatus): string {
   }
 }
 
-// documents-relay を呼ぶ。失敗時は error_code を保持した例外に変換する。
+// Cloud Run `/documents` を呼ぶ。失敗時は error_code を保持した例外に変換する。
 async function invokeRelay(
   body: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
-  const client = getSupabaseClient();
-  if (!client) {
+  if (!PRODUCTS_READ_API_URL) {
     throw new AutoLinkApiError(
       "BACKEND_NOT_CONNECTED",
       "バックエンドに接続されていません。"
     );
   }
 
-  const { data, error } = await client.functions.invoke(RELAY_FUNCTION, { body });
-
-  if (error) {
-    let code = "RELAY_INVOKE_FAILED";
-    let message = error.message || "自動照合の呼び出しに失敗しました。";
-    const context = (error as { context?: Response }).context;
-    if (context && typeof context.json === "function") {
-      try {
-        const payload = (await context.json()) as Record<string, unknown>;
-        code = asString(payload.error_code) || code;
-        message =
-          asString(payload.message) || asString(payload.error) || message;
-      } catch {
-        // 応答本文が読めない場合は既定メッセージを使う。
-      }
-    }
-    throw new AutoLinkApiError(code, message);
+  let response: Response;
+  try {
+    response = await fetch(`${PRODUCTS_READ_API_URL}/documents`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...getAdminReadHeaders(),
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    const message =
+      err instanceof Error && err.message
+        ? err.message
+        : "自動照合の呼び出しに失敗しました。";
+    throw new AutoLinkApiError("RELAY_INVOKE_FAILED", message);
   }
 
-  const result = (data ?? {}) as Record<string, unknown>;
-  if (result.success === false) {
+  if (response.status === 401) {
+    notifyAdminUnauthorized();
+  }
+
+  let payload: Record<string, unknown> = {};
+  try {
+    payload = ((await response.json()) ?? {}) as Record<string, unknown>;
+  } catch {
+    // 応答本文が JSON でない場合は空オブジェクトとして扱う
+  }
+
+  if (!response.ok || payload.success === false) {
+    const fallbackCode = !response.ok ? "RELAY_INVOKE_FAILED" : "RELAY_ERROR";
+    const fallbackMessage = !response.ok
+      ? "自動照合の呼び出しに失敗しました。"
+      : "自動照合に失敗しました。";
     throw new AutoLinkApiError(
-      asString(result.error_code) || "RELAY_ERROR",
-      asString(result.message) ||
-        asString(result.error) ||
-        "自動照合に失敗しました。"
+      asString(payload.error_code) || fallbackCode,
+      asString(payload.message) || asString(payload.error) || fallbackMessage
     );
   }
-  return result;
+
+  return payload;
 }
 
 /**
