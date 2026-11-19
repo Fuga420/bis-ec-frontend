@@ -1,25 +1,11 @@
-import { GOOGLE_SHEETS_WEBHOOK_URL } from "./googleSheets";
 import { getBackendWriteAuthHeaders } from "@/lib/supabaseClient";
 import { getAdminReadHeaders, notifyAdminUnauthorized } from "@/lib/adminAuth";
 
 /**
  * 商品マスターAPI（Cloud Run + Supabase）のエンドポイント。
- * - 一覧・検索・詳細のGET読取はこちらを優先利用する（ログイン不要・ブラウザへの秘密鍵埋め込みなし）。
- * - Phase 2 Unit 1: Square連携を伴わない下書き商品の新規登録（POST /products）および
- *   下書き商品の編集（POST /products/:productId/update）は Cloud Run + Supabase を書込正本とする。
- * - Phase 2 Unit 2: 複数画像からの商品取込（POST /products/import）および
- *   商品画像の追加・並べ替え・削除（POST /products/:productId/images）は Cloud Run + Supabase を書込正本とする
- *   （画像ファイル本体の保存先は既存の Google Drive フォルダを維持）。
- * - Phase 2 Unit 3: Square未連携の下書き商品の在庫状態変更（POST /products/:productId/inventory-status）、
- *   アーカイブ・復元（POST /products/:productId/record-status）、一覧の一括アーカイブは Cloud Run + Supabase を書込正本とする。
- * - Phase 2 Unit 4: 単品AI下書き生成（POST /products/:productId/ai-draft/generate）、
- *   単品AI下書き取得（GET /products/:productId/ai-draft）、単品AI下書き確定（POST /products/:productId/ai-draft/confirm）、
- *   およびAI解析用画像選択保存（POST /products/:productId/ai-selected-images）は Cloud Run + Supabase を正本とする。
- * - Phase 2 Unit 5: 手動AI一括生成の受付（POST /ai-batches）、進捗・結果取得（GET /ai-batches/:batchId）、
- *   失敗分のみ再実行（POST /ai-batches/:batchId/retry）は Cloud Run + Supabase キューを正本とする。
- * - 公開登録・Square連携済み商品の操作・公開状態変更・完全削除は引き続き既存経路（GAS）を利用し、
- *   GAS書込成功後に syncProductToReadDb() で該当1商品をSupabaseへ即時反映する。
- * - 画面を閉じている間のGAS定期処理による変更は Cloud Scheduler -> POST /reconcile（5分周期）が差分同期する。
+ * - 一覧・検索・詳細のGET読取および全商品書込（新規登録・編集・画像更新・在庫変更・公開状態変更・
+ *   アーカイブ/復元・完全削除・Square連携・AI下書き/バッチ・書類台帳）はすべて Cloud Run + Supabase を正本とする。
+ * - GAS フォールバックは全廃済み。
  */
 export const PRODUCTS_READ_API_URL = (
   (import.meta.env.VITE_PRODUCTS_API_URL as string | undefined) ||
@@ -27,6 +13,13 @@ export const PRODUCTS_READ_API_URL = (
 )
   .trim()
   .replace(/\/+$/, "");
+
+function requireProductsApiUrl(): string {
+  if (!PRODUCTS_READ_API_URL) {
+    throw new Error("PRODUCTS_READ_API_URL is not configured");
+  }
+  return PRODUCTS_READ_API_URL;
+}
 
 const UNSYNCED_PRODUCTS_STORAGE_KEY = "bis_unsynced_products_v1";
 const UNSYNCED_TTL_MS = 10 * 60 * 1000; // 10 minutes (covers >1 scheduled 5-min reconcile cycle)
@@ -150,18 +143,16 @@ async function performSingleSyncRequest(
 }
 
 /**
- * Cloud Run 商品読取APIへGETリクエストを送る。
- * - 直前の書込後に即時同期が失敗した商品が残っている場合は、再同期を1回試み、
- *   それでも未同期なら正本（GAS / Google Sheets）から直接読み取って古いキャッシュ表示を防ぐ。
- * - Cloud Run のネットワーク障害・5xx 時は保持中の Google Sheets（GAS）へ自動フォールバックする。
+ * Cloud Run 商品読取APIへGETリクエストを送る（GAS読み取りフォールバックは撤去済み）。
  */
 export async function fetchProductsReadApi(queryString: string): Promise<Response> {
+  const apiUrl = requireProductsApiUrl();
   const cleanQuery = queryString.replace(/^\?+/, "");
   const searchParams = new URLSearchParams(cleanQuery);
   const isAdmin = (searchParams.get("mode") || "").trim().toLowerCase() === "admin";
   const requestedProductId = (searchParams.get("product_id") || "").trim();
 
-  if (isAdmin && PRODUCTS_READ_API_URL) {
+  if (isAdmin) {
     const unsynced = readUnsyncedProducts();
     const relevantIds = requestedProductId
       ? unsynced[requestedProductId]
@@ -170,55 +161,30 @@ export async function fetchProductsReadApi(queryString: string): Promise<Respons
       : Object.keys(unsynced);
 
     if (relevantIds.length > 0) {
-      let stillDirty = false;
       for (const pid of relevantIds.slice(0, 3)) {
         try {
           const retry = await performSingleSyncRequest(pid, unsynced[pid]?.allowDelete);
           if (retry.ok) {
             clearProductUnsynced(pid);
-          } else {
-            stillDirty = true;
           }
         } catch {
-          stillDirty = true;
+          // Ignore best-effort retry errors; read directly from Cloud Run
         }
       }
-      if (stillDirty || relevantIds.length > 3) {
-        return fetch(`${GOOGLE_SHEETS_WEBHOOK_URL}?${cleanQuery}`, {
-          method: "GET",
-        });
-      }
     }
   }
 
-  if (PRODUCTS_READ_API_URL) {
-    try {
-      // 管理画面の共有パスワードは、保持していればヘッダでそのまま送る。
-      // 判定はしない（正誤はAPIが401で返す）。
-      const response = await fetch(`${PRODUCTS_READ_API_URL}/?${cleanQuery}`, {
-        method: "GET",
-        headers: getAdminReadHeaders(),
-      });
-      // 401 = パスワード不一致・期限切れ。保持を消してロック画面へ戻す。
-      // ここで GAS フォールバックへ流すと認証をすり抜けてしまうため、必ず返す。
-      if (response.status === 401) {
-        notifyAdminUnauthorized();
-        return response;
-      }
-      if (response.ok) {
-        return response;
-      }
-      if (response.status < 500) {
-        return response;
-      }
-    } catch {
-      // Cloud Run 側の一時障害時は下の GAS フォールバックへ進む
-    }
-  }
-
-  return fetch(`${GOOGLE_SHEETS_WEBHOOK_URL}?${cleanQuery}`, {
+  // 管理画面の共有パスワードは、保持していればヘッダでそのまま送る。
+  // 判定はしない（正誤はAPIが401で返す）。
+  const response = await fetch(`${apiUrl}/?${cleanQuery}`, {
     method: "GET",
+    headers: getAdminReadHeaders(),
   });
+  // 401 = パスワード不一致・期限切れ。保持を消してロック画面へ戻す。
+  if (response.status === 401) {
+    notifyAdminUnauthorized();
+  }
+  return response;
 }
 
 /**
@@ -270,28 +236,6 @@ export async function syncProductToReadDb(
 }
 
 /**
- * 対象商品が「Square連携を伴わない下書き商品」であり、Cloud Run + Supabase 書込APIの対象かを判定する。
- * - 一度公開して Square Item / Variation / Payment Link / Checkout URL が紐付いた商品は
- *   Square 在庫・決済リンク・アーカイブ同期が関わるため除外し、従来の GAS 経路を維持する。
- */
-export function canUseCloudRunDraftUpdate(product: {
-  publish_status?: string | null;
-  square_item_id?: string | null;
-  square_variation_id?: string | null;
-  square_payment_link_id?: string | null;
-  square_checkout_url?: string | null;
-}): boolean {
-  if (!PRODUCTS_READ_API_URL) return false;
-  const pubStatus = (product.publish_status ?? "draft").trim() || "draft";
-  const hasSquareLink =
-    Boolean((product.square_item_id ?? "").trim()) ||
-    Boolean((product.square_variation_id ?? "").trim()) ||
-    Boolean((product.square_payment_link_id ?? "").trim()) ||
-    Boolean((product.square_checkout_url ?? "").trim());
-  return pubStatus === "draft" && !hasSquareLink;
-}
-
-/**
  * Cloud Run + Supabase へ直接書込が完了した商品について、セッション内の未同期フラグを解除する。
  */
 export function markDraftProductSyncedInSession(
@@ -303,20 +247,14 @@ export function markDraftProductSyncedInSession(
 }
 
 /**
- * Phase 2 Unit 1: Square連携を伴わない下書き商品の新規登録（Cloud Run -> Supabase 正本保存 + Drive画像保存）。
+ * 下書き商品の新規登録（Cloud Run -> Supabase 正本保存 + Drive画像保存）。
  */
 export async function createDraftProductViaApi(
   payload: Record<string, unknown>
 ): Promise<Response> {
-  if (!PRODUCTS_READ_API_URL) {
-    return fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload),
-    });
-  }
+  const apiUrl = requireProductsApiUrl();
   const authHeaders = await getBackendWriteAuthHeaders();
-  return fetch(`${PRODUCTS_READ_API_URL}/products`, {
+  return fetch(`${apiUrl}/products`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json; charset=utf-8",
@@ -327,56 +265,44 @@ export async function createDraftProductViaApi(
 }
 
 /**
- * Phase 2 Unit 1: Square連携を伴わない下書き商品の編集（Cloud Run -> Supabase 正本更新 + Sheets互換ミラー）。
+ * 第4弾(D) 一本化: 下書き・公開済み・Square連携済みの全商品編集（Cloud Run -> Supabase 正本更新 +
+ * 価格変更時はパターンB同期 + 非価格変更時はSquare詳細同期）。
  */
-export async function updateDraftProductViaApi(
+export async function updateProductViaApi(
   productId: string,
   payload: Record<string, unknown>
 ): Promise<Response> {
+  const apiUrl = requireProductsApiUrl();
   const id = productId.trim();
-  if (!PRODUCTS_READ_API_URL) {
-    return fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({
-        ...payload,
-        action: "update_product",
-        product_id: id,
-      }),
-    });
-  }
   const authHeaders = await getBackendWriteAuthHeaders();
   return fetch(
-    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/update`,
+    `${apiUrl}/products/${encodeURIComponent(id)}/update`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json; charset=utf-8",
         ...authHeaders,
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        ...payload,
+        square_sync: true,
+      }),
     }
   );
 }
 
+/** 既存呼び出し元向けの互換エイリアス（updateProductViaApi へ一本化）。 */
+export const updateDraftProductViaApi = updateProductViaApi;
+
 /**
- * Phase 2 Unit 2: 複数画像からの商品取込（Cloud Run -> Supabase 冪等管理・正本保存 + Google Drive 画像保存）。
+ * 複数画像からの商品取込（Cloud Run -> Supabase 冪等管理・正本保存 + Google Drive 画像保存）。
  */
 export async function importProductByImagesViaApi(
   payload: Record<string, unknown>
 ): Promise<Response> {
-  if (!PRODUCTS_READ_API_URL) {
-    return fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({
-        action: "import_product_by_images",
-        ...payload,
-      }),
-    });
-  }
+  const apiUrl = requireProductsApiUrl();
   const authHeaders = await getBackendWriteAuthHeaders();
-  return fetch(`${PRODUCTS_READ_API_URL}/products/import`, {
+  return fetch(`${apiUrl}/products/import`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json; charset=utf-8",
@@ -387,27 +313,17 @@ export async function importProductByImagesViaApi(
 }
 
 /**
- * Phase 2 Unit 2: 商品画像の追加・並べ替え・削除（Cloud Run -> Google Drive 更新 + Supabase 正本更新）。
+ * 商品画像の追加・並べ替え・削除（Cloud Run -> Google Drive 更新 + Supabase 正本更新）。
  */
 export async function updateProductImagesViaApi(
   productId: string,
   payload: Record<string, unknown>
 ): Promise<Response> {
+  const apiUrl = requireProductsApiUrl();
   const id = productId.trim();
-  if (!PRODUCTS_READ_API_URL) {
-    return fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({
-        ...payload,
-        action: "update_product_images",
-        product_id: id,
-      }),
-    });
-  }
   const authHeaders = await getBackendWriteAuthHeaders();
   return fetch(
-    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/images`,
+    `${apiUrl}/products/${encodeURIComponent(id)}/images`,
     {
       method: "POST",
       headers: {
@@ -420,64 +336,49 @@ export async function updateProductImagesViaApi(
 }
 
 /**
- * Phase 2 Unit 3: Square未連携の下書き商品の在庫状態変更（Cloud Run -> Supabase 正本更新 + Sheets互換ミラー）。
+ * 第4弾(D) 手動在庫変更: 下書き・公開済み・Square連携済みすべての商品の在庫状態変更（Cloud Run ->
+ * Square在庫/Payment Link同期［Fail-Closed］+ Supabase 正本更新）。
  */
-export async function updateDraftInventoryStatusViaApi(
+export async function updateInventoryStatusViaApi(
   productId: string,
   inventoryStatus: string
 ): Promise<Response> {
+  const apiUrl = requireProductsApiUrl();
   const id = productId.trim();
-  if (!PRODUCTS_READ_API_URL) {
-    return fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({
-        action: "update_inventory_status",
-        product_id: id,
-        inventory_status: inventoryStatus,
-      }),
-    });
-  }
   const authHeaders = await getBackendWriteAuthHeaders();
   return fetch(
-    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(
-      id
-    )}/inventory-status`,
+    `${apiUrl}/products/${encodeURIComponent(id)}/inventory-status`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json; charset=utf-8",
         ...authHeaders,
       },
-      body: JSON.stringify({ inventory_status: inventoryStatus }),
+      body: JSON.stringify({
+        inventory_status: inventoryStatus,
+        square_sync: true,
+      }),
     }
   );
 }
 
+/** 既存呼び出し元向けの互換エイリアス（updateInventoryStatusViaApi へ一本化）。 */
+export const updateDraftInventoryStatusViaApi = updateInventoryStatusViaApi;
+
 /**
- * Phase 2 Unit 3 / Square 連携第3弾: 商品のアーカイブ・復元（Cloud Run -> Square 在庫0・決済リンク無効化・Catalog アーカイブ同期 + Supabase 正本更新 + Sheets互換ミラー）。
+ * 商品のアーカイブ・復元（Cloud Run -> Square 在庫0・決済リンク無効化・Catalog アーカイブ同期 + Supabase 正本更新）。
  */
 export async function updateDraftRecordStatusViaApi(
   productId: string,
   recordStatus: "active" | "archived",
   options?: { squareSync?: boolean }
 ): Promise<Response> {
+  const apiUrl = requireProductsApiUrl();
   const id = productId.trim();
-  if (!PRODUCTS_READ_API_URL) {
-    return fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({
-        action: "update_record_status",
-        product_id: id,
-        record_status: recordStatus,
-      }),
-    });
-  }
   const authHeaders = await getBackendWriteAuthHeaders();
   const squareSync = options?.squareSync ?? true;
   return fetch(
-    `${PRODUCTS_READ_API_URL}/products/${encodeURIComponent(id)}/record-status`,
+    `${apiUrl}/products/${encodeURIComponent(id)}/record-status`,
     {
       method: "POST",
       headers: {
@@ -488,6 +389,28 @@ export async function updateDraftRecordStatusViaApi(
         record_status: recordStatus,
         square_sync: squareSync,
       }),
+    }
+  );
+}
+
+/**
+ * 第4弾(D) 商品の完全削除（アーカイブ済み商品のみ・台帳事前検査 -> Square安全化 -> Driveフォルダゴミ箱移動 -> Supabase行削除）。
+ */
+export async function deleteProductViaApi(
+  productId: string
+): Promise<Response> {
+  const apiUrl = requireProductsApiUrl();
+  const id = productId.trim();
+  const authHeaders = await getBackendWriteAuthHeaders();
+  return fetch(
+    `${apiUrl}/products/${encodeURIComponent(id)}/delete`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        ...authHeaders,
+      },
+      body: JSON.stringify({ product_id: id }),
     }
   );
 }

@@ -1,11 +1,10 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
 import {
   PRODUCTS_READ_API_URL,
   markDraftProductSyncedInSession,
-  syncProductToReadDb,
   updateDraftRecordStatusViaApi,
 } from "@/config/productsApi";
+import { getAdminReadHeaders } from "@/lib/adminAuth";
 import type {
   AdminProductDetailResponse,
   RecordStatusUpdateResponse,
@@ -52,29 +51,12 @@ type ArchiveOutcome =
   | { kind: "failed"; reason: string }
   | { kind: "uncertain" };
 
-function shouldUseCloudRunArchive(_target: BulkArchiveTarget): boolean {
-  return Boolean(PRODUCTS_READ_API_URL);
-}
-
-async function requestArchive(
-  productId: string,
-  useCloudRun: boolean
-): Promise<ArchiveOutcome> {
+async function requestArchive(productId: string): Promise<ArchiveOutcome> {
   try {
     // Cloud Run + Supabase（正本）へ送信し、Square連携済み商品の在庫0・決済リンク無効化・Catalogアーカイブも同期実行する。
-    const response = useCloudRun
-      ? await updateDraftRecordStatusViaApi(productId, "archived", {
-          squareSync: true,
-        })
-      : await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
-          method: "POST",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify({
-            action: "update_record_status",
-            product_id: productId,
-            record_status: "archived",
-          }),
-        });
+    const response = await updateDraftRecordStatusViaApi(productId, "archived", {
+      squareSync: true,
+    });
     let data: RecordStatusUpdateResponse | null = null;
     try {
       data = (await response.json()) as RecordStatusUpdateResponse;
@@ -109,22 +91,20 @@ async function requestArchive(
   }
 }
 
-// 既存の単品取得API（GET ?mode=admin&product_id=...）で現在の record_status を再取得する。
-// - Cloud Run 経路の商品は正本である Cloud Run / Supabase 側を直接確認する（GAS フォールバックで古い状態を読まない）。
-// - GAS 経路の商品は正本である GAS 側を確認する。
+// 既存の単品取得API（Cloud Run GET ?mode=admin&product_id=...）で現在の record_status を再取得する。
 async function fetchCurrentRecordStatus(
-  productId: string,
-  useCloudRun: boolean
+  productId: string
 ): Promise<"archived" | "active" | "unknown"> {
   try {
-    const baseUrl =
-      useCloudRun && PRODUCTS_READ_API_URL
-        ? `${PRODUCTS_READ_API_URL}/`
-        : GOOGLE_SHEETS_WEBHOOK_URL;
-    const url = `${baseUrl}?mode=admin&product_id=${encodeURIComponent(
+    if (!PRODUCTS_READ_API_URL) return "unknown";
+    const url = `${PRODUCTS_READ_API_URL}/?mode=admin&product_id=${encodeURIComponent(
       productId
     )}`;
-    const response = await fetch(url, { method: "GET", cache: "no-store" });
+    const response = await fetch(url, {
+      method: "GET",
+      cache: "no-store",
+      headers: getAdminReadHeaders(),
+    });
     if (!response.ok) return "unknown";
     const data = (await response.json()) as AdminProductDetailResponse;
     if (!data || data.success !== true || !data.product) return "unknown";
@@ -138,14 +118,10 @@ async function fetchCurrentRecordStatus(
 }
 
 // 結果不明（uncertain）の商品について、現在の状態を再取得して分類し直す。
-// - archived を確認 → success（成功として扱う）
-// - active を確認   → failed（未アーカイブを確認。スタッフの操作で再試行できる）
-// - 確認できない    → unknown（受付結果不明・要確認。成功・確定失敗のどちらにも決めつけない）
 async function resolveUnknown(
-  productId: string,
-  useCloudRun: boolean
+  productId: string
 ): Promise<{ status: BulkArchiveStatus; reason: string }> {
-  const verified = await fetchCurrentRecordStatus(productId, useCloudRun);
+  const verified = await fetchCurrentRecordStatus(productId);
   if (verified === "archived") {
     return {
       status: "success",
@@ -202,7 +178,6 @@ export function useBulkArchive() {
           : cachedMeta ?? rawTarget;
       targetMetaRef.current.set(rawTarget.product_id, effectiveTarget);
 
-      const useCloudRun = shouldUseCloudRunArchive(effectiveTarget);
       const base = {
         product_id: effectiveTarget.product_id,
         product_name: effectiveTarget.product_name || "（商品名なし）",
@@ -211,28 +186,17 @@ export function useBulkArchive() {
       if (effectiveTarget.record_status === "archived") {
         out.push({ ...base, status: "skipped", reason: "すでにアーカイブ済みです" });
       } else {
-        const res = await requestArchive(effectiveTarget.product_id, useCloudRun);
+        const res = await requestArchive(effectiveTarget.product_id);
         if (res.kind === "success") {
-          if (useCloudRun) {
-            markDraftProductSyncedInSession(effectiveTarget.product_id);
-          } else {
-            await syncProductToReadDb(effectiveTarget.product_id);
-          }
+          markDraftProductSyncedInSession(effectiveTarget.product_id);
           out.push({ ...base, status: "success" });
         } else if (res.kind === "failed") {
           out.push({ ...base, status: "failed", reason: res.reason });
         } else {
-          // 通信断・タイムアウト等で結果不明 → 書込正本APIで現在の状態を再取得して判定する
-          const resolved = await resolveUnknown(
-            effectiveTarget.product_id,
-            useCloudRun
-          );
+          // 通信断・タイムアウト等で結果不明 → Cloud Run で現在の状態を再取得して判定する
+          const resolved = await resolveUnknown(effectiveTarget.product_id);
           if (resolved.status === "success") {
-            if (useCloudRun) {
-              markDraftProductSyncedInSession(effectiveTarget.product_id);
-            } else {
-              await syncProductToReadDb(effectiveTarget.product_id);
-            }
+            markDraftProductSyncedInSession(effectiveTarget.product_id);
           }
           out.push({ ...base, status: resolved.status, reason: resolved.reason });
         }
@@ -276,15 +240,9 @@ export function useBulkArchive() {
     const updated = new Map<string, BulkArchiveResultItem>();
     for (let i = 0; i < unknownItems.length; i += 1) {
       const item = unknownItems[i];
-      const meta = targetMetaRef.current.get(item.product_id);
-      const useCloudRun = meta ? shouldUseCloudRunArchive(meta) : false;
-      const resolved = await resolveUnknown(item.product_id, useCloudRun);
+      const resolved = await resolveUnknown(item.product_id);
       if (resolved.status === "success") {
-        if (useCloudRun) {
-          markDraftProductSyncedInSession(item.product_id);
-        } else {
-          await syncProductToReadDb(item.product_id);
-        }
+        markDraftProductSyncedInSession(item.product_id);
       }
       updated.set(item.product_id, {
         ...item,

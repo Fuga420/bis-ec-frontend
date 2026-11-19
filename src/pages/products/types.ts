@@ -6,18 +6,6 @@ export interface AdminProductImage {
   display_url: string;
 }
 
-export interface ProductTranslation {
-  product_id: string;
-  locale: string;
-  translated_title: string;
-  translated_description: string;
-  translated_condition?: string;
-  translated_box?: string;
-  translated_accessories?: string;
-  translation_status: string;
-  generated_at: string;
-}
-
 // 管理画面向け商品詳細レスポンスの product.document（請求書・領収書）。
 // 管理画面（商品詳細・商品編集）でのみ表示し、公開ページには表示しない。
 // 商品画像（images）とは別枠で扱い、サムネイルやAI生成対象画像にはしない。
@@ -94,7 +82,6 @@ export interface AdminProductDetail {
   // 空配列＝指定解除（未選択）。未設定＝従来どおり先頭3枚を使用。
   selected_image_ids?: string[];
   ai_selected_image_ids?: string[];
-  translation?: ProductTranslation | null;
   pokemon_card?: PokemonCardData;
   // 添付済みの書類（未添付は null/未設定）。
   document?: ProductDocument | null;
@@ -123,7 +110,13 @@ export interface ProductUpdateResponse {
   version?: string;
   product_id: string;
   warning?: string;
-  payment_link_status?: "created" | "failed";
+  payment_link_status?: "created" | "failed" | "skipped_not_sellable";
+  partial_state?: string;
+  square_details_sync_status?: "synced" | "failed" | "skipped";
+  square_details_sync_error?: string;
+  error?: string;
+  error_code?: string;
+  message?: string;
 }
 
 export interface ProductImagesUpdateResponse {
@@ -140,6 +133,11 @@ export interface InventoryStatusUpdateResponse {
   version?: string;
   product_id: string;
   inventory_status: string;
+  square_inventory_synced?: boolean;
+  payment_link_invalidated?: boolean;
+  error?: string;
+  error_code?: string;
+  message?: string;
 }
 
 export interface RecordStatusUpdateResponse {
@@ -147,6 +145,8 @@ export interface RecordStatusUpdateResponse {
   version?: string;
   product_id: string;
   record_status: string;
+  publish_status?: string;
+  inventory_status?: string;
   // バックエンドが返す安全なエラー情報（アーカイブ拒否などの理由を表示する）
   error?: string;
   error_code?: string;
@@ -158,7 +158,11 @@ export interface DeleteProductResponse {
   version?: string;
   product_id: string;
   deleted?: boolean;
+  square_cleaned?: boolean;
+  drive_folder_trashed?: boolean;
   error?: string;
+  error_code?: string;
+  message?: string;
 }
 
 export interface SquareProductCreateResponse {
@@ -219,22 +223,6 @@ export interface SquareProductInventorySyncResponse {
   error?: string;
 }
 
-export interface ProductTranslationGenerateResponse {
-  success: boolean;
-  version?: string;
-  translation?: ProductTranslation;
-  save_result?: { data?: ProductTranslation };
-  error?: string;
-}
-
-export interface ProductTranslationApproveResponse {
-  success: boolean;
-  version?: string;
-  translation?: ProductTranslation;
-  save_result?: { data?: ProductTranslation };
-  error?: string;
-}
-
 export interface SquareProductionProductResponse {
   success: boolean;
   version?: string;
@@ -276,11 +264,6 @@ export interface AdminProduct {
   category: string;
   brand: string;
   product_name: string;
-  // 一覧API（GAS GET ?mode=admin）が返す保存済みの英語タイトル。
-  // 未作成の場合は空文字。スニーカーの先頭タイトル表示・名前順ソートと、
-  // 一覧インライン編集（下書きのみ／update_product の translated_title）で使う。
-  // 本票の product_name とは別項目（保存時に product_name を書き換えない）。
-  translated_title?: string;
   condition: string;
   purchase_price: number | null;
   planned_sale_price: number;

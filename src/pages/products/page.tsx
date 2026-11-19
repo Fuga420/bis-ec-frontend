@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
-import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
 import {
   createSquarePaymentLinkViaApi,
   createSquareProductionProductViaApi,
@@ -950,9 +949,8 @@ export default function ProductsPage() {
     return counts;
   }, [bulkResults]);
 
-  // 結果モーダル・確認ダイアログの表示名は「一覧に表示している商品名」に合わせる。
-  // スニーカーで product_name が空でも translated_title を表示している場合は、
-  // その同じ名前を使う（product_id のみが受付・予約固定に使われ、表示名は補助情報）。
+  // 結果モーダル・確認ダイアログの表示名は「一覧に表示している商品名」に合わせる
+  // （product_id のみが受付・予約固定に使われ、表示名は補助情報）。
   const aiConfirmTargets = useMemo(
     () =>
       selectedProducts.map((product) => ({
