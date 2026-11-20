@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
 import {
-  createSquarePaymentLinkViaApi,
-  deleteProductViaApi,
+  canUseCloudRunDraftUpdate,
   fetchProductsReadApi,
   markDraftProductSyncedInSession,
+  syncProductToReadDb,
+  updateDraftInventoryStatusViaApi,
+  updateDraftProductViaApi,
   updateDraftRecordStatusViaApi,
-  updateInventoryStatusViaApi,
   updateProductImagesViaApi,
-  updateProductPublishStatusViaApi,
-  updateProductViaApi,
 } from "@/config/productsApi";
 import type {
   AdminProduct,
@@ -24,6 +24,7 @@ import type {
   RecordStatusUpdateResponse,
   DeleteProductResponse,
   SquarePaymentLinkResponse,
+  SquareProductionDetailsSyncResponse,
 } from "../types";
 import { CATEGORY_LABELS, PUBLISH_STATUS_LABELS } from "../types";
 import { peekProductListReturnPending } from "../lib/listViewState";
@@ -478,10 +479,17 @@ export default function ProductDetailPage() {
     setSelectedStatus(targetStatus);
 
     try {
-      const response = await updateProductPublishStatusViaApi(
-        product.product_id,
-        targetStatus
-      );
+      const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8",
+        },
+        body: JSON.stringify({
+          action: "update_publish_status",
+          product_id: product.product_id,
+          publish_status: targetStatus,
+        }),
+      });
       let data: PublishStatusUpdateResponse | null = null;
       try {
         data = (await response.json()) as PublishStatusUpdateResponse;
@@ -493,7 +501,7 @@ export default function ProductDetailPage() {
           extractBackendError(data, "公開状態の更新に失敗しました")
         );
       }
-      markDraftProductSyncedInSession(product.product_id);
+      await syncProductToReadDb(product.product_id);
       setProduct({
         ...product,
         publish_status: data.publish_status ?? targetStatus,
@@ -526,23 +534,31 @@ export default function ProductDetailPage() {
     setInventoryMessage(null);
     setSelectedInventoryStatus(targetStatus);
 
+    const useCloudRun = canUseCloudRunDraftUpdate(product);
+
     try {
-      const response = await updateInventoryStatusViaApi(
-        product.product_id,
-        targetStatus
-      );
-      let data: InventoryStatusUpdateResponse | null = null;
-      try {
-        data = (await response.json()) as InventoryStatusUpdateResponse;
-      } catch {
-        data = null;
+      const response = useCloudRun
+        ? await updateDraftInventoryStatusViaApi(
+            product.product_id,
+            targetStatus
+          )
+        : await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "text/plain;charset=utf-8",
+            },
+            body: JSON.stringify({
+              action: "update_inventory_status",
+              product_id: product.product_id,
+              inventory_status: targetStatus,
+            }),
+          });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
       }
-      if (!response.ok || !data || data.success !== true) {
-        const backendErr =
-          (typeof data?.message === "string" && data.message.trim()) ||
-          (typeof data?.error === "string" && data.error.trim()) ||
-          "";
-        throw new Error(backendErr || `HTTP ${response.status}`);
+      const data = (await response.json()) as InventoryStatusUpdateResponse;
+      if (!data || data.success !== true) {
+        throw new Error("Invalid response");
       }
       setProduct({
         ...product,
@@ -550,7 +566,11 @@ export default function ProductDetailPage() {
       });
       setSelectedInventoryStatus(data.inventory_status ?? targetStatus);
       setInventoryMessage({ type: "success", text: "在庫状態を更新しました" });
-      markDraftProductSyncedInSession(product.product_id);
+      if (useCloudRun) {
+        markDraftProductSyncedInSession(product.product_id);
+      } else {
+        await syncProductToReadDb(product.product_id);
+      }
 
       try {
         const updated = await loadProduct();
@@ -560,16 +580,12 @@ export default function ProductDetailPage() {
       } catch {
         // 保存自体は成功しているため、再取得失敗は無視する
       }
-    } catch (err) {
+    } catch {
       // 保存に失敗したら選択を元の状態に戻す
       setSelectedInventoryStatus(previousStatus);
-      const errMsg =
-        err instanceof Error && err.message && !err.message.startsWith("HTTP ")
-          ? err.message
-          : "在庫状態の更新に失敗しました";
       setInventoryMessage({
         type: "error",
-        text: errMsg,
+        text: "在庫状態の更新に失敗しました",
       });
     } finally {
       setInventorySaveState("idle");
@@ -589,13 +605,23 @@ export default function ProductDetailPage() {
         product.square_payment_link_id ||
         product.square_checkout_url
     );
+    const useCloudRun =
+      canUseCloudRunDraftUpdate(product) && !regeneratePaymentLink;
 
     try {
-      const response = await updateDraftRecordStatusViaApi(
-        product.product_id,
-        targetStatus,
-        { squareSync: true }
-      );
+      const response = useCloudRun
+        ? await updateDraftRecordStatusViaApi(product.product_id, targetStatus)
+        : await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "text/plain;charset=utf-8",
+            },
+            body: JSON.stringify({
+              action: "update_record_status",
+              product_id: product.product_id,
+              record_status: targetStatus,
+            }),
+          });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
@@ -627,9 +653,16 @@ export default function ProductDetailPage() {
       let paymentLinkFailed = false;
       if (targetStatus === "active" && regeneratePaymentLink && squareLinked) {
         try {
-          const linkResponse = await createSquarePaymentLinkViaApi(
-            product.product_id
-          );
+          const linkResponse = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "text/plain;charset=utf-8",
+            },
+            body: JSON.stringify({
+              action: "create_square_payment_link",
+              product_id: product.product_id,
+            }),
+          });
           const linkData = linkResponse.ok
             ? ((await linkResponse.json()) as SquarePaymentLinkResponse)
             : null;
@@ -639,8 +672,6 @@ export default function ProductDetailPage() {
               "create_square_payment_link failed:",
               linkData?.error
             );
-          } else {
-            markDraftProductSyncedInSession(product.product_id);
           }
         } catch (err) {
           // 再有効化自体は成功しているため、決済リンクの失敗はwarning扱いにする
@@ -668,7 +699,11 @@ export default function ProductDetailPage() {
         });
       }
 
-      markDraftProductSyncedInSession(product.product_id);
+      if (useCloudRun) {
+        markDraftProductSyncedInSession(product.product_id);
+      } else {
+        await syncProductToReadDb(product.product_id);
+      }
       try {
         const updated = await loadProduct();
         setProduct(updated);
@@ -696,22 +731,25 @@ export default function ProductDetailPage() {
     setDeleteMessage(null);
 
     try {
-      const response = await deleteProductViaApi(product.product_id);
-      let data: DeleteProductResponse | null = null;
-      try {
-        data = (await response.json()) as DeleteProductResponse;
-      } catch {
-        data = null;
+      const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8",
+        },
+        body: JSON.stringify({
+          action: "delete_product",
+          product_id: product.product_id,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
       }
-      if (!response.ok || !data || data.success !== true) {
-        const backendErr =
-          (typeof data?.message === "string" && data.message.trim()) ||
-          (typeof data?.error === "string" && data.error.trim()) ||
-          "";
-        throw new Error(backendErr || `HTTP ${response.status}`);
+      const data = (await response.json()) as DeleteProductResponse;
+      if (!data || data.success !== true) {
+        throw new Error(data?.error ?? "Invalid response");
       }
 
-      markDraftProductSyncedInSession(product.product_id);
+      await syncProductToReadDb(product.product_id, { allowDelete: true });
       setIsDeleteConfirmOpen(false);
       setDeleteMessage({ type: "success", text: "商品を完全に削除しました" });
 
@@ -721,13 +759,9 @@ export default function ProductDetailPage() {
         state: { deleteMessage: "商品を完全に削除しました" },
       });
     } catch (err) {
-      const errMsg =
-        err instanceof Error && err.message && !err.message.startsWith("HTTP ")
-          ? err.message
-          : "商品の完全削除に失敗しました";
       setDeleteMessage({
         type: "error",
-        text: errMsg,
+        text: "商品の完全削除に失敗しました",
       });
       // 開発時に確認できるよう、APIのerror内容をコンソールに保持
       console.error("delete_product failed:", err);
@@ -862,10 +896,22 @@ export default function ProductDetailPage() {
     setEditSaveState("saving");
     setEditMessage(null);
 
+    const useDraftWriteApi = canUseCloudRunDraftUpdate(product);
+
     try {
-      // 下書き・公開済み・Square連携済みの全商品を Cloud Run の統一経路で保存する。
-      // 価格変更時のパターンB同期および非価格変更時の Square 詳細同期はバックエンド内で完結する。
-      const response = await updateProductViaApi(product.product_id, payload);
+      const response = useDraftWriteApi
+        ? await updateDraftProductViaApi(product.product_id, payload)
+        : await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "text/plain;charset=utf-8",
+            },
+            body: JSON.stringify({
+              ...payload,
+              action: "update_product",
+              product_id: product.product_id,
+            }),
+          });
       let data: ProductUpdateResponse | null = null;
       try {
         data = (await response.json()) as ProductUpdateResponse;
@@ -880,12 +926,46 @@ export default function ProductDetailPage() {
         throw new Error(backendErr || `HTTP ${response.status}`);
       }
       setIsEditing(false);
-      markDraftProductSyncedInSession(product.product_id);
 
+      // 下書き自動反映(Auto-Apply)はGAS側の処理として完結するため、
+      // ブラウザから confirm_ai_product_draft を商品ごとに連続実行しない。
+      // 編集後の確定指紋の同期もバックエンド側で行われる（フロントでは再確定しない）。
+
+      // update_product 成功後、Square連携済み（square_item_id / square_variation_id）なら
+      // 既存 action の sync_square_production_details で商品詳細情報を自動同期する。
+      // 同期の成否は保存全体の成否には影響させない（update_product 成功は維持）。
       const squareLinkedProduct = Boolean(
         product.square_item_id || product.square_variation_id
       );
-      const squareSyncFailed = data.square_details_sync_status === "failed";
+      let squareSyncFailed = false;
+      if (squareLinkedProduct) {
+        try {
+          const syncResponse = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "text/plain;charset=utf-8",
+            },
+            body: JSON.stringify({
+              action: "sync_square_production_details",
+              product_id: product.product_id,
+            }),
+          });
+          const syncData = syncResponse.ok
+            ? ((await syncResponse.json()) as SquareProductionDetailsSyncResponse)
+            : null;
+          if (!syncResponse.ok || !syncData || syncData.success !== true) {
+            squareSyncFailed = true;
+            console.error(
+              "sync_square_production_details failed:",
+              syncData?.error
+            );
+          }
+        } catch (err) {
+          // update_product 自体は成功しているため、同期失敗はwarning扱いにする
+          squareSyncFailed = true;
+          console.error("sync_square_production_details failed:", err);
+        }
+      }
 
       // 仕入台帳の商品番号を新規入力・変更して保存されたときだけ、保存成功後に自動照合を試みる。
       // 空欄（クリア）や変更なしの保存では呼び出さない（既存の紐付けを変化させない）。
@@ -951,7 +1031,11 @@ export default function ProductDetailPage() {
         });
       }
 
-      markDraftProductSyncedInSession(product.product_id);
+      if (useDraftWriteApi) {
+        markDraftProductSyncedInSession(product.product_id);
+      } else {
+        await syncProductToReadDb(product.product_id);
+      }
       try {
         const updated = await loadProduct();
         setProduct(updated);
@@ -1148,11 +1232,16 @@ export default function ProductDetailPage() {
               </div>
             </div>
 
-            {/* 商品説明。タブから独立して常時表示する */}
+            {/* 商品説明（日本語 / English を切り替えて表示）。タブから独立して常時表示する */}
             {!isEditing && (
               <ProductDescriptionSection
                 key={product.product_id}
                 product={product}
+                onTranslationChange={(translation) => {
+                  setProduct((prev) =>
+                    prev ? { ...prev, translation } : prev
+                  );
+                }}
               />
             )}
 

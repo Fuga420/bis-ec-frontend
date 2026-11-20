@@ -1,7 +1,6 @@
 import { fetchProductsReadApi } from "@/config/productsApi";
 import { APPAREL_CATEGORY } from "@/pages/apparel/lib/apparel";
 import { CHROME_HEARTS_BRAND_SEARCH_TERM } from "@/pages/chrome-hearts/lib/chromeHearts";
-import { POKECA_RAW_STORAGE_PREFIX } from "@/pages/products/lib/pokecaRawStorage";
 import type {
   AdminProduct,
   AdminProductListResponse,
@@ -24,17 +23,15 @@ export interface HomeListFilter {
   publishStatus?: string;
   inventoryStatus?: string;
   /**
-   * 旧裏ストレージ商品を集計から外すか。
-   * 商品一覧（/products）と同じ集計にする場合だけ true にする。
+   * 取込モードでの絞り込み（例: pokeca_raw_storage）。
+   * 旧裏ストレージ商品はカテゴリが空欄のため、カテゴリ別の件数を数えるときに
+   * この条件を合算する。除外目的では使わない。
    */
-  excludeRawStorage?: boolean;
+  importMode?: string;
 }
 
-export interface HomeCountResult {
-  count: number;
-  /** 除外条件で非表示にした件数（未対応の応答では 0） */
-  excluded: number;
-}
+/** 旧裏ストレージ（ポケカ素地取込）で登録された商品を指す取込モード値。 */
+const POKECA_RAW_STORAGE_IMPORT_MODE = "pokeca_raw_storage";
 
 const RECENT_PRODUCT_LIMIT = 5;
 
@@ -56,8 +53,9 @@ function buildListParams(
   params.set("record_status", "active");
   params.set("is_test", isTestMode ? "true" : "false");
   params.set("sort", sort);
-  if (filter.excludeRawStorage === true) {
-    params.set("exclude_storage_location_prefix", POKECA_RAW_STORAGE_PREFIX);
+  // 取込モードは絞り込みとしてのみ送る（集計から除外する用途では使わない）。
+  if (filter.importMode) {
+    params.set("import_mode", filter.importMode);
   }
   return params;
 }
@@ -85,11 +83,9 @@ async function fetchListResponse(
 export async function fetchHomeCount(
   isTestMode: boolean,
   filter: HomeListFilter
-): Promise<HomeCountResult> {
+): Promise<number> {
   const data = await fetchListResponse(isTestMode, filter, 1, "default");
-  const count =
-    typeof data.count === "number" ? data.count : data.products?.length ?? 0;
-  return { count, excluded: Math.max(0, data.excluded_count ?? 0) };
+  return typeof data.count === "number" ? data.count : data.products?.length ?? 0;
 }
 
 export type HomeRecentLoadState = "success" | "unsupported" | "error";
@@ -112,7 +108,7 @@ export async function fetchRecentProducts(
 ): Promise<HomeRecentResult> {
   const data = await fetchListResponse(
     isTestMode,
-    { excludeRawStorage: true },
+    {},
     RECENT_PRODUCT_LIMIT,
     "created_desc"
   );
@@ -140,38 +136,48 @@ export interface HomeCategoryDefinition {
   key: string;
   label: string;
   to: string;
-  filter: HomeListFilter;
+  /**
+   * このカテゴリの件数として合算する取得条件。
+   * 通常は1条件。Pokémon Card だけは、カテゴリ未設定の旧裏ストレージ商品も
+   * 同じカテゴリとして数えるため2条件を合算する。
+   */
+  filters: HomeListFilter[];
 }
 
 /**
  * カテゴリ別商品の表示対象。
  * 判定条件は各カテゴリページの実装と同じ値・同じパラメータを使う
  * （Chrome Hearts はブランド検索、Apparel は既存カテゴリ値 apparel）。
+ * Pokémon Card の旧裏ストレージ商品はカテゴリが空欄で登録されるため、
+ * 「カテゴリ一致」と「旧裏ストレージ取込」を合算して数える（除外はしない）。
  */
 export const HOME_CATEGORIES: HomeCategoryDefinition[] = [
   {
     key: "pokemon_card",
     label: "Pokémon Card",
     to: "/pokeca",
-    filter: { category: "pokemon_card" },
+    filters: [
+      { category: "pokemon_card" },
+      { importMode: POKECA_RAW_STORAGE_IMPORT_MODE },
+    ],
   },
   {
     key: "sneaker",
     label: "Sneakers",
     to: "/sneakers",
-    filter: { category: "sneaker" },
+    filters: [{ category: "sneaker" }],
   },
   {
     key: "chrome_hearts",
     label: "Chrome Hearts",
     to: "/chrome-hearts",
-    filter: { search: CHROME_HEARTS_BRAND_SEARCH_TERM },
+    filters: [{ search: CHROME_HEARTS_BRAND_SEARCH_TERM }],
   },
   {
     key: "apparel",
     label: "Apparel",
     to: "/apparel",
-    filter: { category: APPAREL_CATEGORY },
+    filters: [{ category: APPAREL_CATEGORY }],
   },
 ];
 
@@ -184,19 +190,19 @@ export interface HomeAttentionDefinition {
 /**
  * 要確認項目。
  * 既存の在庫状態（in_stock / sold）で絞り込める件数だけを扱い、
- * 商品一覧と同じ集計範囲（旧裏ストレージを除く）で数える。
+ * 商品一覧と同じ集計範囲（旧裏ストレージを含む全件）で数える。
  * 販売価格未設定のように既存APIで絞り込めない項目は表示しない。
  */
 export const HOME_ATTENTION_METRICS: HomeAttentionDefinition[] = [
   {
     key: "in_stock",
     label: "在庫あり",
-    filter: { inventoryStatus: "in_stock", excludeRawStorage: true },
+    filter: { inventoryStatus: "in_stock" },
   },
   {
     key: "sold",
     label: "売却済み",
-    filter: { inventoryStatus: "sold", excludeRawStorage: true },
+    filter: { inventoryStatus: "sold" },
   },
 ];
 

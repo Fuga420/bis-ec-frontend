@@ -14,6 +14,7 @@ import JewelryFields, { type JewelryValues } from "./components/JewelryFields";
 import PokemonCardFields, {
   type PokemonCardValues,
 } from "./components/PokemonCardFields";
+import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
 import {
   useOperatingMode,
   useOperatingModeLock,
@@ -21,8 +22,8 @@ import {
 import {
   createDraftProductViaApi,
   markDraftProductSyncedInSession,
-  updateProductPublishStatusViaApi,
-  updateProductViaApi,
+  syncProductToReadDb,
+  updateDraftProductViaApi,
 } from "@/config/productsApi";
 import PublishSquareOptions from "./components/PublishSquareOptions";
 import RegisterProgress from "./components/RegisterProgress";
@@ -351,7 +352,7 @@ export default function RegisterPage() {
 
     // 価格は事前検証する。小数の丸めや不正値の null 送信はせず、確定前に入力エラーを出す。
     const priceCheck = validatePositiveSafeInteger(sellPrice);
-    if ("error" in priceCheck) {
+    if (!priceCheck.ok) {
       setConfirmError(priceCheck.error);
       return;
     }
@@ -680,9 +681,6 @@ export default function RegisterPage() {
 
     // 進捗ステップを組み立てる
     const steps = ["商品を登録しています..."];
-    if (willPublish) {
-      steps.push("商品を公開しています...");
-    }
     if (willSyncSquare) {
       steps.push(
         "Squareへ商品を登録しています...",
@@ -696,21 +694,31 @@ export default function RegisterPage() {
 
     try {
       const payload = buildPayload();
-      // 初期行作成は常に Cloud Run の下書き作成/更新経路に一本化し、
-      // 「公開する」選択時は続けて第2弾の公開API（update_publish_status）を実行する。
-      const draftPayload: Record<string, unknown> = {
-        ...payload,
-        publish_status: "draft",
-      };
 
       // 仮draftが既にある場合は同じ product_id を再利用し、新規登録POSTを送らない。
       const existingDraftId = ai.draftProductId;
+      const isNonSquareDraftWrite = !willPublish && !willSyncSquare;
       let response: Response;
+      let wroteDirectlyToSupabase = false;
 
       if (existingDraftId) {
         // 画像が変わっていれば既存の画像更新APIで同期（変わっていなければ何もしない）
         await ai.syncDraftImages(existingDraftId);
-        response = await updateProductViaApi(existingDraftId, draftPayload);
+        if (isNonSquareDraftWrite) {
+          await syncProductToReadDb(existingDraftId);
+          response = await updateDraftProductViaApi(existingDraftId, payload);
+          wroteDirectlyToSupabase = true;
+        } else {
+          response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+            method: "POST",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify({
+              ...payload,
+              action: "update_product",
+              product_id: existingDraftId,
+            }),
+          });
+        }
       } else {
         const imagesPayload = await Promise.all(
           images.map(async (file) => ({
@@ -719,29 +727,42 @@ export default function RegisterPage() {
             base64: await fileToBase64(file),
           }))
         );
-        const draftSignature = JSON.stringify({
-          payload: draftPayload,
-          aiSelectedImageIndexes,
-          isTestMode: willPublish ? false : isTestMode,
-          imagesMeta: images.map((f) => `${f.name}:${f.size}:${f.lastModified}`),
-        });
-        const requestId =
-          draftCreateAttemptRef.current?.signature === draftSignature
-            ? draftCreateAttemptRef.current.requestId
-            : createConfirmationAttemptId();
-        draftCreateAttemptRef.current = {
-          signature: draftSignature,
-          requestId,
-        };
-        response = await createDraftProductViaApi({
-          ...draftPayload,
-          client_request_id: requestId,
-          is_test: willPublish ? false : isTestMode,
-          images: imagesPayload,
-          ...(aiSelectedImageIndexes.length > 0
-            ? { selected_image_indexes: aiSelectedImageIndexes }
-            : {}),
-        });
+        if (isNonSquareDraftWrite) {
+          const draftSignature = JSON.stringify({
+            payload,
+            aiSelectedImageIndexes,
+            isTestMode,
+            imagesMeta: images.map((f) => `${f.name}:${f.size}:${f.lastModified}`),
+          });
+          const requestId =
+            draftCreateAttemptRef.current?.signature === draftSignature
+              ? draftCreateAttemptRef.current.requestId
+              : createConfirmationAttemptId();
+          draftCreateAttemptRef.current = {
+            signature: draftSignature,
+            requestId,
+          };
+          response = await createDraftProductViaApi({
+            ...payload,
+            client_request_id: requestId,
+            is_test: isTestMode,
+            images: imagesPayload,
+            ...(aiSelectedImageIndexes.length > 0
+              ? { selected_image_indexes: aiSelectedImageIndexes }
+              : {}),
+          });
+          wroteDirectlyToSupabase = true;
+        } else {
+          response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+            method: "POST",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify({
+              ...payload,
+              is_test: false,
+              images: imagesPayload,
+            }),
+          });
+        }
       }
 
       let data: Record<string, unknown> | null = null;
@@ -764,49 +785,14 @@ export default function RegisterPage() {
         existingDraftId ||
         "";
       setProductId(newProductId);
-      markDraftProductSyncedInSession(newProductId);
 
-      // 「公開する」選択時: 第2弾の公開API（POST /products/:id/publish-status）で公開へ遷移する
-      if (willPublish) {
-        setProgressIndex(1);
-        let publishOk = false;
-        let publishErrorMsg = "";
-        try {
-          const pubRes = await updateProductPublishStatusViaApi(
-            newProductId,
-            "published"
-          );
-          let pubData: Record<string, unknown> | null = null;
-          try {
-            pubData = (await pubRes.json()) as Record<string, unknown>;
-          } catch {
-            pubData = null;
-          }
-          if (pubRes.ok && pubData && pubData.success === true) {
-            publishOk = true;
-            markDraftProductSyncedInSession(newProductId);
-          } else {
-            publishErrorMsg =
-              (typeof pubData?.message === "string" && pubData.message.trim()) ||
-              (typeof pubData?.error === "string" && pubData.error.trim()) ||
-              `HTTP ${pubRes.status}`;
-          }
-        } catch (pubErr) {
-          publishErrorMsg =
-            pubErr instanceof Error ? pubErr.message : String(pubErr);
-        }
-
-        if (!publishOk) {
-          setCompletion({
-            type: "partial",
-            title: "商品は下書きとして登録されました",
-            message: `公開処理に失敗しました（${publishErrorMsg || "エラー"}）。商品は下書きのまま保存されているため、商品詳細画面から公開できます。`,
-          });
-          return;
-        }
+      if (wroteDirectlyToSupabase) {
+        markDraftProductSyncedInSession(newProductId);
+      } else {
+        await syncProductToReadDb(newProductId);
       }
 
-      // Square連携なし → BIS登録（＋公開）のみで完了
+      // Square連携なし → BIS登録のみで完了
       if (!willSyncSquare) {
         setCompletion({
           type: "success",
@@ -818,19 +804,18 @@ export default function RegisterPage() {
         return;
       }
 
-      // Square Production 連携（商品登録・公開の後続処理。途中失敗でもBIS商品は残す）
-      const publishStepOffset = willPublish ? 1 : 0;
+      // Square Production 連携（商品登録の後続処理。途中失敗でもBIS商品は残す）
       const stepIndexMap: Record<SquareProductionStep, number> = {
         idle: 0,
-        product: 1 + publishStepOffset,
-        image: 2 + publishStepOffset,
-        inventory: 3 + publishStepOffset,
-        paymentLink: 4 + publishStepOffset,
+        product: 1,
+        image: 2,
+        inventory: 3,
+        paymentLink: 4,
       };
       const result = await runSquareProductionSync(newProductId, (step) => {
         setProgressIndex(stepIndexMap[step]);
       });
-      markDraftProductSyncedInSession(newProductId);
+      await syncProductToReadDb(newProductId);
 
       if (result.status === "success") {
         setCompletion({

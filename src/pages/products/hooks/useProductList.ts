@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
 import { fetchProductsReadApi } from "@/config/productsApi";
 import type { ProductFilterValue } from "@/pages/products/components/ProductFilterBar";
 import type { ProductSortKey } from "@/pages/products/lib/sort";
@@ -254,11 +255,47 @@ export function useProductList({
           return;
         }
 
-        // ページ分割非対応応答のフォールバック（GAS v2 フォールバックは撤去済み）
-        const list = data.products ?? [];
-        setProducts(list);
-        setCount(typeof data.count === "number" ? data.count : list.length);
-        setTotalPages(list.length > 0 ? 1 : 0);
+        // 旧 v2 だが新パラメータを無視して全件を返してきた場合は、そのまま全件を表示する。
+        const v2List = data.products ?? [];
+        if (v2List.length > 0) {
+          setProducts(v2List);
+          setCount(typeof data.count === "number" ? data.count : v2List.length);
+          setTotalPages(1);
+          setLoadState("success");
+          return;
+        }
+
+        // テストモード時は旧 GAS v2 フォールバック（is_test 非対応）へ流さない。
+        if (isTestMode) {
+          setProducts([]);
+          setCount(0);
+          setTotalPages(0);
+          setLoadState("success");
+          return;
+        }
+        // （v3 が配信されたらこの分岐には入らない）
+        const legacyUrl = isArchived
+          ? `${GOOGLE_SHEETS_WEBHOOK_URL}?mode=admin&record_status=archived`
+          : `${GOOGLE_SHEETS_WEBHOOK_URL}?mode=admin`;
+        const legacyResponse = await fetch(legacyUrl, { method: "GET" });
+        if (!legacyResponse.ok) {
+          throw new Error(`HTTP ${legacyResponse.status}`);
+        }
+        const legacyData =
+          (await legacyResponse.json()) as AdminProductListResponse;
+        if (!legacyData || legacyData.success !== true) {
+          throw new Error("Invalid response");
+        }
+        if (cancelled || seq !== requestSeqRef.current) return;
+
+        const legacyList = legacyData.products ?? [];
+        setProducts(legacyList);
+        setCount(
+          typeof legacyData.count === "number"
+            ? legacyData.count
+            : legacyList.length
+        );
+        setTotalPages(legacyList.length > 0 ? 1 : 0);
         setLoadState("success");
       } catch {
         if (cancelled || seq !== requestSeqRef.current) return;

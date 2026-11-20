@@ -148,7 +148,8 @@ export default function ProductRow({
   const priceText = hasPrice
     ? `¥${product.planned_sale_price!.toLocaleString("ja-JP")}`
     : "価格未設定";
-  // 先頭の大きな商品タイトルは本票の商品名を表示する（空欄時は「商品名未入力」）。
+  // 先頭の大きな商品タイトルはスニーカーだけ英語タイトル優先
+  // （スニーカー: translated_title → product_name、それ以外: product_name → 「商品名なし」）。
   // デスクトップ・モバイルの両表示でこの値を使う。
   const name = getProductDisplayTitle(product);
   // 商品名が未入力の行は、グレーの「（商品名なし）」を並べず、控えめなグレー文字で置く

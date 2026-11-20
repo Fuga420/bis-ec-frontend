@@ -1,6 +1,9 @@
 import { useEffect, useRef } from "react";
 import type { AdminProduct } from "../types";
-import type { InlineEditDraft } from "../lib/inlineEdit";
+import {
+  getInlineTitleField,
+  type InlineEditDraft,
+} from "../lib/inlineEdit";
 
 interface ProductInlineEditorProps {
   product: AdminProduct;
@@ -12,7 +15,11 @@ interface ProductInlineEditorProps {
   onCancel: () => void;
 }
 
-// 一覧行の直下に展開するインライン編集UI（商品名・販売予定価格のみ）。
+// 一覧行の直下に展開するインライン編集UI（下書きの「一覧に表示するタイトル」「販売予定価格」のみ）。
+// タイトルは「いま一覧に表示しているタイトル」そのものを編集し、
+// スニーカーの英語タイトル行は translated_title、それ以外は product_name として保存する
+// （保存先の判定は lib/inlineEdit.ts に集約）。
+//
 // 見た目は商品一覧と同じ「白＋薄いグレーの罫線＋深緑」に揃え、
 // 行とフォームの間はヘアライン1本だけでつなぐ（強い背景色・影は使わない）。
 export default function ProductInlineEditor({
@@ -24,6 +31,7 @@ export default function ProductInlineEditor({
   onSave,
   onCancel,
 }: ProductInlineEditorProps) {
+  const titleField = getInlineTitleField(product);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   // IDは行ごとに一意（ラベルと入力欄の関連付け、エラー説明の参照に使う）
@@ -87,6 +95,12 @@ export default function ProductInlineEditor({
               aria-describedby={error ? errorId : undefined}
               onChange={(e) => onChange({ title: e.target.value })}
             />
+            {/* スニーカーの英語タイトル行だけ、保存先が本票の商品名と異なることを示す（既存の説明を維持） */}
+            {titleField === "translated_title" && (
+              <p className="mt-1 text-[12px] leading-[1.5] text-foreground-400">
+                英語タイトル（翻訳タイトル）として保存します。本票の商品名は変更しません。
+              </p>
+            )}
           </div>
 
           {/* 販売予定価格（PCでは220〜260px程度の固定幅） */}

@@ -13,12 +13,10 @@ import {
 export type HomeDataState = "loading" | "success" | "error";
 
 export interface HomeProductSummary {
-  /** 旧裏ストレージを除く、通常の商品数 */
+  /** 商品総数（旧裏ストレージを含む） */
   total: number | null;
   draft: number | null;
   published: number | null;
-  /** 旧裏ストレージの商品数（商品一覧の集計外。合算しない） */
-  rawStorage: number | null;
 }
 
 export interface HomeDocumentSummary {
@@ -79,7 +77,6 @@ export function useHomeSummary(isTestMode: boolean) {
     total: null,
     draft: null,
     published: null,
-    rawStorage: null,
   });
 
   const [categoryState, setCategoryState] =
@@ -120,8 +117,8 @@ export function useHomeSummary(isTestMode: boolean) {
   const [productReloadKey, setProductReloadKey] = useState(0);
   const [documentReloadKey, setDocumentReloadKey] = useState(0);
 
-  // 商品概要（商品・下書き・公開中）と旧裏ストレージの件数。
-  // 旧裏ストレージは商品一覧の集計外なので、合算せず別の値として持つ。
+  // 商品概要（商品・下書き・公開中）。
+  // 旧裏ストレージも通常の商品として全件を対象にする（除外しない）。
   useEffect(() => {
     let cancelled = false;
     setProductState("loading");
@@ -129,29 +126,21 @@ export function useHomeSummary(isTestMode: boolean) {
     const load = async () => {
       try {
         const results = await Promise.allSettled([
-          fetchHomeCount(isTestMode, { excludeRawStorage: true }),
-          fetchHomeCount(isTestMode, {
-            publishStatus: "draft",
-            excludeRawStorage: true,
-          }),
-          fetchHomeCount(isTestMode, {
-            publishStatus: "published",
-            excludeRawStorage: true,
-          }),
+          fetchHomeCount(isTestMode, {}),
+          fetchHomeCount(isTestMode, { publishStatus: "draft" }),
+          fetchHomeCount(isTestMode, { publishStatus: "published" }),
         ]);
         if (cancelled) return;
 
-        const first = results[0];
         const countAt = (index: number): number | null => {
           const result = results[index];
-          return result.status === "fulfilled" ? result.value.count : null;
+          return result.status === "fulfilled" ? result.value : null;
         };
         const total = countAt(0);
         const draft = countAt(1);
         const published = countAt(2);
-        const rawStorage = first.status === "fulfilled" ? first.value.excluded : null;
 
-        setProducts({ total, draft, published, rawStorage });
+        setProducts({ total, draft, published });
         setProductState(
           total === null && draft === null && published === null
             ? "error"
@@ -159,12 +148,7 @@ export function useHomeSummary(isTestMode: boolean) {
         );
       } catch {
         if (cancelled) return;
-        setProducts({
-          total: null,
-          draft: null,
-          published: null,
-          rawStorage: null,
-        });
+        setProducts({ total: null, draft: null, published: null });
         setProductState("error");
       }
     };
@@ -177,15 +161,19 @@ export function useHomeSummary(isTestMode: boolean) {
 
   // カテゴリ別商品。各カテゴリの取得は独立しており、
   // 失敗したカテゴリだけを null（＝未取得）のまま残す。
+  // Pokémon Card は複数条件（カテゴリ一致＋旧裏ストレージ取込）を合算する。
   useEffect(() => {
     let cancelled = false;
     setCategoryState("loading");
 
     const load = async () => {
       const results = await Promise.allSettled(
-        HOME_CATEGORIES.map((category) =>
-          fetchHomeCount(isTestMode, category.filter)
-        )
+        HOME_CATEGORIES.map(async (category) => {
+          const counts = await Promise.all(
+            category.filters.map((filter) => fetchHomeCount(isTestMode, filter))
+          );
+          return counts.reduce((sum, count) => sum + count, 0);
+        })
       );
       if (cancelled) return;
 
@@ -195,7 +183,7 @@ export function useHomeSummary(isTestMode: boolean) {
           key: category.key,
           label: category.label,
           to: category.to,
-          count: result.status === "fulfilled" ? result.value.count : null,
+          count: result.status === "fulfilled" ? result.value : null,
         };
       });
       setCategories(next);
@@ -228,7 +216,7 @@ export function useHomeSummary(isTestMode: boolean) {
         return {
           key: metric.key,
           label: metric.label,
-          count: result.status === "fulfilled" ? result.value.count : null,
+          count: result.status === "fulfilled" ? result.value : null,
         };
       });
       setAttention(next);

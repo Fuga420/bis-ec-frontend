@@ -1,12 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
-import {
-  createSquarePaymentLinkViaApi,
-  createSquareProductionProductViaApi,
-  markDraftProductSyncedInSession,
-  syncProductToReadDb,
-  updateProductPublishStatusViaApi,
-} from "@/config/productsApi";
+import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
+import { syncProductToReadDb } from "@/config/productsApi";
 import ProductRow from "./components/ProductRow";
 import ProductSelectionBar from "./components/ProductSelectionBar";
 import {
@@ -78,10 +73,15 @@ async function callUpdatePublishStatus(
   productId: string
 ): Promise<{ ok: boolean; message?: string }> {
   try {
-    const response = await updateProductPublishStatusViaApi(
-      productId,
-      "published"
-    );
+    const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        action: "update_publish_status",
+        product_id: productId,
+        publish_status: "published",
+      }),
+    });
     let data: PublishStatusUpdateResponse | null = null;
     try {
       data = (await response.json()) as PublishStatusUpdateResponse;
@@ -89,7 +89,6 @@ async function callUpdatePublishStatus(
       data = null;
     }
     if (response.ok && data && data.success === true) {
-      markDraftProductSyncedInSession(productId);
       return { ok: true };
     }
     // バックエンドの安全なエラー理由を保持して表示する（汎用文で隠さない）
@@ -107,15 +106,18 @@ async function callUpdatePublishStatus(
 
 async function callCreateSquarePaymentLink(productId: string): Promise<boolean> {
   try {
-    const response = await createSquarePaymentLinkViaApi(productId);
+    const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        action: "create_square_payment_link",
+        product_id: productId,
+      }),
+    });
     const data = response.ok
       ? ((await response.json()) as SquarePaymentLinkResponse)
       : null;
-    if (response.ok && data && data.success === true) {
-      markDraftProductSyncedInSession(productId);
-      return true;
-    }
-    return false;
+    return Boolean(response.ok && data && data.success === true);
   } catch (err) {
     console.error("create_square_payment_link failed:", err);
     return false;
@@ -129,7 +131,14 @@ async function callCreateSquareProductionProduct(
   productId: string
 ): Promise<{ ok: boolean; variationId?: string; message?: string }> {
   try {
-    const response = await createSquareProductionProductViaApi(productId);
+    const response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        action: "create_square_production_product",
+        product_id: productId,
+      }),
+    });
     let data: SquareProductionProductResponse | null = null;
     try {
       data = (await response.json()) as SquareProductionProductResponse;
@@ -137,7 +146,6 @@ async function callCreateSquareProductionProduct(
       data = null;
     }
     if (response.ok && data && data.success === true) {
-      markDraftProductSyncedInSession(productId);
       const variationId = (data.square_variation_id ?? "").toString().trim();
       return { ok: true, variationId };
     }
@@ -949,8 +957,9 @@ export default function ProductsPage() {
     return counts;
   }, [bulkResults]);
 
-  // 結果モーダル・確認ダイアログの表示名は「一覧に表示している商品名」に合わせる
-  // （product_id のみが受付・予約固定に使われ、表示名は補助情報）。
+  // 結果モーダル・確認ダイアログの表示名は「一覧に表示している商品名」に合わせる。
+  // スニーカーで product_name が空でも translated_title を表示している場合は、
+  // その同じ名前を使う（product_id のみが受付・予約固定に使われ、表示名は補助情報）。
   const aiConfirmTargets = useMemo(
     () =>
       selectedProducts.map((product) => ({

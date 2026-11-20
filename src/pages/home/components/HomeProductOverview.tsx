@@ -24,8 +24,8 @@ function formatCount(value: number): string {
 }
 
 /**
- * 商品概要。商品・下書き・公開中を横並びの数値だけで示し、
- * 旧裏ストレージは集計対象が異なるため、合算せず補助行として分けて表示する。
+ * 商品概要。商品・下書き・公開中を横並びの数値だけで示す。
+ * 旧裏ストレージも通常の商品として同じ集計に含める（別枠・集計外の表示はしない）。
  * 集計方法は既存の商品一覧APIのままで、値を補完しない。
  */
 export default function HomeProductOverview({
@@ -52,49 +52,27 @@ export default function HomeProductOverview({
     );
   }
 
-  const hasRawStorage =
-    products.rawStorage !== null && products.rawStorage > 0;
-
   return (
-    <>
-      <div className="grid grid-cols-3 divide-x divide-background-200">
-        {STATS.map((stat, index) => {
-          const value = products[stat.key];
-          return (
-            <Link
-              key={stat.key}
-              to="/products"
-              className={`group flex cursor-pointer flex-col transition-colors hover:bg-background-50 ${
-                index === 0 ? "pr-3" : "px-3"
-              }`}
-            >
-              <span className="text-[12px] font-medium leading-none text-foreground-500">
-                {stat.label}
-              </span>
-              <span className="admin-numeric mt-2 text-[22px] font-semibold leading-none text-foreground-950 md:text-[26px]">
-                {value === null ? "—" : formatCount(value)}
-              </span>
-            </Link>
-          );
-        })}
-      </div>
-
-      {hasRawStorage && (
-        <Link
-          to="/pokeka"
-          className="mt-4 flex cursor-pointer items-baseline justify-between gap-3 border-t border-background-200 pt-3 transition-colors hover:text-foreground-900"
-        >
-          <span className="text-[12px] text-foreground-500">旧裏ストレージ</span>
-          <span className="flex items-baseline gap-2">
-            <span className="text-[12px] text-foreground-400">
-              商品一覧の集計外
+    <div className="grid grid-cols-3 divide-x divide-background-200">
+      {STATS.map((stat, index) => {
+        const value = products[stat.key];
+        return (
+          <Link
+            key={stat.key}
+            to="/products"
+            className={`group flex cursor-pointer flex-col transition-colors hover:bg-background-50 ${
+              index === 0 ? "pr-3" : "px-3"
+            }`}
+          >
+            <span className="text-[12px] font-medium leading-none text-foreground-500">
+              {stat.label}
             </span>
-            <span className="admin-numeric text-[13px] font-semibold text-foreground-700">
-              {formatCount(products.rawStorage ?? 0)}
+            <span className="admin-numeric mt-2 text-[22px] font-semibold leading-none text-foreground-950 md:text-[26px]">
+              {value === null ? "—" : formatCount(value)}
             </span>
-          </span>
-        </Link>
-      )}
-    </>
+          </Link>
+        );
+      })}
+    </div>
   );
 }

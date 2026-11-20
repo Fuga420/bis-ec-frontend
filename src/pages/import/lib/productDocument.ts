@@ -1,3 +1,11 @@
+import { GOOGLE_SHEETS_WEBHOOK_URL } from "@/config/googleSheets";
+import { syncProductToReadDb } from "@/config/productsApi";
+import { fileToBase64 } from "@/pages/register/lib/aiProduct";
+
+// 画像取込（import_product_by_images）とは別リクエストになる、書類添付の action 名。
+// 商品の再登録は行わず、画像取込で得た同じ product_id に対して書類だけを送る。
+export const ATTACH_PRODUCT_DOCUMENT_ACTION = "attach_product_document";
+
 // MVP: 1商品につき書類は1件。PDF / JPG / PNG のみ受け付ける（画像取込の WEBP とは別枠）。
 export const DOCUMENT_MAX_SIZE = 10 * 1024 * 1024;
 export const DOCUMENT_ALLOWED_TYPES = [
@@ -129,6 +137,107 @@ export function isDocumentConflict(
     msg.includes("既に") ||
     msg.includes("上書き")
   );
+}
+
+/**
+ * 書類を attach_product_document で送信する（画像取込とは別リクエスト）。
+ * - import_product_by_images と同じく、GAS Web App へ text/plain で直接POSTする。
+ *   ブラウザに管理者キーは置かない（契約準拠）。
+ * - 成功判定は HTTP ステータスではなく応答本文の success===true で行う。
+ * - JSON 解析不可 / 通信断は「受付済みか判断できない」ため unknown を返し、
+ *   呼び出し側が同じ product_id・同じ idempotency_key で書類のみ再送できるようにする。
+ * - 商品の再登録は行わない（この関数は書類の送信だけを行う）。
+ */
+export async function attachProductDocument(params: {
+  productId: string;
+  idempotencyKey: string;
+  documentType?: DocumentType;
+  file: File;
+}): Promise<AttachDocumentResult> {
+  let base64: string;
+  try {
+    base64 = await fileToBase64(params.file);
+  } catch {
+    return {
+      kind: "rejected",
+      errorCode: "LOCAL_READ_ERROR",
+      message: "書類ファイルの読み込みに失敗しました。選び直してください。",
+    };
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(GOOGLE_SHEETS_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        action: ATTACH_PRODUCT_DOCUMENT_ACTION,
+        product_id: params.productId,
+        idempotency_key: params.idempotencyKey,
+        document_type: params.documentType ?? "invoice",
+        file_name: params.file.name,
+        mime_type: resolveDocumentMime(params.file),
+        base64,
+      }),
+    });
+  } catch {
+    return {
+      kind: "unknown",
+      message:
+        "書類の通信に失敗しました。商品は登録済みのため、同じ商品へ書類だけ再送できます。",
+    };
+  }
+
+  let text = "";
+  try {
+    text = await response.text();
+  } catch {
+    return {
+      kind: "unknown",
+      message: "書類の応答受信に失敗しました。受付状況が不明です。",
+    };
+  }
+
+  let data: Record<string, unknown> | null = null;
+  try {
+    data = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    data = null;
+  }
+  if (!data) {
+    return {
+      kind: "unknown",
+      message: "書類の応答を解析できませんでした。受付状況が不明です。",
+    };
+  }
+
+  if (data.success === true) {
+    await syncProductToReadDb(params.productId);
+    return {
+      kind: "success",
+      document: parseProductDocument(data.document ?? data.attached_document),
+    };
+  }
+
+  // success:false を明示＝受付されなかったことが確定。
+  const errorCode = asString(data.error_code);
+  const message =
+    asString(data.message) ||
+    asString(data.error) ||
+    "書類の添付に失敗しました。";
+
+  // 別書類の競合は、勝手に上書きしない（既存書類を提示する）。
+  if (isDocumentConflict(errorCode, message)) {
+    return {
+      kind: "conflict",
+      existing: parseProductDocument(
+        data.document ?? data.existing_document ?? data.attached_document
+      ),
+      message,
+    };
+  }
+
+  return { kind: "rejected", errorCode, message };
 }
 
 /**
